@@ -40,6 +40,8 @@ A local-first Android personal assistant for private, natural conversations stor
 
 - A private welcome state establishes local-only behavior.
 - Users can send messages, see a local response state, and reopen saved conversation history on the same device.
+- Users can configure appearance, haptics, and conversation saving from a dedicated Settings screen.
+- Users can review the saved message count and clear local history through a cross-platform confirmation flow.
 - Loading, storage-error, typing, disabled-send, empty, and persisted-chat states are handled.
 
 ## User preferences
@@ -50,6 +52,7 @@ A local-first Android personal assistant for private, natural conversations stor
 
 - The Expo preview starts through the managed `artifacts/second-brain: expo` workflow so preview environment variables are available.
 - Native llama.cpp model loading is intentionally kept behind the local inference boundary; adding it will require an Android-compatible native build path rather than Expo Go alone.
+- Use an in-app confirmation modal for destructive actions; React Native system alerts do not provide a reliable confirmation flow in the web preview.
 
 ## Pointers
 

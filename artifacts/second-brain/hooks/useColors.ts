@@ -1,5 +1,6 @@
 import { useColorScheme } from 'react-native';
 import colors from '@/constants/colors';
+import type { Appearance } from '@/context/AppContext';
 
 /**
  * Returns the design tokens for the current color scheme.
@@ -13,11 +14,10 @@ import colors from '@/constants/colors';
  * key, this hook will automatically switch palettes based on the
  * device's appearance setting.
  */
-export function useColors() {
+export function useColors(preference: Appearance = 'system') {
   const scheme = useColorScheme();
-  const palette =
-    scheme === 'dark' && 'dark' in colors
-      ? (colors as Record<string, typeof colors.light>).dark
-      : colors.light;
-  return { ...palette, radius: colors.radius };
+  const isDark =
+    preference === 'dark' || (preference === 'system' && scheme === 'dark');
+  const palette = isDark ? colors.dark : colors.light;
+  return { ...palette, radius: colors.radius, isDark };
 }

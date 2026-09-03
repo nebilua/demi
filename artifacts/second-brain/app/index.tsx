@@ -1,10 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
-import { Feather } from '@expo/vector-icons';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,49 +12,17 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useApp, type ConversationTurn } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 
-type Role = 'user' | 'assistant';
-
-type ConversationTurn = {
-  id: string;
-  role: Role;
-  content: string;
-  createdAt: number;
-};
-
-const STORAGE_KEY = '@second-brain/conversation-v1';
-
-function createId() {
-  return `${Date.now().toString()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function localReply(input: string) {
-  const normalized = input.toLowerCase();
-
-  if (normalized.includes('hello') || normalized.includes('hi')) {
-    return 'Hi. I’m here with you, on this device. What would you like to think through?';
-  }
-
-  if (normalized.includes('thank')) {
-    return 'You’re welcome. I’m keeping this conversation right here on your phone.';
-  }
-
-  if (normalized.includes('?')) {
-    return 'That’s worth exploring. Start with the part that feels most important, and we can work through it together.';
-  }
-
-  if (normalized.includes('remember')) {
-    return 'I can keep the context of this conversation locally while we’re working through it.';
-  }
-
-  return 'I’m listening. Keep going, and I’ll help you make sense of it one step at a time.';
-}
-
 function TypingIndicator() {
-  const colors = useColors();
+  const { settings } = useApp();
+  const colors = useColors(settings.appearance);
 
   return (
     <View style={styles.typingRow}>
@@ -73,7 +39,8 @@ function TypingIndicator() {
 }
 
 function MessageBubble({ item }: { item: ConversationTurn }) {
-  const colors = useColors();
+  const { settings } = useApp();
+  const colors = useColors(settings.appearance);
   const isUser = item.role === 'user';
 
   return (
@@ -105,77 +72,30 @@ function MessageBubble({ item }: { item: ConversationTurn }) {
 }
 
 export default function SecondBrainScreen() {
-  const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const {
+    settings,
+    turns,
+    isConversationReady,
+    isThinking,
+    storageError,
+    sendMessage,
+  } = useApp();
+  const colors = useColors(settings.appearance);
   const [draft, setDraft] = useState('');
-  const [isThinking, setIsThinking] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((stored) => {
-        if (!isMounted) return;
-        if (stored) {
-          setTurns(JSON.parse(stored) as ConversationTurn[]);
-        }
-        setIsLoading(false);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setLoadError(true);
-          setIsLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const isCompact = width < 370;
+  const isShort = height < 720;
 
   const visibleTurns = useMemo(() => [...turns].reverse(), [turns]);
-  const canSend = draft.trim().length > 0 && !isThinking && !isLoading;
+  const canSend =
+    draft.trim().length > 0 && !isThinking && isConversationReady;
 
-  async function persist(nextTurns: ConversationTurn[]) {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextTurns));
-    } catch {
-      setLoadError(true);
-    }
-  }
-
-  async function sendMessage() {
-    const content = draft.trim();
-    if (!content || isThinking || isLoading) return;
-
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const userTurn: ConversationTurn = {
-      id: createId(),
-      role: 'user',
-      content,
-      createdAt: Date.now(),
-    };
-    const withUserTurn = [...turns, userTurn];
-
+  async function handleSend() {
+    if (!canSend) return;
+    const message = draft.trim();
     setDraft('');
-    setTurns(withUserTurn);
-    setIsThinking(true);
-    await persist(withUserTurn);
-
-    await new Promise((resolve) => setTimeout(resolve, 650));
-    const assistantTurn: ConversationTurn = {
-      id: createId(),
-      role: 'assistant',
-      content: localReply(content),
-      createdAt: Date.now(),
-    };
-    const completedTurns = [...withUserTurn, assistantTurn];
-    setTurns(completedTurns);
-    setIsThinking(false);
-    await persist(completedTurns);
+    await sendMessage(message);
   }
 
   return (
@@ -183,63 +103,108 @@ export default function SecondBrainScreen() {
       behavior="padding"
       style={[styles.screen, { backgroundColor: colors.background }]}
     >
-      <StatusBar style="light" />
-      <View style={[styles.safeTop, { paddingTop: insets.top }]} />
-      <View style={styles.header}>
-        <View style={styles.brandLockup}>
-          <Image
-            source={require('../assets/images/icon.png')}
-            style={styles.brandMark}
-          />
-          <View>
-            <Text style={[styles.wordmark, { color: colors.foreground }]}>
-              second brain
-            </Text>
-            <Text style={[styles.headerSubline, { color: colors.mutedForeground }]}>
-              your private thinking space
-            </Text>
+      <StatusBar style={colors.isDark ? 'light' : 'dark'} />
+      <SafeAreaView
+        edges={['top']}
+        style={[
+          styles.headerSafe,
+          {
+            backgroundColor: colors.background,
+            paddingTop: Platform.OS === 'web' ? 67 : 0,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.header,
+            isCompact && styles.headerCompact,
+          ]}
+        >
+          <View style={styles.brandLockup}>
+            <Image
+              source={require('../assets/images/icon.png')}
+              style={[styles.brandMark, isCompact && styles.brandMarkCompact]}
+            />
+            <View>
+              <Text style={[styles.wordmark, { color: colors.foreground }]}>
+                second brain
+              </Text>
+              {!isCompact && (
+                <Text
+                  style={[
+                    styles.headerSubline,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  your private thinking space
+                </Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            {!isCompact && (
+              <View
+                style={[styles.statusPill, { backgroundColor: colors.accent }]}
+              >
+                <View
+                  style={[
+                    styles.statusDot,
+                    { backgroundColor: colors.accentForeground },
+                  ]}
+                />
+                <Text
+                  style={[styles.statusText, { color: colors.accentForeground }]}
+                >
+                  LOCAL
+                </Text>
+              </View>
+            )}
+            <Pressable
+              testID="open-settings"
+              accessibilityRole="button"
+              accessibilityLabel="Open settings"
+              onPress={() => router.push('/settings')}
+              style={({ pressed }) => [
+                styles.settingsButton,
+                { backgroundColor: colors.secondary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather name="sliders" size={17} color={colors.foreground} />
+            </Pressable>
           </View>
         </View>
-        <View style={[styles.statusPill, { backgroundColor: colors.accent }]}>
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: colors.accentForeground },
-            ]}
-          />
-          <Text style={[styles.statusText, { color: colors.accentForeground }]}>
-            LOCAL
-          </Text>
-        </View>
-      </View>
+      </SafeAreaView>
 
       <View style={styles.content}>
-        {isLoading ? (
+        {!isConversationReady ? (
           <View style={styles.centerState}>
             <ActivityIndicator color={colors.primary} />
             <Text style={[styles.stateText, { color: colors.mutedForeground }]}>
               Opening your private space…
             </Text>
           </View>
-        ) : loadError ? (
-          <View style={styles.centerState}>
-            <Feather name="alert-circle" size={24} color={colors.destructive} />
-            <Text style={[styles.stateTitle, { color: colors.foreground }]}>
-              Your history couldn’t be opened
-            </Text>
-            <Text style={[styles.stateText, { color: colors.mutedForeground }]}>
-              New messages will still work, but this session may not be saved.
-            </Text>
-          </View>
         ) : turns.length === 0 ? (
-          <View style={styles.emptyState}>
+          <View
+            style={[
+              styles.emptyState,
+              isCompact && styles.emptyStateCompact,
+              isShort && styles.emptyStateShort,
+            ]}
+          >
             <View style={[styles.heroIcon, { backgroundColor: colors.accent }]}>
               <Feather name="sun" size={25} color={colors.primary} />
             </View>
             <Text style={[styles.eyebrow, { color: colors.primary }]}>
               GOOD TO HAVE YOU HERE
             </Text>
-            <Text style={[styles.heroTitle, { color: colors.foreground }]}>
+            <Text
+              style={[
+                styles.heroTitle,
+                isCompact && styles.heroTitleCompact,
+                { color: colors.foreground },
+              ]}
+            >
               A quieter way{'\n'}to think.
             </Text>
             <Text style={[styles.heroBody, { color: colors.mutedForeground }]}>
@@ -261,14 +226,22 @@ export default function SecondBrainScreen() {
                 <Feather name="cpu" size={18} color={colors.primary} />
               </View>
               <View style={styles.engineCopy}>
-                <Text style={[styles.engineTitle, { color: colors.cardForeground }]}>
-                  On-device engine
+                <Text
+                  style={[styles.engineTitle, { color: colors.cardForeground }]}
+                >
+                  On-device preview engine
                 </Text>
-                <Text style={[styles.engineBody, { color: colors.mutedForeground }]}>
+                <Text
+                  style={[styles.engineBody, { color: colors.mutedForeground }]}
+                >
                   Private by default · no network needed
                 </Text>
               </View>
-              <Feather name="check" size={18} color={colors.accentForeground} />
+              <Feather
+                name="check"
+                size={18}
+                color={colors.accentForeground}
+              />
             </View>
           </View>
         ) : (
@@ -287,19 +260,36 @@ export default function SecondBrainScreen() {
         )}
       </View>
 
-      <View
+      <SafeAreaView
+        edges={['bottom']}
         style={[
-          styles.composerArea,
+          styles.composerSafe,
           {
-            paddingBottom: Math.max(
-              insets.bottom,
-              Platform.OS === 'web' ? 34 : 12,
-            ),
             backgroundColor: colors.background,
             borderTopColor: colors.border,
+            paddingBottom: Platform.OS === 'web' ? 34 : 0,
           },
         ]}
       >
+        {storageError && (
+          <View
+            style={[
+              styles.storageNotice,
+              { backgroundColor: colors.secondary },
+            ]}
+          >
+            <Feather
+              name="alert-circle"
+              size={14}
+              color={colors.primary}
+            />
+            <Text
+              style={[styles.storageNoticeText, { color: colors.foreground }]}
+            >
+              {storageError}
+            </Text>
+          </View>
+        )}
         <View
           style={[
             styles.composer,
@@ -314,16 +304,16 @@ export default function SecondBrainScreen() {
             placeholderTextColor={colors.mutedForeground}
             multiline
             maxLength={1200}
-            editable={!isLoading}
+            editable={isConversationReady}
             style={[styles.input, { color: colors.cardForeground }]}
-            onSubmitEditing={Platform.OS === 'web' ? sendMessage : undefined}
+            onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
             blurOnSubmit={false}
           />
           <Pressable
             testID="send-message"
             accessibilityRole="button"
             accessibilityLabel="Send message"
-            onPress={sendMessage}
+            onPress={handleSend}
             disabled={!canSend}
             style={({ pressed }) => [
               styles.sendButton,
@@ -343,20 +333,18 @@ export default function SecondBrainScreen() {
           </Pressable>
         </View>
         <Text style={[styles.privacyNote, { color: colors.mutedForeground }]}>
-          stored locally on this device
+          {settings.saveConversations
+            ? 'stored locally on this device'
+            : 'session only · not saving new messages'}
         </Text>
-      </View>
+      </SafeAreaView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  safeTop: {
-    backgroundColor: 'transparent',
-  },
+  screen: { flex: 1 },
+  headerSafe: { width: '100%' },
   header: {
     minHeight: 72,
     paddingHorizontal: 22,
@@ -365,16 +353,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  brandLockup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-  },
-  brandMark: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-  },
+  headerCompact: { paddingHorizontal: 14 },
+  brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  brandMark: { width: 32, height: 32, borderRadius: 10 },
+  brandMarkCompact: { width: 29, height: 29, borderRadius: 9 },
   wordmark: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 16,
@@ -386,6 +368,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginTop: 2,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   statusPill: {
     borderRadius: 99,
     paddingHorizontal: 10,
@@ -394,25 +377,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
-  statusDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 99,
-  },
+  statusDot: { width: 5, height: 5, borderRadius: 99 },
   statusText: {
     fontFamily: 'Inter_700Bold',
     fontSize: 9,
     letterSpacing: 1,
   },
-  content: {
-    flex: 1,
+  settingsButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  content: { flex: 1 },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 28,
     paddingBottom: 36,
   },
+  emptyStateCompact: { paddingHorizontal: 20 },
+  emptyStateShort: { paddingBottom: 16 },
   heroIcon: {
     width: 54,
     height: 54,
@@ -434,6 +420,7 @@ const styles = StyleSheet.create({
     letterSpacing: -1.5,
     marginBottom: 15,
   },
+  heroTitleCompact: { fontSize: 34, lineHeight: 38 },
   heroBody: {
     fontFamily: 'Inter_400Regular',
     fontSize: 15,
@@ -456,18 +443,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 11,
   },
-  engineCopy: {
-    flex: 1,
-  },
+  engineCopy: { flex: 1 },
   engineTitle: {
     fontFamily: 'Inter_600SemiBold',
     fontSize: 13,
     marginBottom: 3,
   },
-  engineBody: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-  },
+  engineBody: { fontFamily: 'Inter_400Regular', fontSize: 11 },
   centerState: {
     flex: 1,
     alignItems: 'center',
@@ -475,31 +457,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 36,
     gap: 10,
   },
-  stateTitle: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 16,
-    textAlign: 'center',
-  },
   stateText: {
     fontFamily: 'Inter_400Regular',
     fontSize: 13,
     lineHeight: 19,
     textAlign: 'center',
   },
-  messageList: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 18,
-  },
+  messageList: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18 },
   messageRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 8,
     marginBottom: 12,
   },
-  messageRowUser: {
-    justifyContent: 'flex-end',
-  },
+  messageRowUser: { justifyContent: 'flex-end' },
   avatar: {
     width: 28,
     height: 28,
@@ -535,18 +506,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 99,
+  dot: { width: 5, height: 5, borderRadius: 99 },
+  composerSafe: { borderTopWidth: StyleSheet.hairlineWidth },
+  storageNotice: {
+    minHeight: 34,
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
   },
-  composerArea: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 11,
-    paddingHorizontal: 16,
+  storageNoticeText: {
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    lineHeight: 15,
   },
   composer: {
     minHeight: 52,
+    marginTop: 11,
+    marginHorizontal: 16,
     borderWidth: 1,
     borderRadius: 19,
     paddingLeft: 15,
@@ -573,15 +555,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 8,
   },
-  pressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.96 }],
-  },
+  pressed: { opacity: 0.75, transform: [{ scale: 0.96 }] },
   privacyNote: {
     fontFamily: 'Inter_400Regular',
     fontSize: 10,
     textAlign: 'center',
     letterSpacing: 0.25,
     paddingTop: 8,
+    paddingBottom: 8,
   },
 });

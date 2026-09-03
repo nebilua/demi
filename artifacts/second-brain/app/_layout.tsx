@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AppProvider } from '@/context/AppContext';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -23,6 +24,10 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerBackTitle: 'Back' }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="settings"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
     </Stack>
   );
 }
@@ -47,9 +52,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView>
+          <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
-              <RootLayoutNav />
+              <AppProvider>
+                <RootLayoutNav />
+              </AppProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

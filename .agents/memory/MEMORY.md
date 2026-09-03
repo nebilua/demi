@@ -1,0 +1,1 @@
+- [Cross-platform confirmations](cross-platform-confirmations.md) — use in-app destructive confirmations so native and Expo web execute the same callback.

@@ -15,38 +15,58 @@
 const colors = {
   light: {
     // Legacy aliases (kept for backward compatibility)
-    text: '#F5F2EA',
-    tint: '#E8A95B',
+    text: '#1E2424',
+    tint: '#A8642B',
 
     // Core surfaces
-    background: '#111315',
-    foreground: '#F5F2EA',
+    background: '#F4F0E8',
+    foreground: '#1E2424',
 
     // Cards / elevated surfaces
-    card: '#191D1E',
-    cardForeground: '#F5F2EA',
+    card: '#FFFCF5',
+    cardForeground: '#1E2424',
 
     // Primary action color (buttons, links, active states)
-    primary: '#E8A95B',
-    primaryForeground: '#171410',
+    primary: '#A8642B',
+    primaryForeground: '#FFF9F0',
 
     // Secondary / less-emphasis interactive surfaces
-    secondary: '#232829',
-    secondaryForeground: '#EDEAE1',
+    secondary: '#E8E1D5',
+    secondaryForeground: '#303737',
 
     // Muted / subdued elements (dividers, timestamps, placeholders)
-    muted: '#232829',
-    mutedForeground: '#8D9694',
+    muted: '#E8E1D5',
+    mutedForeground: '#697270',
 
     // Accent highlights (badges, selected items, focus rings)
-    accent: '#203A36',
-    accentForeground: '#B7D8C8',
+    accent: '#DCEBE2',
+    accentForeground: '#2E5B4C',
 
     // Destructive actions (delete, error states)
-    destructive: '#C96A5B',
+    destructive: '#B54D3F',
     destructiveForeground: '#FFF7F4',
 
     // Borders and input outlines
+    border: '#DDD5C8',
+    input: '#DDD5C8',
+  },
+  dark: {
+    text: '#F5F2EA',
+    tint: '#E8A95B',
+    background: '#111315',
+    foreground: '#F5F2EA',
+    card: '#191D1E',
+    cardForeground: '#F5F2EA',
+    primary: '#E8A95B',
+    primaryForeground: '#171410',
+    secondary: '#232829',
+    secondaryForeground: '#EDEAE1',
+    muted: '#232829',
+    mutedForeground: '#8D9694',
+    accent: '#203A36',
+    accentForeground: '#B7D8C8',
+    destructive: '#C96A5B',
+    destructiveForeground: '#FFF7F4',
     border: '#2B3333',
     input: '#2B3333',
   },
