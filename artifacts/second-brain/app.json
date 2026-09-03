@@ -10,13 +10,33 @@
     "ios": {
       "supportsTablet": false
     },
-    "android": {},
+    "android": {
+      "package": "com.secondbrain.localassistant",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#F5F0E7"
+      }
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
       "expo-router",
       "expo-document-picker",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Second Brain to hear your voice while you hold the microphone button.",
+          "speechRecognitionPermission": "Allow Second Brain to turn your speech into editable text on this device.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as",
+            "com.google.android.tts"
+          ]
+        }
+      ],
       [
         "llama.rn",
         {

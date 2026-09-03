@@ -25,6 +25,12 @@ const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ];
 
+const speechRateOptions = [
+  { value: 0.82, label: 'Calm' },
+  { value: 0.92, label: 'Natural' },
+  { value: 1.08, label: 'Quick' },
+];
+
 function SectionLabel({ children }: { children: string }) {
   const { settings } = useApp();
   const colors = useColors(settings.appearance);
@@ -82,11 +88,28 @@ export default function SettingsScreen() {
     engineProgress,
     engineError,
     runtimeDetails,
+    voiceInputStatus,
+    voiceInputAvailable,
+    voiceOutputAvailable,
+    voiceError,
+    voiceSetupMessage,
+    isSpeaking,
     importModel,
     loadModel,
     removeModel,
+    installOfflineVoiceModel,
+    speakText,
+    stopSpeaking,
+    openVoiceSettings,
+    dismissVoiceError,
   } = useApp();
   const colors = useColors(settings.appearance);
+  const androidApiLevel =
+    Platform.OS === 'android' && typeof Platform.Version === 'number'
+      ? Platform.Version
+      : null;
+  const requiresNewerAndroid =
+    androidApiLevel !== null && androidApiLevel < 33;
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
@@ -276,6 +299,241 @@ export default function SettingsScreen() {
               ios_backgroundColor={colors.secondary}
             />
           </SettingRow>
+        </View>
+
+        <SectionLabel>LOCAL VOICE</SectionLabel>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <SettingRow
+            icon="mic"
+            title="Offline voice input"
+            description={
+              settings.voiceInputEnabled
+                ? 'Speech becomes editable text before sending'
+                : 'The microphone button is hidden from use'
+            }
+          >
+            <Switch
+              testID="voice-input-enabled"
+              value={settings.voiceInputEnabled}
+              onValueChange={(value) =>
+                updateSettings({ voiceInputEnabled: value })
+              }
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.voiceInputEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+              ios_backgroundColor={colors.secondary}
+            />
+          </SettingRow>
+          <SettingRow
+            icon="volume-2"
+            title="Spoken replies"
+            description={
+              settings.spokenRepliesEnabled
+                ? 'New answers play through the local device voice'
+                : 'Tap Speak on any answer to listen manually'
+            }
+          >
+            <Switch
+              testID="spoken-replies-enabled"
+              value={settings.spokenRepliesEnabled}
+              onValueChange={(value) =>
+                updateSettings({ spokenRepliesEnabled: value })
+              }
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.spokenRepliesEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+              ios_backgroundColor={colors.secondary}
+            />
+          </SettingRow>
+          <View style={styles.voiceSummary}>
+            <View style={[styles.engineIcon, { backgroundColor: colors.accent }]}>
+              <Feather
+                name={voiceInputAvailable ? 'radio' : 'download-cloud'}
+                size={19}
+                color={colors.primary}
+              />
+            </View>
+            <View style={styles.rowCopy}>
+              <View style={styles.engineTitleLine}>
+                <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                  Android on-device voice
+                </Text>
+                <View
+                  style={[styles.availablePill, { backgroundColor: colors.accent }]}
+                >
+                  <Text
+                    style={[
+                      styles.availableText,
+                      { color: colors.accentForeground },
+                    ]}
+                  >
+                    {voiceInputAvailable
+                      ? 'READY'
+                      : voiceInputStatus === 'checking'
+                        ? 'CHECKING'
+                        : requiresNewerAndroid
+                          ? '13+ ONLY'
+                        : Platform.OS === 'web'
+                          ? 'ANDROID'
+                          : 'SETUP'}
+                  </Text>
+                </View>
+              </View>
+              <Text
+                style={[styles.rowDescription, { color: colors.mutedForeground }]}
+              >
+                {voiceInputAvailable
+                  ? 'English recognition stays on this device'
+                  : requiresNewerAndroid
+                    ? 'Enforced offline recognition requires Android 13+'
+                  : 'Install the English offline language pack'}
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.infoRow, { backgroundColor: colors.secondary }]}>
+            <Feather
+              name={voiceError ? 'alert-circle' : 'shield'}
+              size={14}
+              color={voiceError ? colors.destructive : colors.mutedForeground}
+            />
+            <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
+              {voiceError ??
+                voiceSetupMessage ??
+                (Platform.OS === 'web'
+                  ? 'Offline listening requires the installed Android build. The browser preview remains text-only.'
+                  : voiceOutputAvailable
+                    ? 'Recognition and speech use voice data installed on this phone.'
+                    : 'Install an Android text-to-speech voice for spoken replies.')}
+            </Text>
+            {(voiceError || voiceSetupMessage) && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss voice message"
+                onPress={dismissVoiceError}
+                hitSlop={10}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <Feather name="x" size={16} color={colors.mutedForeground} />
+              </Pressable>
+            )}
+          </View>
+          <View style={styles.modelActions}>
+            <Pressable
+              testID="install-offline-language"
+              accessibilityRole="button"
+              accessibilityLabel="Install English offline recognition"
+              onPress={installOfflineVoiceModel}
+              style={({ pressed }) => [
+                styles.primaryModelButton,
+                { backgroundColor: colors.primary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather
+                name="download"
+                size={15}
+                color={colors.primaryForeground}
+              />
+              <Text
+                style={[
+                  styles.modelButtonText,
+                  { color: colors.primaryForeground },
+                ]}
+              >
+                Manage offline English
+              </Text>
+            </Pressable>
+            {voiceInputStatus === 'error' && (
+              <Pressable
+                testID="open-voice-settings"
+                accessibilityRole="button"
+                accessibilityLabel="Open Android voice settings"
+                onPress={openVoiceSettings}
+                style={({ pressed }) => [
+                  styles.secondaryModelButton,
+                  { borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Feather name="settings" size={15} color={colors.primary} />
+              </Pressable>
+            )}
+            <Pressable
+              testID="preview-local-voice"
+              accessibilityRole="button"
+              accessibilityLabel={
+                isSpeaking ? 'Stop local voice preview' : 'Preview local voice'
+              }
+              onPress={() =>
+                isSpeaking
+                  ? void stopSpeaking()
+                  : void speakText('Second Brain is ready to think with you.')
+              }
+              style={({ pressed }) => [
+                styles.secondaryModelButton,
+                { borderColor: colors.border },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather
+                name={isSpeaking ? 'square' : 'play'}
+                size={15}
+                color={colors.primary}
+              />
+            </Pressable>
+          </View>
+          <View style={[styles.pacePanel, { borderTopColor: colors.border }]}>
+            <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
+              SPEAKING PACE
+            </Text>
+            <View
+              style={[styles.segmented, styles.paceSegments, { backgroundColor: colors.secondary }]}
+            >
+              {speechRateOptions.map((option) => {
+                const selected = settings.speechRate === option.value;
+                return (
+                  <Pressable
+                    key={option.label}
+                    testID={`speech-rate-${option.label.toLowerCase()}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => updateSettings({ speechRate: option.value })}
+                    style={[
+                      styles.segment,
+                      selected && {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.segmentText,
+                        {
+                          color: selected
+                            ? colors.cardForeground
+                            : colors.mutedForeground,
+                        },
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
         </View>
 
         <SectionLabel>LOCAL ENGINE</SectionLabel>
@@ -663,12 +921,12 @@ const styles = StyleSheet.create({
   },
   headerTitleGroup: { flex: 1, alignItems: 'center', marginHorizontal: 12 },
   headerTitle: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Rubik_600SemiBold',
     fontSize: 17,
     letterSpacing: -0.4,
   },
   headerSubtitle: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Rubik_400Regular',
     fontSize: 10,
     marginTop: 2,
   },
@@ -676,26 +934,26 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 20, paddingBottom: 28 },
   intro: { paddingTop: 14, paddingBottom: 25 },
   eyebrow: {
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Rubik_700Bold',
     fontSize: 10,
     letterSpacing: 1.4,
     marginBottom: 9,
   },
   pageTitle: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Rubik_600SemiBold',
     fontSize: 32,
     lineHeight: 38,
     letterSpacing: -1.1,
     marginBottom: 8,
   },
   pageDescription: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Rubik_400Regular',
     fontSize: 14,
     lineHeight: 21,
     maxWidth: 340,
   },
   sectionLabel: {
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Rubik_700Bold',
     fontSize: 10,
     letterSpacing: 1.25,
     marginBottom: 9,
@@ -730,12 +988,12 @@ const styles = StyleSheet.create({
   },
   rowCopy: { flex: 1 },
   rowTitle: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Rubik_600SemiBold',
     fontSize: 13,
     lineHeight: 18,
   },
   rowDescription: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Rubik_400Regular',
     fontSize: 11,
     lineHeight: 16,
     marginTop: 2,
@@ -754,7 +1012,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     alignItems: 'center',
   },
-  segmentText: { fontFamily: 'Inter_500Medium', fontSize: 11 },
+  segmentText: { fontFamily: 'Rubik_500Medium', fontSize: 11 },
   engineRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -779,7 +1037,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   availableText: {
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Rubik_700Bold',
     fontSize: 8,
     letterSpacing: 0.8,
   },
@@ -794,7 +1052,7 @@ const styles = StyleSheet.create({
   },
   infoText: {
     flex: 1,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Rubik_400Regular',
     fontSize: 10,
     lineHeight: 15,
   },
@@ -827,7 +1085,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modelButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 11 },
+  modelButtonText: { fontFamily: 'Rubik_600SemiBold', fontSize: 11 },
+  voiceSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 13,
+    paddingBottom: 10,
+  },
+  pacePanel: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 11,
+    paddingBottom: 2,
+  },
+  paceSegments: { marginTop: 7, marginBottom: 4 },
   devicePanel: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: 11,
@@ -836,18 +1106,18 @@ const styles = StyleSheet.create({
   },
   deviceMetric: { flex: 1 },
   metricLabel: {
-    fontFamily: 'Inter_700Bold',
+    fontFamily: 'Rubik_700Bold',
     fontSize: 8,
     letterSpacing: 0.8,
     marginBottom: 4,
   },
   metricValue: {
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'Rubik_500Medium',
     fontSize: 10,
     lineHeight: 14,
   },
   runtimeText: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Rubik_400Regular',
     fontSize: 9,
     lineHeight: 13,
     paddingBottom: 9,
@@ -867,7 +1137,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 7,
   },
-  clearText: { fontFamily: 'Inter_600SemiBold', fontSize: 12 },
+  clearText: { fontFamily: 'Rubik_600SemiBold', fontSize: 12 },
   disabled: { opacity: 0.5 },
   footer: {
     alignItems: 'center',
@@ -876,7 +1146,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 8,
   },
-  footerText: { fontFamily: 'Inter_400Regular', fontSize: 11 },
+  footerText: { fontFamily: 'Rubik_400Regular', fontSize: 11 },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.66)',
@@ -900,14 +1170,14 @@ const styles = StyleSheet.create({
     marginBottom: 17,
   },
   confirmTitle: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Rubik_600SemiBold',
     fontSize: 20,
     lineHeight: 26,
     letterSpacing: -0.5,
     marginBottom: 8,
   },
   confirmDescription: {
-    fontFamily: 'Inter_400Regular',
+    fontFamily: 'Rubik_400Regular',
     fontSize: 13,
     lineHeight: 20,
     marginBottom: 20,
@@ -924,7 +1194,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   confirmButtonText: {
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: 'Rubik_600SemiBold',
     fontSize: 12,
   },
   pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },

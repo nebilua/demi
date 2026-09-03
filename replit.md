@@ -25,33 +25,42 @@ A local-first Android personal assistant for private, natural conversations stor
 
 ## Where things live
 
-- `artifacts/second-brain/app/index.tsx` — Phase 1 chat surface and local conversation persistence
+- `artifacts/second-brain/app/index.tsx` — local chat, offline voice controls, and conversation persistence
+- `artifacts/second-brain/app/settings.tsx` — appearance, voice, model, and local-data controls
+- `artifacts/second-brain/lib/offlineLlm.ts` — Android llama.cpp model runtime boundary
+- `artifacts/second-brain/lib/offlineVoice.ts` — Android on-device recognition and verified offline speech boundary
+- `artifacts/second-brain/modules/offline-tts` — local Android module that rejects network-backed TTS voices
 - `artifacts/second-brain/constants/colors.ts` — mobile color tokens
 - `artifacts/second-brain/assets/images/icon.png` — app icon
 - `artifacts/api-server` — shared API service for future opt-in network features
 
 ## Architecture decisions
 
-- Phase 1 is frontend-only and stores conversation turns with AsyncStorage; no backend or database is required for the local-first default.
-- The app is intentionally a single focused chat screen without tabs or account flows.
-- The UI uses the scaffold's Expo-compatible dependencies and keeps the inference boundary local so native model loading can be added without changing the conversation surface.
+- The local-first default stores conversation turns and settings with AsyncStorage; no backend or database is required.
+- Real model inference runs through llama.cpp in an installed native Android build after the user imports a compatible GGUF file.
+- Voice input requires Android 13+ on-device recognition and a verified installed offline language pack; Android 12 and older are blocked to prevent network fallback.
+- Spoken replies use only Android voices marked as not requiring a network connection; speaking stays unavailable until such a voice is installed.
+- The product uses Rubik throughout the mobile interface.
 
 ## Product
 
 - A private welcome state establishes local-only behavior.
 - Users can send messages, see a local response state, and reopen saved conversation history on the same device.
 - Users can configure appearance, haptics, and conversation saving from a dedicated Settings screen.
+- Users can dictate editable text offline and listen to or immediately stop locally spoken replies.
+- Users can install/manage Android offline recognition data and choose automatic spoken replies and speaking pace.
 - Users can review the saved message count and clear local history through a cross-platform confirmation flow.
 - Loading, storage-error, typing, disabled-send, empty, and persisted-chat states are handled.
 
 ## User preferences
 
-- Keep the build within the phased scope from the Second Brain brief; do not add calendar, todo, voice, or cloud fallback before those phases are requested.
+- Keep cloud fallback, accounts, semantic memory, and task integrations opt-in and out of the local-first default.
 
 ## Gotchas
 
 - The Expo preview starts through the managed `artifacts/second-brain: expo` workflow so preview environment variables are available.
-- Native llama.cpp model loading is intentionally kept behind the local inference boundary; adding it will require an Android-compatible native build path rather than Expo Go alone.
+- Native llama.cpp and offline recognition require an installed Android native build; Expo Go and the browser preview remain honest setup/text previews.
+- Android publishing is not handled by Replit's Expo Launch; the static app config includes the package identity and native plugins needed by an external Android build pipeline.
 - Use an in-app confirmation modal for destructive actions; React Native system alerts do not provide a reliable confirmation flow in the web preview.
 
 ## Pointers

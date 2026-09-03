@@ -1,1 +1,2 @@
 - [Cross-platform confirmations](cross-platform-confirmations.md) — use in-app destructive confirmations so native and Expo web execute the same callback.
+- [Offline voice privacy](offline-voice-privacy.md) — Android 13+ and a verified installed locale are required before private dictation can start.
