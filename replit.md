@@ -1,10 +1,11 @@
-# [Project name]
+# Second Brain
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A local-first Android personal assistant for private, natural conversations stored on the device.
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/second-brain run dev` — run the Expo mobile preview
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -14,7 +15,9 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
+- Mobile: Expo, Expo Router, React Native, TypeScript
+- Local persistence: AsyncStorage
+- API: Express 5 (reserved for later opt-in network features)
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
@@ -22,23 +25,31 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/second-brain/app/index.tsx` — Phase 1 chat surface and local conversation persistence
+- `artifacts/second-brain/constants/colors.ts` — mobile color tokens
+- `artifacts/second-brain/assets/images/icon.png` — app icon
+- `artifacts/api-server` — shared API service for future opt-in network features
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Phase 1 is frontend-only and stores conversation turns with AsyncStorage; no backend or database is required for the local-first default.
+- The app is intentionally a single focused chat screen without tabs or account flows.
+- The UI uses the scaffold's Expo-compatible dependencies and keeps the inference boundary local so native model loading can be added without changing the conversation surface.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- A private welcome state establishes local-only behavior.
+- Users can send messages, see a local response state, and reopen saved conversation history on the same device.
+- Loading, storage-error, typing, disabled-send, empty, and persisted-chat states are handled.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Keep the build within the phased scope from the Second Brain brief; do not add calendar, todo, voice, or cloud fallback before those phases are requested.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The Expo preview starts through the managed `artifacts/second-brain: expo` workflow so preview environment variables are available.
+- Native llama.cpp model loading is intentionally kept behind the local inference boundary; adding it will require an Android-compatible native build path rather than Expo Go alone.
 
 ## Pointers
 

@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/"
+title = "Second Brain"
+description = "A local-first Android personal assistant with a natural chat interface, on-device language model support, and private conversation history stored on the device."
+version = "1.0.0"
+id = "artifacts/second-brain"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 19465
+
+[services.development]
+run = "pnpm --filter @workspace/second-brain run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/second-brain", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/second-brain", "run", "serve" ]
+
+[services.env]
+PORT = "19465"
+BASE_PATH = "/"
