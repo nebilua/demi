@@ -230,6 +230,19 @@ export default function SecondBrainScreen() {
               </View>
             )}
             <Pressable
+              testID="open-calendar"
+              accessibilityRole="button"
+              accessibilityLabel="Open important dates"
+              onPress={() => router.push('/calendar')}
+              style={({ pressed }) => [
+                styles.settingsButton,
+                { backgroundColor: colors.secondary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather name="calendar" size={17} color={colors.foreground} />
+            </Pressable>
+            <Pressable
               testID="open-settings"
               accessibilityRole="button"
               accessibilityLabel="Open settings"

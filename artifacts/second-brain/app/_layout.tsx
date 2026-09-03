@@ -5,6 +5,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppProvider } from '@/context/AppContext';
+import { CalendarProvider } from '@/context/CalendarContext';
 import {
   Rubik_400Regular,
   Rubik_500Medium,
@@ -27,6 +28,14 @@ function RootLayoutNav() {
       <Stack.Screen
         name="settings"
         options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="calendar/index"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="calendar/edit"
+        options={{ headerShown: false, animation: 'slide_from_bottom' }}
       />
     </Stack>
   );
@@ -55,7 +64,9 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <AppProvider>
-                <RootLayoutNav />
+                <CalendarProvider>
+                  <RootLayoutNav />
+                </CalendarProvider>
               </AppProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>

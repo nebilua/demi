@@ -301,6 +301,34 @@ export default function SettingsScreen() {
           </SettingRow>
         </View>
 
+        <SectionLabel>IMPORTANT DATES</SectionLabel>
+        <Pressable
+          testID="settings-open-calendar"
+          accessibilityRole="button"
+          accessibilityLabel="Open important dates calendar"
+          onPress={() => router.push('/calendar')}
+          style={({ pressed }) => [
+            styles.calendarLink,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+            <Feather name="calendar" size={17} color={colors.accentForeground} />
+          </View>
+          <View style={styles.rowCopy}>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              People & dates
+            </Text>
+            <Text
+              style={[styles.rowDescription, { color: colors.mutedForeground }]}
+            >
+              Birthdays, anniversaries, and local device reminders
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </Pressable>
+
         <SectionLabel>LOCAL VOICE</SectionLabel>
         <View
           style={[
@@ -965,6 +993,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 5,
     marginBottom: 23,
+  },
+  calendarLink: {
+    minHeight: 72,
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    marginBottom: 23,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   cardHeading: {
     flexDirection: 'row',

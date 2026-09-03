@@ -25,6 +25,7 @@
     "plugins": [
       "expo-router",
       "expo-document-picker",
+      "expo-notifications",
       [
         "expo-speech-recognition",
         {
