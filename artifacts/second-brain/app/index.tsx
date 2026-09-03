@@ -80,6 +80,10 @@ export default function SecondBrainScreen() {
     isConversationReady,
     isThinking,
     storageError,
+    localModel,
+    engineStatus,
+    engineProgress,
+    engineError,
     sendMessage,
   } = useApp();
   const colors = useColors(settings.appearance);
@@ -89,7 +93,16 @@ export default function SecondBrainScreen() {
 
   const visibleTurns = useMemo(() => [...turns].reverse(), [turns]);
   const canSend =
-    draft.trim().length > 0 && !isThinking && isConversationReady;
+    draft.trim().length > 0 &&
+    !isThinking &&
+    isConversationReady &&
+    engineStatus === 'ready';
+  const engineLabel =
+    engineStatus === 'ready'
+      ? 'LOCAL'
+      : engineStatus === 'loading'
+        ? `${Math.round(engineProgress)}%`
+        : 'SETUP';
 
   async function handleSend() {
     if (!canSend) return;
@@ -155,7 +168,7 @@ export default function SecondBrainScreen() {
                 <Text
                   style={[styles.statusText, { color: colors.accentForeground }]}
                 >
-                  LOCAL
+                  {engineLabel}
                 </Text>
               </View>
             )}
@@ -229,16 +242,22 @@ export default function SecondBrainScreen() {
                 <Text
                   style={[styles.engineTitle, { color: colors.cardForeground }]}
                 >
-                  On-device preview engine
+                  {engineStatus === 'ready'
+                    ? localModel?.name ?? 'On-device model'
+                    : 'Offline model setup needed'}
                 </Text>
                 <Text
                   style={[styles.engineBody, { color: colors.mutedForeground }]}
                 >
-                  Private by default · no network needed
+                  {engineStatus === 'loading'
+                    ? `Loading locally · ${Math.round(engineProgress)}%`
+                    : engineStatus === 'ready'
+                      ? 'Private by default · no network needed'
+                      : 'Choose a compatible GGUF model in Settings'}
                 </Text>
               </View>
               <Feather
-                name="check"
+                name={engineStatus === 'ready' ? 'check' : 'chevron-right'}
                 size={18}
                 color={colors.accentForeground}
               />
@@ -290,6 +309,31 @@ export default function SecondBrainScreen() {
             </Text>
           </View>
         )}
+        {engineStatus !== 'ready' && (
+          <Pressable
+            testID="open-model-setup"
+            accessibilityRole="button"
+            accessibilityLabel="Open offline model setup"
+            onPress={() => router.push('/settings')}
+            style={({ pressed }) => [
+              styles.engineNotice,
+              { backgroundColor: colors.secondary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Feather
+              name={engineStatus === 'error' ? 'alert-circle' : 'cpu'}
+              size={14}
+              color={engineStatus === 'error' ? colors.destructive : colors.primary}
+            />
+            <Text style={[styles.engineNoticeText, { color: colors.foreground }]}>
+              {engineStatus === 'loading'
+                ? `Loading ${localModel?.name ?? 'model'} · ${Math.round(engineProgress)}%`
+                : engineError ?? 'Choose a GGUF model before starting a conversation.'}
+            </Text>
+            <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
+          </Pressable>
+        )}
         <View
           style={[
             styles.composer,
@@ -304,7 +348,7 @@ export default function SecondBrainScreen() {
             placeholderTextColor={colors.mutedForeground}
             multiline
             maxLength={1200}
-            editable={isConversationReady}
+            editable={isConversationReady && engineStatus === 'ready'}
             style={[styles.input, { color: colors.cardForeground }]}
             onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
             blurOnSubmit={false}
@@ -520,6 +564,23 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   storageNoticeText: {
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  engineNotice: {
+    minHeight: 38,
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  engineNoticeText: {
     flex: 1,
     fontFamily: 'Inter_400Regular',
     fontSize: 11,

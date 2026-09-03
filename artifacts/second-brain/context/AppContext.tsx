@@ -1,6 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Platform } from 'react-native';
+import type { LlamaContext } from 'llama.rn';
+import {
+  formatBytes,
+  getDeviceCompatibility,
+  loadNativeModel,
+  streamCompletion,
+  type DeviceCompatibility,
+  type LocalModel,
+  type RuntimeDetails,
+} from '@/lib/offlineLlm';
 
 export type Appearance = 'system' | 'light' | 'dark';
 
@@ -26,12 +46,22 @@ type AppContextValue = {
   isThinking: boolean;
   storageError: string | null;
   savedTurnCount: number;
+  localModel: LocalModel | null;
+  deviceCompatibility: DeviceCompatibility;
+  engineStatus: 'unsupported' | 'no-model' | 'loading' | 'ready' | 'error';
+  engineProgress: number;
+  engineError: string | null;
+  runtimeDetails: RuntimeDetails | null;
+  importModel: () => Promise<void>;
+  loadModel: () => Promise<void>;
+  removeModel: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   clearConversation: () => Promise<void>;
 };
 
 const SETTINGS_KEY = '@second-brain/settings-v1';
 const CONVERSATION_KEY = '@second-brain/conversation-v1';
+const MODEL_KEY = '@second-brain/local-model-v1';
 
 const DEFAULT_SETTINGS: AppSettings = {
   appearance: 'system',
@@ -43,28 +73,6 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 function createId() {
   return `${Date.now().toString()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function localReply(input: string) {
-  const normalized = input.toLowerCase();
-
-  if (normalized.includes('hello') || normalized.includes('hi')) {
-    return 'Hi. I’m here with you, on this device. What would you like to think through?';
-  }
-
-  if (normalized.includes('thank')) {
-    return 'You’re welcome. I’m keeping this conversation right here on your phone.';
-  }
-
-  if (normalized.includes('?')) {
-    return 'That’s worth exploring. Start with the part that feels most important, and we can work through it together.';
-  }
-
-  if (normalized.includes('remember')) {
-    return 'I can keep the context of this conversation locally while we’re working through it.';
-  }
-
-  return 'I’m listening. Keep going, and I’ll help you make sense of it one step at a time.';
 }
 
 function parseSettings(value: string | null): AppSettings {
@@ -103,6 +111,35 @@ function parseTurns(value: string | null): ConversationTurn[] {
   }
 }
 
+function parseModel(value: string | null): LocalModel | null {
+  if (!value) return null;
+  try {
+    const model = JSON.parse(value) as Partial<LocalModel>;
+    if (
+      typeof model.id !== 'string' ||
+      typeof model.name !== 'string' ||
+      typeof model.uri !== 'string' ||
+      typeof model.sizeBytes !== 'number' ||
+      typeof model.importedAt !== 'number' ||
+      typeof model.contextSize !== 'number'
+    ) {
+      return null;
+    }
+    return model as LocalModel;
+  } catch {
+    return null;
+  }
+}
+
+function cleanFileName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, '-');
+}
+
+function readableError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return 'The model could not be loaded. Choose a smaller compatible GGUF file and try again.';
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -111,6 +148,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isConversationReady, setIsConversationReady] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [localModel, setLocalModel] = useState<LocalModel | null>(null);
+  const [engineStatus, setEngineStatus] = useState<
+    'unsupported' | 'no-model' | 'loading' | 'ready' | 'error'
+  >(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+  const [engineProgress, setEngineProgress] = useState(0);
+  const [engineError, setEngineError] = useState<string | null>(null);
+  const [runtimeDetails, setRuntimeDetails] = useState<RuntimeDetails | null>(null);
+  const deviceCompatibility = useMemo(() => getDeviceCompatibility(), []);
+  const llamaContextRef = useRef<LlamaContext | null>(null);
+  const didRestoreModelRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -118,15 +165,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     Promise.all([
       AsyncStorage.getItem(SETTINGS_KEY),
       AsyncStorage.getItem(CONVERSATION_KEY),
+      AsyncStorage.getItem(MODEL_KEY),
     ])
-      .then(([storedSettings, storedConversation]) => {
+      .then(async ([storedSettings, storedConversation, storedModel]) => {
         if (!isMounted) return;
         const nextSettings = parseSettings(storedSettings);
         const savedTurns = parseTurns(storedConversation);
+        const savedModel = parseModel(storedModel);
 
         setSettings(nextSettings);
         setSavedTurnCount(savedTurns.length);
         setTurns(nextSettings.saveConversations ? savedTurns : []);
+        if (savedModel && Platform.OS !== 'web') {
+          const file = await FileSystem.getInfoAsync(savedModel.uri);
+          if (file.exists) {
+            setLocalModel(savedModel);
+            setEngineStatus('no-model');
+          } else {
+            await AsyncStorage.removeItem(MODEL_KEY);
+          }
+        }
         setSettingsReady(true);
         setIsConversationReady(true);
       })
@@ -139,8 +197,127 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false;
+      void llamaContextRef.current?.release();
+      llamaContextRef.current = null;
     };
   }, []);
+
+  async function releaseModelContext() {
+    const context = llamaContextRef.current;
+    llamaContextRef.current = null;
+    if (context) await context.release();
+    setRuntimeDetails(null);
+  }
+
+  async function loadModel(modelOverride?: LocalModel) {
+    const model = modelOverride ?? localModel;
+    if (!model || engineStatus === 'loading') return;
+
+    setEngineStatus('loading');
+    setEngineProgress(0);
+    setEngineError(null);
+
+    try {
+      await releaseModelContext();
+      const loaded = await loadNativeModel(model, deviceCompatibility, setEngineProgress);
+      llamaContextRef.current = loaded.context;
+      setRuntimeDetails(loaded.details);
+      setEngineProgress(100);
+      setEngineStatus('ready');
+    } catch (error) {
+      setEngineError(readableError(error));
+      setEngineStatus('error');
+    }
+  }
+
+  useEffect(() => {
+    if (!settingsReady || didRestoreModelRef.current) return;
+    didRestoreModelRef.current = true;
+    if (localModel) void loadModel(localModel);
+  }, [settingsReady, localModel]);
+
+  async function importModel() {
+    if (Platform.OS === 'web') {
+      setEngineError(
+        'Model import and offline inference are available in the installed Android app.',
+      );
+      setEngineStatus('unsupported');
+      return;
+    }
+
+    setEngineError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/octet-stream',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      if (!asset.name.toLowerCase().endsWith('.gguf')) {
+        setEngineError('Choose a quantized model file ending in .gguf.');
+        setEngineStatus('error');
+        return;
+      }
+
+      const sourceInfo = await FileSystem.getInfoAsync(asset.uri);
+      const sizeBytes = asset.size ?? (sourceInfo.exists ? sourceInfo.size ?? 0 : 0);
+      if (sizeBytes <= 0) {
+        setEngineError('The selected file could not be read.');
+        setEngineStatus('error');
+        return;
+      }
+
+      const modelsDirectory = `${FileSystem.documentDirectory}models`;
+      await FileSystem.makeDirectoryAsync(modelsDirectory, { intermediates: true });
+      const destination = `${modelsDirectory}/${Date.now()}-${cleanFileName(asset.name)}`;
+      await FileSystem.copyAsync({ from: asset.uri, to: destination });
+
+      const nextModel: LocalModel = {
+        id: createId(),
+        name: asset.name,
+        uri: destination,
+        sizeBytes,
+        importedAt: Date.now(),
+        contextSize: deviceCompatibility.contextSize,
+      };
+
+      if (nextModel.sizeBytes > deviceCompatibility.maxRecommendedModelBytes) {
+        await FileSystem.deleteAsync(destination, { idempotent: true });
+        setEngineError(
+          `${asset.name} is ${formatBytes(sizeBytes)}. Choose a model smaller than ${formatBytes(
+            deviceCompatibility.maxRecommendedModelBytes,
+          )} to avoid a low-memory crash.`,
+        );
+        setEngineStatus('error');
+        return;
+      }
+
+      const previousModel = localModel;
+      await releaseModelContext();
+      setLocalModel(nextModel);
+      await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
+      if (previousModel && previousModel.uri !== nextModel.uri) {
+        await FileSystem.deleteAsync(previousModel.uri, { idempotent: true });
+      }
+      await loadModel(nextModel);
+    } catch (error) {
+      setEngineError(readableError(error));
+      setEngineStatus('error');
+    }
+  }
+
+  async function removeModel() {
+    const model = localModel;
+    await releaseModelContext();
+    if (model) await FileSystem.deleteAsync(model.uri, { idempotent: true });
+    await AsyncStorage.removeItem(MODEL_KEY);
+    setLocalModel(null);
+    setEngineProgress(0);
+    setEngineError(null);
+    setEngineStatus(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+  }
 
   async function updateSettings(patch: Partial<AppSettings>) {
     const nextSettings = { ...settings, ...patch };
@@ -168,7 +345,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function sendMessage(content: string) {
     const trimmedContent = content.trim();
-    if (!trimmedContent || isThinking || !isConversationReady) return;
+    if (
+      !trimmedContent ||
+      isThinking ||
+      !isConversationReady ||
+      engineStatus !== 'ready' ||
+      !llamaContextRef.current
+    ) {
+      return;
+    }
 
     if (settings.hapticsEnabled) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -186,18 +371,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsThinking(true);
     await persistTurns(withUserTurn);
 
-    await new Promise((resolve) => setTimeout(resolve, 650));
-
     const assistantTurn: ConversationTurn = {
       id: createId(),
       role: 'assistant',
-      content: localReply(trimmedContent),
+      content: '',
       createdAt: Date.now(),
     };
-    const completedTurns = [...withUserTurn, assistantTurn];
-    setTurns(completedTurns);
-    setIsThinking(false);
-    await persistTurns(completedTurns);
+    const withAssistantTurn = [...withUserTurn, assistantTurn];
+    setTurns(withAssistantTurn);
+
+    try {
+      let streamedContent = '';
+      const finalContent = await streamCompletion(
+        llamaContextRef.current,
+        withUserTurn.map((turn) => ({
+          role: turn.role,
+          content: turn.content,
+        })),
+        (token) => {
+          streamedContent += token;
+          setTurns((currentTurns) =>
+            currentTurns.map((turn) =>
+              turn.id === assistantTurn.id
+                ? { ...turn, content: streamedContent }
+                : turn,
+            ),
+          );
+        },
+      );
+      const completedTurns = withAssistantTurn.map((turn) =>
+        turn.id === assistantTurn.id
+          ? {
+              ...turn,
+              content:
+                finalContent ||
+                streamedContent ||
+                'The model finished without returning text. Try asking in a different way.',
+            }
+          : turn,
+      );
+      setTurns(completedTurns);
+      await persistTurns(completedTurns);
+    } catch (error) {
+      const failedTurns = withAssistantTurn.map((turn) =>
+        turn.id === assistantTurn.id
+          ? {
+              ...turn,
+              content: `I could not finish that response locally. ${readableError(error)}`,
+            }
+          : turn,
+      );
+      setTurns(failedTurns);
+      await persistTurns(failedTurns);
+    } finally {
+      setIsThinking(false);
+    }
   }
 
   async function clearConversation() {
@@ -221,6 +449,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isThinking,
       storageError,
       savedTurnCount,
+      localModel,
+      deviceCompatibility,
+      engineStatus,
+      engineProgress,
+      engineError,
+      runtimeDetails,
+      importModel,
+      loadModel,
+      removeModel,
       sendMessage,
       clearConversation,
     }),
@@ -232,6 +469,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isThinking,
       storageError,
       savedTurnCount,
+      localModel,
+      deviceCompatibility,
+      engineStatus,
+      engineProgress,
+      engineError,
+      runtimeDetails,
     ],
   );
 

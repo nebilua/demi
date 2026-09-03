@@ -76,16 +76,31 @@ export default function SettingsScreen() {
     updateSettings,
     savedTurnCount,
     clearConversation,
+    localModel,
+    deviceCompatibility,
+    engineStatus,
+    engineProgress,
+    engineError,
+    runtimeDetails,
+    importModel,
+    loadModel,
+    removeModel,
   } = useApp();
   const colors = useColors(settings.appearance);
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
 
   async function handleClearHistory() {
     setIsClearing(true);
     await clearConversation();
     setIsClearing(false);
     setShowClearConfirm(false);
+  }
+
+  async function handleRemoveModel() {
+    await removeModel();
+    setShowRemoveModelConfirm(false);
   }
 
   if (!settingsReady) {
@@ -277,7 +292,7 @@ export default function SettingsScreen() {
             <View style={styles.rowCopy}>
               <View style={styles.engineTitleLine}>
                 <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                  On-device preview engine
+                  {localModel?.name ?? 'No model selected'}
                 </Text>
                 <View style={[styles.availablePill, { backgroundColor: colors.accent }]}>
                   <Text
@@ -286,22 +301,129 @@ export default function SettingsScreen() {
                       { color: colors.accentForeground },
                     ]}
                   >
-                    ACTIVE
+                    {engineStatus === 'ready'
+                      ? 'ACTIVE'
+                      : engineStatus === 'loading'
+                        ? 'LOADING'
+                        : 'SETUP'}
                   </Text>
                 </View>
               </View>
               <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-                Runs locally without network access
+                {localModel
+                  ? `${localModel.contextSize.toLocaleString()} token context · ${(
+                      localModel.sizeBytes /
+                      (1024 * 1024 * 1024)
+                    ).toFixed(1)} GB`
+                  : 'Import a quantized .gguf model from this device'}
               </Text>
             </View>
           </View>
           <View style={[styles.infoRow, { backgroundColor: colors.secondary }]}>
             <Feather name="info" size={14} color={colors.mutedForeground} />
             <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
-              The Expo preview uses a lightweight local adapter. Native GGUF
-              model loading will be added for the Android build.
+              {engineStatus === 'loading'
+                ? `Loading model into memory · ${Math.round(engineProgress)}%`
+                : engineError ??
+                  (deviceCompatibility.nativeRuntimeAvailable
+                    ? deviceCompatibility.recommendation
+                    : 'The browser preview cannot run llama.cpp. Use the installed Android app to import and run a model.')}
             </Text>
           </View>
+          {engineStatus === 'loading' && (
+            <View style={[styles.progressTrack, { backgroundColor: colors.secondary }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    backgroundColor: colors.primary,
+                    width: `${Math.max(2, engineProgress)}%`,
+                  },
+                ]}
+              />
+            </View>
+          )}
+          <View style={styles.modelActions}>
+            <Pressable
+              testID="import-model"
+              accessibilityRole="button"
+              accessibilityLabel={localModel ? 'Choose another GGUF model' : 'Import GGUF model'}
+              onPress={importModel}
+              disabled={engineStatus === 'loading'}
+              style={({ pressed }) => [
+                styles.primaryModelButton,
+                { backgroundColor: colors.primary },
+                engineStatus === 'loading' && styles.disabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather name="folder-plus" size={15} color={colors.primaryForeground} />
+              <Text style={[styles.modelButtonText, { color: colors.primaryForeground }]}>
+                {localModel ? 'Choose another' : 'Import GGUF model'}
+              </Text>
+            </Pressable>
+            {localModel && engineStatus !== 'ready' && engineStatus !== 'loading' && (
+              <Pressable
+                testID="retry-model-load"
+                accessibilityRole="button"
+                onPress={() => loadModel()}
+                style={({ pressed }) => [
+                  styles.secondaryModelButton,
+                  { borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Feather name="refresh-cw" size={15} color={colors.primary} />
+              </Pressable>
+            )}
+            {localModel && engineStatus !== 'loading' && (
+              <Pressable
+                testID="remove-model"
+                accessibilityRole="button"
+                accessibilityLabel="Remove local model"
+                onPress={() => setShowRemoveModelConfirm(true)}
+                style={({ pressed }) => [
+                  styles.secondaryModelButton,
+                  { borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Feather name="trash-2" size={15} color={colors.destructive} />
+              </Pressable>
+            )}
+          </View>
+          <View style={[styles.devicePanel, { borderTopColor: colors.border }]}>
+            <View style={styles.deviceMetric}>
+              <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
+                DEVICE
+              </Text>
+              <Text style={[styles.metricValue, { color: colors.cardForeground }]}>
+                {deviceCompatibility.deviceName}
+              </Text>
+            </View>
+            <View style={styles.deviceMetric}>
+              <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
+                MEMORY
+              </Text>
+              <Text style={[styles.metricValue, { color: colors.cardForeground }]}>
+                {deviceCompatibility.memoryLabel}
+              </Text>
+            </View>
+            <View style={styles.deviceMetric}>
+              <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
+                CONTEXT
+              </Text>
+              <Text style={[styles.metricValue, { color: colors.cardForeground }]}>
+                {(localModel?.contextSize ?? deviceCompatibility.contextSize).toLocaleString()}
+              </Text>
+            </View>
+          </View>
+          {runtimeDetails && (
+            <Text style={[styles.runtimeText, { color: colors.mutedForeground }]}>
+              llama.cpp · {runtimeDetails.gpuEnabled ? 'GPU' : 'CPU'} ·{' '}
+              {runtimeDetails.modelDescription}
+            </Text>
+          )}
         </View>
 
         <SectionLabel>LOCAL DATA</SectionLabel>
@@ -452,6 +574,63 @@ export default function SettingsScreen() {
                     Clear history
                   </Text>
                 )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={showRemoveModelConfirm}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setShowRemoveModelConfirm(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.confirmCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <View style={[styles.confirmIcon, { backgroundColor: colors.secondary }]}>
+              <Feather name="cpu" size={20} color={colors.destructive} />
+            </View>
+            <Text style={[styles.confirmTitle, { color: colors.cardForeground }]}>
+              Remove this model?
+            </Text>
+            <Text style={[styles.confirmDescription, { color: colors.mutedForeground }]}>
+              The GGUF file will be deleted from Second Brain. Your conversation history
+              will stay on this device.
+            </Text>
+            <View style={styles.confirmActions}>
+              <Pressable
+                testID="cancel-remove-model"
+                accessibilityRole="button"
+                onPress={() => setShowRemoveModelConfirm(false)}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  { backgroundColor: colors.secondary },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.confirmButtonText, { color: colors.secondaryForeground }]}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-remove-model"
+                accessibilityRole="button"
+                onPress={handleRemoveModel}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  { backgroundColor: colors.destructive },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.confirmButtonText, { color: colors.destructiveForeground }]}>
+                  Remove model
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -618,6 +797,60 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     fontSize: 10,
     lineHeight: 15,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 99,
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  progressFill: { height: '100%', borderRadius: 99 },
+  modelActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  primaryModelButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  secondaryModelButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modelButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 11 },
+  devicePanel: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 11,
+    paddingBottom: 7,
+    flexDirection: 'row',
+  },
+  deviceMetric: { flex: 1 },
+  metricLabel: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 8,
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  metricValue: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  runtimeText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 9,
+    lineHeight: 13,
+    paddingBottom: 9,
   },
   storageSummary: {
     flexDirection: 'row',
