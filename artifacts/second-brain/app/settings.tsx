@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import {
   SafeAreaView,
+  useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import { useApp, type Appearance } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
@@ -104,6 +105,7 @@ export default function SettingsScreen() {
     dismissVoiceError,
   } = useApp();
   const colors = useColors(settings.appearance);
+  const insets = useSafeAreaInsets();
   const androidApiLevel =
     Platform.OS === 'android' && typeof Platform.Version === 'number'
       ? Platform.Version
@@ -174,7 +176,11 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(28, insets.bottom + 28) },
+        ]}
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.intro}>
@@ -394,7 +400,15 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.rowCopy}>
               <View style={styles.engineTitleLine}>
-                <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                <Text
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                  style={[
+                    styles.rowTitle,
+                    styles.engineName,
+                    { color: colors.cardForeground },
+                  ]}
+                >
                   Android on-device voice
                 </Text>
                 <View
@@ -577,7 +591,15 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.rowCopy}>
               <View style={styles.engineTitleLine}>
-                <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                <Text
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                  style={[
+                    styles.rowTitle,
+                    styles.engineName,
+                    { color: colors.cardForeground },
+                  ]}
+                >
                   {localModel?.name ?? 'No model selected'}
                 </Text>
                 <View style={[styles.availablePill, { backgroundColor: colors.accent }]}>
@@ -787,7 +809,15 @@ export default function SettingsScreen() {
         statusBarTranslucent
         onRequestClose={() => setShowClearConfirm(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              paddingTop: Math.max(24, insets.top + 12),
+              paddingBottom: Math.max(24, insets.bottom + 12),
+            },
+          ]}
+        >
           <View
             style={[
               styles.confirmCard,
@@ -872,7 +902,15 @@ export default function SettingsScreen() {
         statusBarTranslucent
         onRequestClose={() => setShowRemoveModelConfirm(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              paddingTop: Math.max(24, insets.top + 12),
+              paddingBottom: Math.max(24, insets.bottom + 12),
+            },
+          ]}
+        >
           <View
             style={[
               styles.confirmCard,
@@ -1068,6 +1106,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 7,
   },
+  engineName: { flex: 1, flexShrink: 1 },
   availablePill: {
     borderRadius: 99,
     paddingHorizontal: 7,

@@ -9,6 +9,7 @@ import {
   Image,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -171,6 +172,7 @@ export default function SecondBrainScreen() {
   return (
     <KeyboardAvoidingView
       behavior="padding"
+      keyboardVerticalOffset={0}
       style={[styles.screen, { backgroundColor: colors.background }]}
     >
       <StatusBar style={colors.isDark ? 'light' : 'dark'} />
@@ -268,12 +270,15 @@ export default function SecondBrainScreen() {
             </Text>
           </View>
         ) : turns.length === 0 ? (
-          <View
-            style={[
+          <ScrollView
+            style={styles.emptyScroll}
+            contentContainerStyle={[
               styles.emptyState,
               isCompact && styles.emptyStateCompact,
               isShort && styles.emptyStateShort,
             ]}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
           >
             <View style={[styles.heroIcon, { backgroundColor: colors.accent }]}>
               <Feather name="sun" size={25} color={colors.primary} />
@@ -310,7 +315,13 @@ export default function SecondBrainScreen() {
               </View>
               <View style={styles.engineCopy}>
                 <Text
-                  style={[styles.engineTitle, { color: colors.cardForeground }]}
+                  numberOfLines={2}
+                  ellipsizeMode="tail"
+                  style={[
+                    styles.engineTitle,
+                    styles.engineName,
+                    { color: colors.cardForeground },
+                  ]}
                 >
                   {engineStatus === 'ready'
                     ? localModel?.name ?? 'On-device model'
@@ -332,7 +343,7 @@ export default function SecondBrainScreen() {
                 color={colors.accentForeground}
               />
             </View>
-          </View>
+          </ScrollView>
         ) : (
           <FlatList
             data={visibleTurns}
@@ -340,6 +351,7 @@ export default function SecondBrainScreen() {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => <MessageBubble item={item} />}
             contentContainerStyle={styles.messageList}
+            contentInsetAdjustmentBehavior="never"
             showsVerticalScrollIndicator={false}
             scrollEnabled={visibleTurns.length > 0}
             keyboardDismissMode="interactive"
@@ -612,11 +624,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   content: { flex: 1 },
+  emptyScroll: { flex: 1 },
   emptyState: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 28,
-    paddingBottom: 36,
+    paddingVertical: 18,
   },
   emptyStateCompact: { paddingHorizontal: 20 },
   emptyStateShort: { paddingBottom: 16 },
@@ -670,6 +683,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginBottom: 3,
   },
+  engineName: { flexShrink: 1 },
   engineBody: { fontFamily: 'Rubik_400Regular', fontSize: 11 },
   centerState: {
     flex: 1,
