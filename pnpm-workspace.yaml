@@ -26,6 +26,14 @@
 #
 # ============================================================================
 minimumReleaseAge: 1440
+# Expo SDK 57 patch releases are trusted first-party packages. These were
+# published within the release-age window and can be removed after 24 hours.
+minimumReleaseAgeExclude:
+  - expo
+  - expo-image-picker
+  - expo-location
+  - expo-notifications
+  - expo-router
 
 packages:
   - artifacts/*

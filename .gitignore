@@ -63,6 +63,7 @@ android/
 ios/
 build/
 web-build/
+static-build/
 
 # private agent and workspace state
 .agents/
