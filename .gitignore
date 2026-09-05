@@ -36,6 +36,36 @@ npm-debug.log
 yarn-error.log
 testem.log
 /typings
+*.log
+
+# secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
+*.keystore
+
+# local models and application data
+*.gguf
+*.onnx
+*.safetensors
+*.sqlite
+*.sqlite3
+*.db
+models/
+
+# native and generated build output
+android/
+ios/
+build/
+web-build/
+
+# private agent and workspace state
+.agents/
 
 # System Files
 .DS_Store
