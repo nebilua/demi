@@ -116,6 +116,24 @@ outside generated native output at
 `rnllamaBuildFromSource=false` flag uses llama.rn's Android prebuilt native
 libraries and keeps the build reproducible on a constrained workspace.
 
+Run the named packaging smoke check before handing an APK to a tester:
+
+```bash
+pnpm --filter @workspace/second-brain run validate:android-apk
+```
+
+The check performs the constrained arm64 build above, then verifies that the
+APK has the `com.secondbrain.localassistant` package identity, microphone and
+notification permissions, only arm64 native libraries including
+`librnllama.so`, valid zip alignment, and a valid Android signature. To inspect
+an existing delivery copy without rebuilding, set `SKIP_BUILD=1` and
+`APK_PATH`:
+
+```bash
+SKIP_BUILD=1 APK_PATH=releases/second-brain-debug-arm64-v8a.apk \
+  pnpm --filter @workspace/second-brain run validate:android-apk
+```
+
 Install it on a compatible phone with Android's file installer, or with:
 
 ```bash
