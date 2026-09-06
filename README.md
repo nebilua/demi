@@ -83,6 +83,54 @@ The generated `android/` directory is intentionally ignored. Re-run prebuild
 after changing Expo plugins or native configuration. Do not commit signing
 keys, keystores, imported GGUF models, or generated native output.
 
+### Build a downloadable APK
+
+The repository's standalone debug artifact targets `arm64-v8a`, the ABI used
+by supported modern Android phones. It includes the native llama.rn,
+speech-recognition, offline TTS, and notification modules; it does not require
+Expo Go. With the Android SDK and NDK installed, run:
+
+```bash
+cd artifacts/second-brain
+pnpm exec expo prebuild --platform android
+
+export ANDROID_HOME=/nix/store/rcpalf7dyjk0bz0ly2j6lkf51b89ramk-androidsdk/libexec/android-sdk
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+export CMAKE_BUILD_PARALLEL_LEVEL=1
+
+cd android
+./gradlew assembleDebug --no-daemon --console=plain --max-workers=1 \
+  -Dorg.gradle.parallel=false \
+  -Dorg.gradle.jvmargs='-Xmx2048m -XX:MaxMetaspaceSize=512m' \
+  -PrnllamaBuildFromSource=false \
+  -PreactNativeArchitectures=arm64-v8a \
+  -PrnllamaVariants=rnllama
+```
+
+The generated APK is `android/app/build/outputs/apk/debug/app-debug.apk`.
+The build includes llama.rn's generic arm64 runtime, which works on supported
+arm64 devices without CPU-feature assumptions. For delivery, preserve a copy
+outside generated native output at
+`artifacts/second-brain/releases/second-brain-debug-arm64-v8a.apk`. The
+`rnllamaBuildFromSource=false` flag uses llama.rn's Android prebuilt native
+libraries and keeps the build reproducible on a constrained workspace.
+
+Install it on a compatible phone with Android's file installer, or with:
+
+```bash
+adb install -r artifacts/second-brain/releases/second-brain-debug-arm64-v8a.apk
+```
+
+On first launch, allow microphone access for voice input and notification
+access for reminders. Private offline dictation additionally requires Android
+13 or newer and an installed English offline language pack; use the app's
+offline voice setup action if Android needs to download that language pack.
+Open the model import action and select a compatible GGUF file separately:
+model weights are not bundled in the APK and must not be redistributed with
+the project. The debug APK is arm64-only and cannot be installed on
+unsupported ABIs.
+
 ## Models
 
 No model weights are bundled or redistributed. Import only GGUF files whose
