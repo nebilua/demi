@@ -59,8 +59,8 @@ testem.log
 models/
 
 # native and generated build output
-android/
-ios/
+/android/
+/ios/
 build/
 web-build/
 static-build/
