@@ -112,6 +112,8 @@ export default function SettingsScreen() {
 
   const androidApiLevel = Platform.OS === 'android' && typeof Platform.Version === 'number' ? Platform.Version : null;
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
+  const canSetupSpeech = !voiceInputAvailable && !requiresNewerAndroid && !voiceSetupInProgress;
+  const canSetupSpokenReplies = !voiceOutputAvailable;
 
   async function handleClearHistory() {
     setIsClearing(true);
@@ -246,43 +248,56 @@ export default function SettingsScreen() {
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          <View style={styles.readinessItem}>
+          <Pressable
+            testID="offline-speech-setup"
+            accessibilityRole={canSetupSpeech ? 'button' : undefined}
+            accessibilityLabel="Set up offline speech input"
+            disabled={!canSetupSpeech}
+            onPress={() => void installOfflineVoiceModel()}
+            style={({ pressed }) => [
+              styles.readinessItem,
+              canSetupSpeech && pressed && styles.pressedReadiness,
+            ]}
+          >
             <View style={styles.readinessHeader}>
               <Feather name="mic" size={16} color={voiceInputAvailable ? colors.primary : colors.mutedForeground} />
               <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
                 2. Speech input
               </Text>
               {voiceInputAvailable && <Feather name="check-circle" size={14} color={colors.primary} />}
+              {canSetupSpeech && <Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
+              {voiceSetupInProgress && <ActivityIndicator size="small" color={colors.primary} />}
             </View>
             <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
               {voiceInputAvailable ? 'Offline dictation ready.' : requiresNewerAndroid ? 'Requires Android 13+.' : 'Install English offline language pack.'}
             </Text>
-            {!voiceInputAvailable && !requiresNewerAndroid && !!localModel && (
-              <Pressable onPress={installOfflineVoiceModel} disabled={voiceSetupInProgress} style={({ pressed }) => [styles.smallPrimaryButton, { backgroundColor: colors.primary, marginTop: 10 }, pressed && styles.pressed]}>
-                  {voiceSetupInProgress ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[styles.smallPrimaryButtonText, { color: colors.primaryForeground }]}>Install speech data</Text>}
-              </Pressable>
-            )}
-          </View>
+          </Pressable>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          <View style={styles.readinessItem}>
+          <Pressable
+            testID="offline-tts-setup"
+            accessibilityRole={canSetupSpokenReplies ? 'button' : undefined}
+            accessibilityLabel="Set up offline spoken replies"
+            disabled={!canSetupSpokenReplies}
+            onPress={() => void openVoiceSettings()}
+            style={({ pressed }) => [
+              styles.readinessItem,
+              canSetupSpokenReplies && pressed && styles.pressedReadiness,
+            ]}
+          >
             <View style={styles.readinessHeader}>
               <Feather name="volume-2" size={16} color={voiceOutputAvailable ? colors.primary : colors.mutedForeground} />
               <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
                 3. Spoken replies
               </Text>
               {voiceOutputAvailable && <Feather name="check-circle" size={14} color={colors.primary} />}
+              {canSetupSpokenReplies && <Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
             </View>
             <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
               {voiceOutputAvailable ? 'Offline TTS ready.' : 'Verify or install an offline TTS voice.'}
             </Text>
-            {!voiceOutputAvailable && voiceInputAvailable && !!localModel && (
-              <Pressable onPress={openVoiceSettings} style={({ pressed }) => [styles.smallPrimaryButton, { backgroundColor: colors.primary, marginTop: 10 }, pressed && styles.pressed]}>
-                <Text style={[styles.smallPrimaryButtonText, { color: colors.primaryForeground }]}>Install a voice</Text>
-              </Pressable>
-            )}
-          </View>
+          </Pressable>
         </View>
 
         <SectionLabel>Preferences</SectionLabel>
@@ -367,6 +382,7 @@ const styles = StyleSheet.create({
   readinessHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   readinessTitle: { fontFamily: 'Inter_500Medium', fontSize: 15 },
   readinessDesc: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 18 },
+  pressedReadiness: { opacity: 0.7 },
   downloadBox: { marginTop: 12, padding: 12, borderRadius: 12 },
   downloadTitle: { fontFamily: 'Inter_500Medium', fontSize: 14, marginBottom: 4 },
   downloadMeta: { fontFamily: 'Inter_400Regular', fontSize: 12 },
