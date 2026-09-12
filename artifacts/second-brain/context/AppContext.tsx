@@ -16,6 +16,7 @@ import {
   formatBytes,
   getDeviceCompatibility,
   loadNativeModel,
+  proposeMemoryCandidate,
   streamCompletion,
   type DeviceCompatibility,
   type LocalModel,
@@ -32,6 +33,22 @@ import {
   type RecognitionModule,
   type VoiceInputStatus,
 } from '@/lib/offlineVoice';
+import {
+  memoryFingerprint,
+  parseApprovedMemories,
+  parseMemoryCandidate,
+  selectRelevantMemories,
+  type ApprovedMemory,
+  type MemoryCandidate,
+} from '@/lib/memory';
+import {
+  getSecureStorageProtection,
+  migratePlaintextRecord,
+  readSecureRecord,
+  removeSecureRecord,
+  writeSecureRecord,
+  type SecureStorageProtection,
+} from '@/lib/secureLocalStorage';
 
 export type Appearance = 'system' | 'light' | 'dark';
 
@@ -79,6 +96,14 @@ type AppContextValue = {
   isConversationReady: boolean;
   isThinking: boolean;
   storageError: string | null;
+  storageProtection: SecureStorageProtection;
+  memories: ApprovedMemory[];
+  pendingMemoryCandidate: MemoryCandidate | null;
+  saveMemoryCandidate: (content?: string) => Promise<void>;
+  rejectMemoryCandidate: () => void;
+  updateMemory: (id: string, content: string) => Promise<void>;
+  archiveMemory: (id: string, archived: boolean) => Promise<void>;
+  deleteMemory: (id: string) => Promise<void>;
   savedTurnCount: number;
   localModel: LocalModel | null;
   deviceCompatibility: DeviceCompatibility;
@@ -115,6 +140,10 @@ const SETTINGS_KEY = '@second-brain/settings-v1';
 const CONVERSATION_KEY = '@second-brain/conversation-v1';
 const MODEL_KEY = '@second-brain/local-model-v1';
 const PROFILE_KEY = '@second-brain/personal-profile-v1';
+const SECURE_PROFILE_KEY = 'profile';
+const SECURE_CONVERSATION_KEY = 'conversation';
+const SECURE_MEMORIES_KEY = 'approved-memories';
+const MAX_MEMORIES = 100;
 
 const DEFAULT_SETTINGS: AppSettings = {
   appearance: 'system',
@@ -277,6 +306,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isConversationReady, setIsConversationReady] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [memories, setMemories] = useState<ApprovedMemory[]>([]);
+  const [pendingMemoryCandidate, setPendingMemoryCandidate] =
+    useState<MemoryCandidate | null>(null);
+  const memoriesRef = useRef<ApprovedMemory[]>([]);
+  const memoryMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const storageProtection = getSecureStorageProtection();
   const [localModel, setLocalModel] = useState<LocalModel | null>(null);
   const [engineStatus, setEngineStatus] = useState<
     'unsupported' | 'no-model' | 'loading' | 'ready' | 'error'
@@ -310,25 +345,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     Promise.all([
       AsyncStorage.getItem(SETTINGS_KEY),
-      AsyncStorage.getItem(CONVERSATION_KEY),
       AsyncStorage.getItem(MODEL_KEY),
-      AsyncStorage.getItem(PROFILE_KEY),
+      migratePlaintextRecord(SECURE_CONVERSATION_KEY, CONVERSATION_KEY),
+      migratePlaintextRecord(SECURE_PROFILE_KEY, PROFILE_KEY),
+      readSecureRecord(SECURE_MEMORIES_KEY),
     ])
       .then(
         async ([
           storedSettings,
-          storedConversation,
           storedModel,
+          storedConversation,
           storedProfile,
+          storedMemories,
         ]) => {
         if (!isMounted) return;
         const nextSettings = parseSettings(storedSettings);
         const savedTurns = parseTurns(storedConversation);
         const savedModel = parseModel(storedModel);
         const savedProfile = parseProfile(storedProfile);
+        const savedMemories = parseApprovedMemories(storedMemories);
 
         setSettings(nextSettings);
         setProfile(savedProfile);
+        setMemories(savedMemories);
+        memoriesRef.current = savedMemories;
         setSavedTurnCount(savedTurns.length);
         setTurns(nextSettings.saveConversations ? savedTurns : []);
         if (savedModel && Platform.OS !== 'web') {
@@ -346,7 +386,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       )
       .catch(() => {
         if (!isMounted) return;
-        setStorageError('Local storage could not be opened. New messages will remain in memory.');
+        setStorageError(
+          'Secure local memory could not be opened. Prior data was preserved. Do not clear app data; restart the app or restore access to this device’s Android Keystore.',
+        );
         setSettingsReady(true);
         setIsConversationReady(true);
       });
@@ -898,10 +940,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function persistProfile(nextProfile: PersonalProfile) {
-    setProfile(nextProfile);
-
     try {
-      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+      await writeSecureRecord(SECURE_PROFILE_KEY, JSON.stringify(nextProfile));
+      setProfile(nextProfile);
       setStorageError(null);
     } catch {
       setStorageError('Your local profile could not be saved on this device.');
@@ -938,7 +979,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!settings.saveConversations) return;
 
     try {
-      await AsyncStorage.setItem(CONVERSATION_KEY, JSON.stringify(nextTurns));
+      await writeSecureRecord(
+        SECURE_CONVERSATION_KEY,
+        JSON.stringify(nextTurns.slice(-80)),
+      );
       setSavedTurnCount(nextTurns.length);
       setStorageError(null);
     } catch {
@@ -1004,6 +1048,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         {
           displayName: profile.displayName,
           context: profile.context,
+          memories: selectRelevantMemories(memories, trimmedContent),
         },
       );
       const completedTurns = withAssistantTurn.map((turn) =>
@@ -1024,6 +1069,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (settings.spokenRepliesEnabled && completedResponse) {
         await speakText(completedResponse);
       }
+      try {
+        const rawCandidate = await proposeMemoryCandidate(
+          llamaContextRef.current,
+          trimmedContent,
+          completedResponse,
+        );
+        const candidate = parseMemoryCandidate(
+          rawCandidate,
+          memories,
+          trimmedContent,
+        );
+        if (candidate) setPendingMemoryCandidate(candidate);
+      } catch {
+        // Suggestions are optional and must never interrupt the conversation.
+      }
     } catch (error) {
       const failedTurns = withAssistantTurn.map((turn) =>
         turn.id === assistantTurn.id
@@ -1042,13 +1102,119 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function clearConversation() {
     try {
-      await AsyncStorage.removeItem(CONVERSATION_KEY);
+      await removeSecureRecord(SECURE_CONVERSATION_KEY);
       setTurns([]);
       setSavedTurnCount(0);
       setStorageError(null);
     } catch {
       setStorageError('Conversation history could not be cleared.');
     }
+  }
+
+  async function persistMemories(next: ApprovedMemory[]) {
+    try {
+      const seen = new Set<string>();
+      const bounded = next
+        .filter((memory) => {
+          const fingerprint = memoryFingerprint(memory.content);
+          if (!fingerprint || seen.has(fingerprint)) return false;
+          seen.add(fingerprint);
+          return true;
+        })
+        .slice(0, MAX_MEMORIES);
+      await writeSecureRecord(
+        SECURE_MEMORIES_KEY,
+        JSON.stringify(bounded),
+      );
+      memoriesRef.current = bounded;
+      setMemories(bounded);
+      setStorageError(null);
+    } catch {
+      setStorageError(
+        'Memory changes could not be encrypted and saved. Your previous memories are unchanged.',
+      );
+      throw new Error('The memory could not be saved securely.');
+    }
+  }
+
+  function mutateMemories(
+    update: (current: ApprovedMemory[]) => ApprovedMemory[],
+  ) {
+    const operation = memoryMutationQueueRef.current.then(() =>
+      persistMemories(update(memoriesRef.current)),
+    );
+    memoryMutationQueueRef.current = operation.catch(() => undefined);
+    return operation;
+  }
+
+  async function saveMemoryCandidate(editedContent?: string) {
+    const candidate = pendingMemoryCandidate;
+    if (!candidate || candidate.kind !== 'memory') return;
+    const content = (editedContent ?? candidate.content).trim().slice(0, 240);
+    if (
+      !content ||
+      memories.some(
+        (memory) => memoryFingerprint(memory.content) === memoryFingerprint(content),
+      )
+    ) {
+      setPendingMemoryCandidate(null);
+      return;
+    }
+    const now = Date.now();
+    await mutateMemories((current) => [
+      {
+        id: createId(),
+        category: candidate.category,
+        content,
+        source: {
+          turnId: turns.filter((turn) => turn.role === 'user').at(-1)?.id ?? '',
+          excerpt: candidate.sourceExcerpt,
+          createdAt: now,
+        },
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+      },
+      ...current,
+    ]);
+    setPendingMemoryCandidate(null);
+  }
+
+  async function updateMemory(id: string, content: string) {
+    const normalized = content.trim().slice(0, 240);
+    if (
+      !normalized ||
+      memories.some(
+        (memory) =>
+          memory.id !== id &&
+          memoryFingerprint(memory.content) === memoryFingerprint(normalized),
+      )
+    ) {
+      return;
+    }
+    await mutateMemories((current) =>
+      current.map((memory) =>
+        memory.id === id
+          ? { ...memory, content: normalized, updatedAt: Date.now() }
+          : memory,
+      )
+    );
+  }
+
+  async function archiveMemory(id: string, archived: boolean) {
+    await mutateMemories((current) =>
+      current.map((memory) =>
+        memory.id === id
+          ? { ...memory, archivedAt: archived ? Date.now() : null, updatedAt: Date.now() }
+          : memory,
+      )
+    );
+  }
+
+  async function deleteMemory(id: string) {
+    await mutateMemories((current) =>
+      current.filter((memory) => memory.id !== id),
+    );
   }
 
   const value = useMemo(
@@ -1064,6 +1230,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isConversationReady,
       isThinking,
       storageError,
+      storageProtection,
+      memories,
+      pendingMemoryCandidate,
+      saveMemoryCandidate,
+      rejectMemoryCandidate: () => setPendingMemoryCandidate(null),
+      updateMemory,
+      archiveMemory,
+      deleteMemory,
       savedTurnCount,
       localModel,
       deviceCompatibility,
@@ -1103,6 +1277,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isConversationReady,
       isThinking,
       storageError,
+      storageProtection,
+      memories,
+      pendingMemoryCandidate,
       savedTurnCount,
       localModel,
       deviceCompatibility,

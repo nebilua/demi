@@ -103,6 +103,114 @@ function MessageBubble({ item }: { item: ConversationTurn }) {
   );
 }
 
+function MemorySuggestion() {
+  const router = useRouter();
+  const {
+    settings,
+    pendingMemoryCandidate,
+    saveMemoryCandidate,
+    rejectMemoryCandidate,
+  } = useApp();
+  const colors = useColors(settings.appearance);
+  const [edited, setEdited] = useState('');
+
+  useEffect(() => {
+    setEdited(
+      pendingMemoryCandidate?.kind === 'memory'
+        ? pendingMemoryCandidate.content
+        : '',
+    );
+  }, [pendingMemoryCandidate]);
+
+  if (!pendingMemoryCandidate) return null;
+  const isDate = pendingMemoryCandidate.kind === 'important-date';
+
+  function openDateEditor() {
+    if (pendingMemoryCandidate?.kind !== 'important-date') return;
+    const candidate = pendingMemoryCandidate;
+    rejectMemoryCandidate();
+    router.push({
+      pathname: '/calendar/edit',
+      params: {
+        label: candidate.label,
+        eventName: candidate.eventName,
+        date: candidate.date,
+        notes: candidate.notes,
+      },
+    });
+  }
+
+  return (
+    <View
+      testID="memory-suggestion"
+      style={[
+        styles.memorySuggestion,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
+    >
+      <View style={styles.memorySuggestionHeader}>
+        <Feather
+          name={isDate ? 'calendar' : 'bookmark'}
+          size={15}
+          color={colors.primary}
+        />
+        <Text style={[styles.memorySuggestionTitle, { color: colors.cardForeground }]}>
+          {isDate
+            ? 'Add this to Important Dates?'
+            : pendingMemoryCandidate.explicit
+              ? 'Save this memory?'
+              : 'Worth remembering?'}
+        </Text>
+        <Pressable
+          testID="reject-memory"
+          accessibilityRole="button"
+          accessibilityLabel="Reject memory suggestion"
+          onPress={rejectMemoryCandidate}
+        >
+          <Feather name="x" size={17} color={colors.mutedForeground} />
+        </Pressable>
+      </View>
+      {isDate ? (
+        <Text style={[styles.memorySuggestionCopy, { color: colors.mutedForeground }]}>
+          {pendingMemoryCandidate.eventName} · {pendingMemoryCandidate.label} ·{' '}
+          {pendingMemoryCandidate.date}
+        </Text>
+      ) : (
+        <TextInput
+          testID="memory-suggestion-content"
+          value={edited}
+          onChangeText={setEdited}
+          maxLength={240}
+          multiline
+          style={[
+            styles.memorySuggestionInput,
+            {
+              color: colors.cardForeground,
+              borderColor: colors.border,
+              backgroundColor: colors.background,
+            },
+          ]}
+        />
+      )}
+      <View style={styles.memorySuggestionActions}>
+        <Text style={[styles.memorySource, { color: colors.mutedForeground }]}>
+          Proposed from your last message · not saved yet
+        </Text>
+        <Pressable
+          testID={isDate ? 'review-date-suggestion' : 'save-memory-suggestion'}
+          accessibilityRole="button"
+          onPress={isDate ? openDateEditor : () => void saveMemoryCandidate(edited)}
+          style={[styles.memorySaveButton, { backgroundColor: colors.primary }]}
+        >
+          <Text style={[styles.memorySaveText, { color: colors.primaryForeground }]}>
+            {isDate ? 'Review' : 'Save'}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 export default function SecondBrainScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
@@ -403,6 +511,7 @@ export default function SecondBrainScreen() {
             </Text>
           </View>
         )}
+        <MemorySuggestion />
         {engineStatus !== 'ready' && (
           <Pressable
             testID="open-model-setup"
@@ -799,6 +908,61 @@ const styles = StyleSheet.create({
     fontFamily: 'Rubik_400Regular',
     fontSize: 11,
     lineHeight: 15,
+  },
+  memorySuggestion: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 11,
+  },
+  memorySuggestionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 8,
+  },
+  memorySuggestionTitle: {
+    flex: 1,
+    fontFamily: 'Rubik_600SemiBold',
+    fontSize: 12,
+  },
+  memorySuggestionCopy: {
+    fontFamily: 'Rubik_400Regular',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  memorySuggestionInput: {
+    minHeight: 44,
+    maxHeight: 78,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    fontFamily: 'Rubik_400Regular',
+    fontSize: 12,
+  },
+  memorySuggestionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  memorySource: {
+    flex: 1,
+    fontFamily: 'Rubik_400Regular',
+    fontSize: 9,
+  },
+  memorySaveButton: {
+    minHeight: 32,
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memorySaveText: {
+    fontFamily: 'Rubik_600SemiBold',
+    fontSize: 11,
   },
   engineNotice: {
     minHeight: 38,

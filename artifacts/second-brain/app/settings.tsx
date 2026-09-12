@@ -84,6 +84,8 @@ export default function SettingsScreen() {
     updateSettings,
     profile,
     savedTurnCount,
+    memories,
+    storageProtection,
     clearConversation,
     localModel,
     deviceCompatibility,
@@ -256,6 +258,33 @@ export default function SettingsScreen() {
             </Text>
           </Pressable>
         </View>
+
+        <Pressable
+          testID="settings-open-memories"
+          accessibilityRole="button"
+          accessibilityLabel="Open memory vault"
+          onPress={() => router.push('/memories')}
+          style={({ pressed }) => [
+            styles.calendarLink,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+            <Feather name="bookmark" size={17} color={colors.accentForeground} />
+          </View>
+          <View style={styles.rowCopy}>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              Memory vault · {memories.length}
+            </Text>
+            <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+              {storageProtection === 'encrypted-on-android'
+                ? 'Review memories encrypted on this device'
+                : 'Stored locally; browser preview is not Keystore-encrypted'}
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </Pressable>
 
         <SectionLabel>APPEARANCE</SectionLabel>
         <View

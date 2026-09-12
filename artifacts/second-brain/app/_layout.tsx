@@ -37,6 +37,10 @@ function RootLayoutNav() {
         name="calendar/edit"
         options={{ headerShown: false, animation: 'slide_from_bottom' }}
       />
+      <Stack.Screen
+        name="memories"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
     </Stack>
   );
 }

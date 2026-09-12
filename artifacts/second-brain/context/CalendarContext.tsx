@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
   createContext,
   useContext,
@@ -14,6 +13,10 @@ import {
   type DateReminder,
   type ReminderDraft,
 } from '@/lib/reminders';
+import {
+  migratePlaintextRecord,
+  writeSecureRecord,
+} from '@/lib/secureLocalStorage';
 
 type CalendarContextValue = {
   reminders: DateReminder[];
@@ -30,6 +33,7 @@ type CalendarContextValue = {
 };
 
 const STORAGE_KEY = '@second-brain/date-reminders-v1';
+const SECURE_STORAGE_KEY = 'date-reminders';
 const CalendarContext = createContext<CalendarContextValue | null>(null);
 
 function createId() {
@@ -80,7 +84,7 @@ export function CalendarProvider({
     void initializeNotifications().catch(() => {
       // Scheduling surfaces actionable errors when the user saves a date.
     });
-    AsyncStorage.getItem(STORAGE_KEY)
+    migratePlaintextRecord(SECURE_STORAGE_KEY, STORAGE_KEY)
       .then(async (value) => {
         const loaded = parseReminders(value);
         if (!mounted) return;
@@ -101,7 +105,7 @@ export function CalendarProvider({
           if (!cleaned.every(Boolean)) active.push(item);
         }
         if (active.length !== loaded.length) {
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(active));
+          await writeSecureRecord(SECURE_STORAGE_KEY, JSON.stringify(active));
           if (mounted) setReminders(active);
         }
       })
@@ -120,7 +124,7 @@ export function CalendarProvider({
 
   async function persist(next: DateReminder[]) {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      await writeSecureRecord(SECURE_STORAGE_KEY, JSON.stringify(next));
       setReminders(next);
       setError(null);
       return true;

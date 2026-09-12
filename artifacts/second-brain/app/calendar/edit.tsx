@@ -34,11 +34,18 @@ function tomorrowDate() {
 }
 
 export default function ReminderEditorScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{
+    id?: string;
+    label?: string;
+    eventName?: string;
+    date?: string;
+    notes?: string;
+  }>();
+  const { id } = params;
   const { isReady, findReminder } = useCalendar();
   const reminder = typeof id === 'string' ? findReminder(id) : undefined;
   if (!isReady) return <EditorLoading />;
-  return <ReminderForm initial={reminder} />;
+  return <ReminderForm initial={reminder} proposal={reminder ? undefined : params} />;
 }
 
 function EditorLoading() {
@@ -51,17 +58,25 @@ function EditorLoading() {
   );
 }
 
-function ReminderForm({ initial }: { initial?: DateReminder }) {
+function ReminderForm({
+  initial,
+  proposal,
+}: {
+  initial?: DateReminder;
+  proposal?: { label?: string; eventName?: string; date?: string; notes?: string };
+}) {
   const router = useRouter();
   const { settings } = useApp();
   const { saveReminder } = useCalendar();
   const colors = useColors(settings.appearance);
-  const [label, setLabel] = useState(initial?.label ?? '');
-  const [eventName, setEventName] = useState(initial?.eventName ?? '');
-  const [date, setDate] = useState(initial?.date ?? tomorrowDate());
+  const [label, setLabel] = useState(initial?.label ?? proposal?.label ?? '');
+  const [eventName, setEventName] = useState(
+    initial?.eventName ?? proposal?.eventName ?? '',
+  );
+  const [date, setDate] = useState(initial?.date ?? proposal?.date ?? tomorrowDate());
   const [hasTime, setHasTime] = useState(initial?.time !== null);
   const [time, setTime] = useState(initial?.time ?? '09:00');
-  const [notes, setNotes] = useState(initial?.notes ?? '');
+  const [notes, setNotes] = useState(initial?.notes ?? proposal?.notes ?? '');
   const [repeatsAnnually, setRepeatsAnnually] = useState(
     initial?.repeatsAnnually ?? false,
   );
