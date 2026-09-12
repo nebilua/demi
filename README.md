@@ -85,7 +85,7 @@ keys, keystores, imported GGUF models, or generated native output.
 
 ### Build a downloadable APK
 
-The repository's standalone debug artifact targets `arm64-v8a`, the ABI used
+The repository's standalone release artifact targets `arm64-v8a`, the ABI used
 by supported modern Android phones. It includes the native llama.rn,
 speech-recognition, offline TTS, and notification modules; it does not require
 Expo Go. With the Android SDK and NDK installed, run:
@@ -100,7 +100,7 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
 export CMAKE_BUILD_PARALLEL_LEVEL=1
 
 cd android
-./gradlew assembleDebug --no-daemon --console=plain --max-workers=1 \
+./gradlew assembleRelease --no-daemon --console=plain --max-workers=1 \
   -Dorg.gradle.parallel=false \
   -Dorg.gradle.jvmargs='-Xmx2048m -XX:MaxMetaspaceSize=512m' \
   -PrnllamaBuildFromSource=false \
@@ -108,11 +108,11 @@ cd android
   -PrnllamaVariants=rnllama
 ```
 
-The generated APK is `android/app/build/outputs/apk/debug/app-debug.apk`.
+The generated APK is `android/app/build/outputs/apk/release/app-release.apk`.
 The build includes llama.rn's generic arm64 runtime, which works on supported
 arm64 devices without CPU-feature assumptions. For delivery, preserve a copy
 outside generated native output at
-`artifacts/second-brain/releases/demi-debug-arm64-v8a.apk`. The
+`artifacts/second-brain/releases/demi-release-arm64-v8a.apk`. The
 `rnllamaBuildFromSource=false` flag uses llama.rn's Android prebuilt native
 libraries and keeps the build reproducible on a constrained workspace.
 
@@ -130,7 +130,7 @@ an existing delivery copy without rebuilding, set `SKIP_BUILD=1` and
 `APK_PATH`:
 
 ```bash
-SKIP_BUILD=1 APK_PATH=releases/demi-debug-arm64-v8a.apk \
+SKIP_BUILD=1 APK_PATH=releases/demi-release-arm64-v8a.apk \
   pnpm --filter @workspace/second-brain run validate:android-apk
 ```
 

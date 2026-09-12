@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Build and smoke-check the standalone arm64 debug APK.
+ * Build and smoke-check the standalone arm64 release APK.
  *
  * Set SKIP_BUILD=1 to inspect an existing APK_PATH without running Gradle.
  * This is useful for release copies and for diagnosing a failed delivery
@@ -20,8 +20,8 @@ const defaultApkPath = path.join(
   'build',
   'outputs',
   'apk',
-  'debug',
-  'app-debug.apk',
+  'release',
+  'app-release.apk',
 );
 
 const documentedSdkPath =
@@ -138,14 +138,14 @@ function resolveAndroidEnvironment() {
 }
 
 function buildApk(androidEnvironment) {
-  console.log('Building arm64 debug APK with the documented constrained flags...');
+  console.log('Building arm64 release APK with the documented constrained flags...');
   run('pnpm', ['exec', 'expo', 'prebuild', '--platform', 'android'], {
     env: androidEnvironment.env,
   });
   run(
     './gradlew',
     [
-      'assembleDebug',
+      'assembleRelease',
       '--no-daemon',
       '--console=plain',
       '--max-workers=1',
@@ -166,7 +166,7 @@ function checkApk(apkPath, androidEnvironment) {
   if (!fs.existsSync(apkPath)) {
     fail(
       `APK is missing at ${apkPath}. The arm64 Gradle build did not produce ` +
-        'android/app/build/outputs/apk/debug/app-debug.apk.',
+        'android/app/build/outputs/apk/release/app-release.apk.',
     );
   }
 
