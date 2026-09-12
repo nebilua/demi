@@ -7,12 +7,17 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppProvider } from '@/context/AppContext';
 import { CalendarProvider } from '@/context/CalendarContext';
 import {
-  Rubik_400Regular,
-  Rubik_500Medium,
-  Rubik_600SemiBold,
-  Rubik_700Bold,
-  useFonts,
-} from '@expo-google-fonts/rubik';
+  SpaceGrotesk_400Regular,
+  SpaceGrotesk_500Medium,
+  SpaceGrotesk_600SemiBold,
+  SpaceGrotesk_700Bold,
+  useFonts as useSpaceGrotesk,
+} from '@expo-google-fonts/space-grotesk';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  useFonts as useInter,
+} from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -46,12 +51,20 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    Rubik_400Regular,
-    Rubik_500Medium,
-    Rubik_600SemiBold,
-    Rubik_700Bold,
+  const [spaceGroteskLoaded, spaceGroteskError] = useSpaceGrotesk({
+    SpaceGrotesk_400Regular,
+    SpaceGrotesk_500Medium,
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
   });
+
+  const [interLoaded, interError] = useInter({
+    Inter_400Regular,
+    Inter_500Medium,
+  });
+
+  const fontsLoaded = spaceGroteskLoaded && interLoaded;
+  const fontError = spaceGroteskError || interError;
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

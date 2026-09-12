@@ -1,6 +1,6 @@
 # Privacy
 
-Second Brain is designed so its core experience works without an account.
+Demi is designed so its core experience works without an account.
 
 ## Stored on the device
 
@@ -51,7 +51,7 @@ part of the default mobile flow.
 ## User responsibility
 
 Android speech and TTS engines are separate software selected and installed by
-the device owner. Second Brain checks the capabilities exposed by Android but
+the device owner. Demi checks the capabilities exposed by Android but
 cannot audit a third-party engine's implementation. Users should choose an
 engine they trust and install its offline language or voice data.
 

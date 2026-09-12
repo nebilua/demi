@@ -20,17 +20,12 @@ import {
 import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type Appearance } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
+import { formatBytes, RECOMMENDED_MODEL } from '@/lib/offlineLlm';
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
-];
-
-const speechRateOptions = [
-  { value: 0.82, label: 'Calm' },
-  { value: 0.92, label: 'Natural' },
-  { value: 1.08, label: 'Quick' },
 ];
 
 function SectionLabel({ children }: { children: string }) {
@@ -49,17 +44,19 @@ function SettingRow({
   title,
   description,
   children,
+  noBorder,
 }: {
   icon: keyof typeof Feather.glyphMap;
   title: string;
   description: string;
   children: React.ReactNode;
+  noBorder?: boolean;
 }) {
   const { settings } = useApp();
   const colors = useColors(settings.appearance);
 
   return (
-    <View style={[styles.settingRow, { borderBottomColor: colors.border }]}>
+    <View style={[styles.settingRow, !noBorder && { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
       <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
         <Feather name={icon} size={17} color={colors.primary} />
       </View>
@@ -83,57 +80,44 @@ export default function SettingsScreen() {
     settingsReady,
     updateSettings,
     profile,
-    savedTurnCount,
     memories,
     storageProtection,
     clearConversation,
     localModel,
     deviceCompatibility,
     engineStatus,
-    engineProgress,
     engineError,
     modelSetupStatus,
-    runtimeDetails,
-    voiceInputStatus,
     voiceInputAvailable,
     voiceOutputAvailable,
     voiceError,
-    voiceSetupMessage,
     voiceSetupInProgress,
-    isSpeaking,
     importModel,
-    loadModel,
+    downloadRecommendedModel,
+    cancelDownload,
+    downloadStatus,
+    downloadProgress,
+    downloadError,
     removeModel,
     installOfflineVoiceModel,
-    speakText,
-    stopSpeaking,
     openVoiceSettings,
     dismissVoiceError,
   } = useApp();
   const colors = useColors(settings.appearance);
   const insets = useSafeAreaInsets();
-  const androidApiLevel =
-    Platform.OS === 'android' && typeof Platform.Version === 'number'
-      ? Platform.Version
-      : null;
-  const requiresNewerAndroid =
-    androidApiLevel !== null && androidApiLevel < 33;
+
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
-  const modelOperationActive = modelSetupStatus !== 'idle';
+
+  const androidApiLevel = Platform.OS === 'android' && typeof Platform.Version === 'number' ? Platform.Version : null;
+  const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
 
   async function handleClearHistory() {
     setIsClearing(true);
     await clearConversation();
     setIsClearing(false);
     setShowClearConfirm(false);
-  }
-
-  async function handleRemoveModel() {
-    await removeModel();
-    setShowRemoveModelConfirm(false);
   }
 
   if (!settingsReady) {
@@ -146,1338 +130,269 @@ export default function SettingsScreen() {
   }
 
   return (
-    <SafeAreaView
-      edges={['top', 'bottom']}
-      style={[
-        styles.screen,
-        {
-          backgroundColor: colors.background,
-          paddingTop: Platform.OS === 'web' ? 67 : 0,
-          paddingBottom: Platform.OS === 'web' ? 34 : 0,
-        },
-      ]}
-    >
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.screen, { backgroundColor: colors.background }]}>
       <StatusBar style={colors.isDark ? 'light' : 'dark'} />
       <View style={styles.header}>
         <Pressable
-          testID="settings-back"
           accessibilityRole="button"
-          accessibilityLabel="Back to chat"
           onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.backButton,
-            { backgroundColor: colors.secondary },
-            pressed && styles.pressed,
-          ]}
+          style={({ pressed }) => [styles.backButton, { backgroundColor: colors.secondary }, pressed && styles.pressed]}
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />
         </Pressable>
-        <View style={styles.headerTitleGroup}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            Settings
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>
-            shape your private space
-          </Text>
-        </View>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Settings</Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: Math.max(28, insets.bottom + 28) },
-        ]}
-        contentInsetAdjustmentBehavior="never"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.intro}>
-          <Text style={[styles.eyebrow, { color: colors.primary }]}>
-            YOUR CONTROL CENTER
-          </Text>
-          <Text style={[styles.pageTitle, { color: colors.foreground }]}>
-            Make it yours.
-          </Text>
-          <Text style={[styles.pageDescription, { color: colors.mutedForeground }]}>
-            Everything here stays on this device. No account or cloud connection
-            is required.
-          </Text>
-        </View>
-
-        <SectionLabel>PERSONAL CONTEXT</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(28, insets.bottom + 28) }]} showsVerticalScrollIndicator={false}>
+        <SectionLabel>Personal context</SectionLabel>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.profileSummary}>
             <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
               <Feather name="user" size={17} color={colors.primary} />
             </View>
             <View style={styles.rowCopy}>
-              <View style={styles.engineTitleLine}>
-                <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                  {profile.displayName ? `For ${profile.displayName}` : 'No local profile yet'}
-                </Text>
-                <View style={[styles.availablePill, { backgroundColor: colors.accent }]}>
-                  <Text style={[styles.availableText, { color: colors.accentForeground }]}>
-                    {profile.displayName || profile.context ? 'ACTIVE' : 'OPTIONAL'}
-                  </Text>
-                </View>
-              </View>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                {profile.displayName ? profile.displayName : 'No profile'}
+              </Text>
               <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-                {profile.displayName || profile.context
-                  ? 'Used only to tailor replies from your offline model'
-                  : 'Add a name, goals, routines, or response preferences'}
+                Personal context for offline replies
               </Text>
             </View>
+            <Pressable onPress={() => setShowProfileEditor(true)} style={({ pressed }) => [styles.smallButton, { backgroundColor: colors.secondary }, pressed && styles.pressed]}>
+              <Text style={[styles.smallButtonText, { color: colors.secondaryForeground }]}>Edit</Text>
+            </Pressable>
           </View>
-          {(profile.displayName || profile.context) && (
-            <Text
-              numberOfLines={2}
-              style={[styles.profilePreview, { color: colors.mutedForeground }]}
-            >
-              {profile.context || 'Preferred name saved locally'}
-            </Text>
-          )}
-          <Pressable
-            testID="edit-profile"
-            accessibilityRole="button"
-            accessibilityLabel="Edit local profile"
-            onPress={() => setShowProfileEditor(true)}
-            style={({ pressed }) => [
-              styles.profileButton,
-              { borderColor: colors.border },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Feather name="edit-2" size={14} color={colors.primary} />
-            <Text style={[styles.profileButtonText, { color: colors.primary }]}>
-              {profile.displayName || profile.context ? 'Edit profile' : 'Add local context'}
-            </Text>
-          </Pressable>
         </View>
 
-        <Pressable
-          testID="settings-open-memories"
-          accessibilityRole="button"
-          accessibilityLabel="Open memory vault"
-          onPress={() => router.push('/memories')}
-          style={({ pressed }) => [
-            styles.calendarLink,
-            { backgroundColor: colors.card, borderColor: colors.border },
-            pressed && styles.pressed,
-          ]}
-        >
+        <Pressable onPress={() => router.push('/memories' as any)} style={({ pressed }) => [styles.linkCard, { backgroundColor: colors.card, borderColor: colors.border }, pressed && styles.pressed]}>
           <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
             <Feather name="bookmark" size={17} color={colors.accentForeground} />
           </View>
           <View style={styles.rowCopy}>
-            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-              Memory vault · {memories.length}
-            </Text>
-            <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-              {storageProtection === 'encrypted-on-android'
-                ? 'Review memories encrypted on this device'
-                : 'Stored locally; browser preview is not Keystore-encrypted'}
-            </Text>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>Memory vault</Text>
+            <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>{memories.length} saved</Text>
           </View>
           <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
         </Pressable>
 
-        <SectionLabel>APPEARANCE</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.cardHeading}>
-            <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
-              <Feather name="sun" size={17} color={colors.primary} />
-            </View>
-            <View style={styles.rowCopy}>
-              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                Theme
+        <SectionLabel>Offline setup</SectionLabel>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.readinessItem}>
+            <View style={styles.readinessHeader}>
+              <Feather name="cpu" size={16} color={localModel ? colors.primary : colors.mutedForeground} />
+              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                1. Local model
               </Text>
-              <Text
-                style={[styles.rowDescription, { color: colors.mutedForeground }]}
-              >
-                Choose how Second Brain looks
-              </Text>
+              {localModel && <Feather name="check-circle" size={14} color={colors.primary} />}
             </View>
-          </View>
-          <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
-            {appearanceOptions.map((option) => {
-              const selected = settings.appearance === option.value;
-              return (
-                <Pressable
-                  key={option.value}
-                  testID={`appearance-${option.value}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => updateSettings({ appearance: option.value })}
-                  style={[
-                    styles.segment,
-                    selected && {
-                      backgroundColor: colors.card,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      {
-                        color: selected
-                          ? colors.cardForeground
-                          : colors.mutedForeground,
-                      },
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
 
-        <SectionLabel>CONVERSATION</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <SettingRow
-            icon="save"
-            title="Save conversations"
-            description={
-              settings.saveConversations
-                ? 'New messages are saved on this device'
-                : 'New messages disappear when this session ends'
-            }
-          >
-            <Switch
-              testID="save-conversations"
-              value={settings.saveConversations}
-              onValueChange={(value) =>
-                updateSettings({ saveConversations: value })
-              }
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.saveConversations
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-              ios_backgroundColor={colors.secondary}
-            />
-          </SettingRow>
-          <SettingRow
-            icon="volume-2"
-            title="Haptic feedback"
-            description="A light tap confirms your messages"
-          >
-            <Switch
-              testID="haptics"
-              value={settings.hapticsEnabled}
-              onValueChange={(value) =>
-                updateSettings({ hapticsEnabled: value })
-              }
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.hapticsEnabled
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-              ios_backgroundColor={colors.secondary}
-            />
-          </SettingRow>
-        </View>
-
-        <SectionLabel>IMPORTANT DATES</SectionLabel>
-        <Pressable
-          testID="settings-open-calendar"
-          accessibilityRole="button"
-          accessibilityLabel="Open important dates calendar"
-          onPress={() => router.push('/calendar')}
-          style={({ pressed }) => [
-            styles.calendarLink,
-            { backgroundColor: colors.card, borderColor: colors.border },
-            pressed && styles.pressed,
-          ]}
-        >
-          <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
-            <Feather name="calendar" size={17} color={colors.accentForeground} />
-          </View>
-          <View style={styles.rowCopy}>
-            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-              People & dates
-            </Text>
-            <Text
-              style={[styles.rowDescription, { color: colors.mutedForeground }]}
-            >
-              Birthdays, anniversaries, and local device reminders
-            </Text>
-          </View>
-          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
-        </Pressable>
-
-        <SectionLabel>LOCAL VOICE</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <SettingRow
-            icon="mic"
-            title="Offline voice input"
-            description={
-              settings.voiceInputEnabled
-                ? 'Speech becomes editable text before sending'
-                : 'The microphone button is hidden from use'
-            }
-          >
-            <Switch
-              testID="voice-input-enabled"
-              value={settings.voiceInputEnabled}
-              onValueChange={(value) =>
-                updateSettings({ voiceInputEnabled: value })
-              }
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.voiceInputEnabled
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-              ios_backgroundColor={colors.secondary}
-            />
-          </SettingRow>
-          <SettingRow
-            icon="volume-2"
-            title="Spoken replies"
-            description={
-              settings.spokenRepliesEnabled
-                ? 'New answers play through the local device voice'
-                : 'Tap Speak on any answer to listen manually'
-            }
-          >
-            <Switch
-              testID="spoken-replies-enabled"
-              value={settings.spokenRepliesEnabled}
-              onValueChange={(value) =>
-                updateSettings({ spokenRepliesEnabled: value })
-              }
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.spokenRepliesEnabled
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-              ios_backgroundColor={colors.secondary}
-            />
-          </SettingRow>
-          <View style={styles.voiceSummary}>
-            <View style={[styles.engineIcon, { backgroundColor: colors.accent }]}>
-              <Feather
-                name={voiceInputAvailable ? 'radio' : 'download-cloud'}
-                size={19}
-                color={colors.primary}
-              />
-            </View>
-            <View style={styles.rowCopy}>
-              <View style={styles.engineTitleLine}>
-                <Text
-                  numberOfLines={2}
-                  ellipsizeMode="tail"
-                  style={[
-                    styles.rowTitle,
-                    styles.engineName,
-                    { color: colors.cardForeground },
-                  ]}
-                >
-                  Android on-device voice
+            {!localModel && (downloadStatus === 'idle' || downloadStatus === 'error') && (
+              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>{RECOMMENDED_MODEL.name}</Text>
+                <Text style={[styles.downloadMeta, { color: colors.mutedForeground }]}>
+                  {formatBytes(RECOMMENDED_MODEL.sizeBytes)} · {RECOMMENDED_MODEL.license} · {RECOMMENDED_MODEL.source}
                 </Text>
-                <View
-                  style={[styles.availablePill, { backgroundColor: colors.accent }]}
-                >
-                  <Text
-                    style={[
-                      styles.availableText,
-                      { color: colors.accentForeground },
-                    ]}
-                  >
-                    {voiceInputAvailable && voiceOutputAvailable
-                      ? 'READY'
-                      : voiceInputAvailable
-                        ? 'INPUT READY'
-                        : voiceOutputAvailable
-                          ? 'TTS READY'
-                      : voiceInputStatus === 'checking'
-                        ? 'CHECKING'
-                        : requiresNewerAndroid
-                          ? '13+ ONLY'
-                        : Platform.OS === 'web'
-                          ? 'ANDROID'
-                          : 'SETUP'}
-                  </Text>
-                </View>
-              </View>
-              <Text
-                style={[styles.rowDescription, { color: colors.mutedForeground }]}
-              >
-                {voiceInputAvailable && voiceOutputAvailable
-                  ? 'Offline input and spoken replies are ready'
-                  : voiceInputAvailable
-                    ? 'Input is ready · install an offline TTS voice for replies'
-                    : voiceOutputAvailable
-                      ? 'Spoken replies are ready · install offline input data'
-                  : requiresNewerAndroid
-                    ? 'Enforced offline recognition requires Android 13+'
-                  : 'Install the English offline language pack'}
-              </Text>
-            </View>
-          </View>
-          <View style={[styles.setupGuide, { backgroundColor: colors.secondary }]}>
-            <View style={styles.setupGuideHeading}>
-              <Feather name="help-circle" size={14} color={colors.primary} />
-              <Text style={[styles.setupGuideTitle, { color: colors.cardForeground }]}>
-                How local voice works
-              </Text>
-            </View>
-            <Text style={[styles.setupGuideText, { color: colors.mutedForeground }]}>
-              Offline voice input turns speech into editable text with Android's
-              on-device recognition language pack. Spoken replies use a separate
-              Android text-to-speech engine and an installed offline voice. The GGUF
-              model below is separate again: it generates the private text replies.
-            </Text>
-          </View>
-          <View style={[styles.infoRow, { backgroundColor: colors.secondary }]}>
-            <Feather
-              name={voiceError ? 'alert-circle' : 'shield'}
-              size={14}
-              color={voiceError ? colors.destructive : colors.mutedForeground}
-            />
-            <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
-              {voiceError ??
-                voiceSetupMessage ??
-                (Platform.OS === 'web'
-                  ? 'Offline listening requires the installed Android build. The browser preview remains text-only.'
-                  : voiceOutputAvailable
-                    ? 'Recognition and speech use voice data installed on this phone.'
-                    : 'Install an Android text-to-speech voice for spoken replies.')}
-            </Text>
-            {(voiceError || voiceSetupMessage) && (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Dismiss voice message"
-                onPress={dismissVoiceError}
-                hitSlop={10}
-                style={({ pressed }) => pressed && styles.pressed}
-              >
-                <Feather name="x" size={16} color={colors.mutedForeground} />
-              </Pressable>
-            )}
-          </View>
-          <View style={styles.modelActions}>
-            <Pressable
-              testID="install-offline-language"
-              accessibilityRole="button"
-              accessibilityLabel="Install English offline recognition"
-              onPress={installOfflineVoiceModel}
-              disabled={voiceSetupInProgress}
-              style={({ pressed }) => [
-                styles.primaryModelButton,
-                { backgroundColor: colors.primary },
-                voiceSetupInProgress && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-            >
-              {voiceSetupInProgress ? (
-                <ActivityIndicator size="small" color={colors.primaryForeground} />
-              ) : (
-                <Feather
-                  name="download"
-                  size={15}
-                  color={colors.primaryForeground}
-                />
-              )}
-              <Text
-                style={[
-                  styles.modelButtonText,
-                  { color: colors.primaryForeground },
-                ]}
-              >
-                {voiceSetupInProgress
-                  ? 'Checking offline English…'
-                  : 'Manage offline English'}
-              </Text>
-            </Pressable>
-            <Pressable
-              testID="open-voice-settings"
-              accessibilityRole="button"
-              accessibilityLabel="Open Android text-to-speech settings"
-              onPress={openVoiceSettings}
-              style={({ pressed }) => [
-                styles.secondaryModelButton,
-                { borderColor: colors.border },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Feather name="settings" size={15} color={colors.primary} />
-            </Pressable>
-            <Pressable
-              testID="preview-local-voice"
-              accessibilityRole="button"
-              accessibilityLabel={
-                isSpeaking ? 'Stop local voice preview' : 'Preview local voice'
-              }
-              onPress={() =>
-                isSpeaking
-                  ? void stopSpeaking()
-                  : void speakText('Second Brain is ready to think with you.')
-              }
-              style={({ pressed }) => [
-                styles.secondaryModelButton,
-                { borderColor: colors.border },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Feather
-                name={isSpeaking ? 'square' : 'play'}
-                size={15}
-                color={colors.primary}
-              />
-            </Pressable>
-          </View>
-          <View style={[styles.pacePanel, { borderTopColor: colors.border }]}>
-            <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
-              SPEAKING PACE
-            </Text>
-            <View
-              style={[styles.segmented, styles.paceSegments, { backgroundColor: colors.secondary }]}
-            >
-              {speechRateOptions.map((option) => {
-                const selected = settings.speechRate === option.value;
-                return (
-                  <Pressable
-                    key={option.label}
-                    testID={`speech-rate-${option.label.toLowerCase()}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    onPress={() => updateSettings({ speechRate: option.value })}
-                    style={[
-                      styles.segment,
-                      selected && {
-                        backgroundColor: colors.card,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.segmentText,
-                        {
-                          color: selected
-                            ? colors.cardForeground
-                            : colors.mutedForeground,
-                        },
-                      ]}
-                    >
-                      {option.label}
+                <View style={styles.downloadActions}>
+                  <Pressable testID="download-recommended" accessibilityRole="button" onPress={downloadRecommendedModel} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, pressed && styles.pressed]}>
+                    <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>
+                      {downloadStatus === 'error' ? 'Retry download' : 'Download model'}
                     </Text>
                   </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </View>
-
-        <SectionLabel>LOCAL ENGINE</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.engineRow}>
-            <View style={[styles.engineIcon, { backgroundColor: colors.accent }]}>
-              <Feather name="cpu" size={19} color={colors.primary} />
-            </View>
-            <View style={styles.rowCopy}>
-              <View style={styles.engineTitleLine}>
-                <Text
-                  numberOfLines={2}
-                  ellipsizeMode="tail"
-                  style={[
-                    styles.rowTitle,
-                    styles.engineName,
-                    { color: colors.cardForeground },
-                  ]}
-                >
-                  {localModel?.name ?? 'No model selected'}
-                </Text>
-                <View style={[styles.availablePill, { backgroundColor: colors.accent }]}>
-                  <Text
-                    style={[
-                      styles.availableText,
-                      { color: colors.accentForeground },
-                    ]}
-                  >
-                    {modelSetupStatus === 'copying'
-                      ? 'IMPORTING'
-                      : modelSetupStatus === 'validating'
-                        ? 'CHECKING'
-                        : modelSetupStatus === 'loading'
-                          ? 'LOADING'
-                          : engineStatus === 'ready'
-                      ? 'ACTIVE'
-                          : 'SETUP'}
-                  </Text>
+                  <Pressable testID="import-model-manual" accessibilityRole="button" onPress={importModel} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border }, pressed && styles.pressed]}>
+                    <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>Import GGUF</Text>
+                  </Pressable>
                 </View>
               </View>
-              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-                {localModel
-                  ? `${localModel.contextSize.toLocaleString()} token context · ${(
-                      localModel.sizeBytes /
-                      (1024 * 1024 * 1024)
-                    ).toFixed(1)} GB`
-                  : 'Import a quantized .gguf model from this device'}
-              </Text>
-            </View>
-          </View>
-          <View style={[styles.infoRow, { backgroundColor: colors.secondary }]}>
-            <Feather name="info" size={14} color={colors.mutedForeground} />
-            <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
-              {modelSetupStatus === 'selecting'
-                ? 'Choose a model file ending in .gguf.'
-                : modelSetupStatus === 'copying'
-                  ? 'Copying the model into Second Brain. Keep this screen open…'
-                  : modelSetupStatus === 'validating'
-                    ? 'Checking the GGUF header, size, and available storage…'
-                    : modelSetupStatus === 'loading'
-                      ? `Loading model into memory · ${Math.round(engineProgress)}%`
-                : engineError ??
-                  (deviceCompatibility.nativeRuntimeAvailable
-                    ? deviceCompatibility.recommendation
-                    : 'The browser preview cannot run llama.cpp. Use the installed Android app to import and run a model.')}
-            </Text>
-          </View>
-          {(modelSetupStatus === 'copying' ||
-            modelSetupStatus === 'validating' ||
-            modelSetupStatus === 'loading') && (
-            <View style={[styles.progressTrack, { backgroundColor: colors.secondary }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    backgroundColor: colors.primary,
-                    width:
-                      modelSetupStatus === 'loading'
-                        ? `${Math.max(2, engineProgress)}%`
-                        : modelSetupStatus === 'copying'
-                          ? '42%'
-                          : '76%',
-                  },
-                ]}
-              />
-            </View>
-          )}
-          <View style={[styles.setupGuide, { backgroundColor: colors.secondary }]}>
-            <View style={styles.setupGuideHeading}>
-              <Feather name="download" size={14} color={colors.primary} />
-              <Text style={[styles.setupGuideTitle, { color: colors.cardForeground }]}>
-                Recommended private model path
-              </Text>
-            </View>
-            <Text style={[styles.setupGuideText, { color: colors.mutedForeground }]}>
-              Download a compatible Q4_K_M GGUF model yourself, preferably a small
-              1–3B model that fits the memory and storage shown below. Model weights
-              are never bundled in this APK. Importing does not use the network.
-            </Text>
-          </View>
-          <View style={styles.modelActions}>
-            <Pressable
-              testID="import-model"
-              accessibilityRole="button"
-              accessibilityLabel={localModel ? 'Choose another GGUF model' : 'Import GGUF model'}
-              onPress={importModel}
-              disabled={modelOperationActive}
-              style={({ pressed }) => [
-                styles.primaryModelButton,
-                { backgroundColor: colors.primary },
-                modelOperationActive && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Feather name="folder-plus" size={15} color={colors.primaryForeground} />
-              <Text style={[styles.modelButtonText, { color: colors.primaryForeground }]}>
-                {modelSetupStatus === 'selecting'
-                  ? 'Choose a file…'
-                  : localModel
-                    ? 'Choose another'
-                    : 'Import GGUF model'}
-              </Text>
-            </Pressable>
-            {localModel && engineStatus !== 'ready' && !modelOperationActive && (
-              <Pressable
-                testID="retry-model-load"
-                accessibilityRole="button"
-                onPress={() => loadModel()}
-                style={({ pressed }) => [
-                  styles.secondaryModelButton,
-                  { borderColor: colors.border },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Feather name="refresh-cw" size={15} color={colors.primary} />
-              </Pressable>
             )}
-            {localModel && !modelOperationActive && (
-              <Pressable
-                testID="remove-model"
-                accessibilityRole="button"
-                accessibilityLabel="Remove local model"
-                onPress={() => setShowRemoveModelConfirm(true)}
-                style={({ pressed }) => [
-                  styles.secondaryModelButton,
-                  { borderColor: colors.border },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Feather name="trash-2" size={15} color={colors.destructive} />
+
+            {downloadStatus === 'downloading' && (
+              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>Downloading...</Text>
+                <View style={[styles.progressBar, { backgroundColor: colors.secondary }]}>
+                  <View style={[styles.progressFill, { backgroundColor: colors.primary, width: `${downloadProgress}%` }]} />
+                </View>
+                <Pressable testID="cancel-download" accessibilityRole="button" onPress={cancelDownload} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border, marginTop: 12 }, pressed && styles.pressed]}>
+                  <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>Cancel</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {(downloadStatus === 'validating' || downloadStatus === 'loading' || modelSetupStatus === 'copying' || modelSetupStatus === 'loading' || modelSetupStatus === 'validating') && (
+              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
+                <ActivityIndicator color={colors.primary} style={{ alignSelf: 'flex-start' }} />
+                <Text style={[styles.downloadMeta, { color: colors.mutedForeground, marginTop: 8 }]}>
+                  {downloadStatus === 'validating' ? 'Validating checksum...' : 'Loading local model...'}
+                </Text>
+              </View>
+            )}
+
+            {localModel && (
+              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>{localModel.name}</Text>
+                <Text style={[styles.downloadMeta, { color: colors.mutedForeground }]}>{formatBytes(localModel.sizeBytes)} · Active</Text>
+                <Pressable onPress={removeModel} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border, marginTop: 12 }, pressed && styles.pressed]}>
+                  <Text style={[styles.secondaryButtonText, { color: colors.destructive }]}>Remove</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {(downloadError || engineError) && (
+              <Text style={[styles.errorText, { color: colors.destructive, marginTop: 8 }]}>
+                {downloadError || engineError}
+              </Text>
+            )}
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          <View style={styles.readinessItem}>
+            <View style={styles.readinessHeader}>
+              <Feather name="mic" size={16} color={voiceInputAvailable ? colors.primary : colors.mutedForeground} />
+              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                2. Speech input
+              </Text>
+              {voiceInputAvailable && <Feather name="check-circle" size={14} color={colors.primary} />}
+            </View>
+            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
+              {voiceInputAvailable ? 'Offline dictation ready.' : requiresNewerAndroid ? 'Requires Android 13+.' : 'Install English offline language pack.'}
+            </Text>
+            {!voiceInputAvailable && !requiresNewerAndroid && !!localModel && (
+              <Pressable onPress={installOfflineVoiceModel} disabled={voiceSetupInProgress} style={({ pressed }) => [styles.smallPrimaryButton, { backgroundColor: colors.primary, marginTop: 10 }, pressed && styles.pressed]}>
+                  {voiceSetupInProgress ? <ActivityIndicator size="small" color={colors.primaryForeground} /> : <Text style={[styles.smallPrimaryButtonText, { color: colors.primaryForeground }]}>Install speech data</Text>}
               </Pressable>
             )}
           </View>
-          <View style={[styles.devicePanel, { borderTopColor: colors.border }]}>
-            <View style={styles.deviceMetric}>
-              <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
-                DEVICE
-              </Text>
-              <Text style={[styles.metricValue, { color: colors.cardForeground }]}>
-                {deviceCompatibility.deviceName}
-              </Text>
-            </View>
-            <View style={styles.deviceMetric}>
-              <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
-                MEMORY
-              </Text>
-              <Text style={[styles.metricValue, { color: colors.cardForeground }]}>
-                {deviceCompatibility.memoryLabel}
-              </Text>
-            </View>
-            <View style={styles.deviceMetric}>
-              <Text style={[styles.metricLabel, { color: colors.mutedForeground }]}>
-                CONTEXT
-              </Text>
-              <Text style={[styles.metricValue, { color: colors.cardForeground }]}>
-                {(localModel?.contextSize ?? deviceCompatibility.contextSize).toLocaleString()}
-              </Text>
-            </View>
-          </View>
-          {runtimeDetails && (
-            <Text style={[styles.runtimeText, { color: colors.mutedForeground }]}>
-              llama.cpp · {runtimeDetails.gpuEnabled ? 'GPU' : 'CPU'} ·{' '}
-              {runtimeDetails.modelDescription}
-            </Text>
-          )}
-        </View>
 
-        <SectionLabel>LOCAL DATA</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.storageSummary}>
-            <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
-              <Feather name="database" size={17} color={colors.primary} />
-            </View>
-            <View style={styles.rowCopy}>
-              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                Saved conversation
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          <View style={styles.readinessItem}>
+            <View style={styles.readinessHeader}>
+              <Feather name="volume-2" size={16} color={voiceOutputAvailable ? colors.primary : colors.mutedForeground} />
+              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                3. Spoken replies
               </Text>
-              <Text
-                style={[styles.rowDescription, { color: colors.mutedForeground }]}
-              >
-                {savedTurnCount === 0
-                  ? 'No messages stored yet'
-                  : `${savedTurnCount} ${
-                      savedTurnCount === 1 ? 'message' : 'messages'
-                    } stored on this device`}
-              </Text>
+              {voiceOutputAvailable && <Feather name="check-circle" size={14} color={colors.primary} />}
             </View>
-          </View>
-          <Pressable
-            testID="clear-history"
-            accessibilityRole="button"
-            accessibilityLabel="Clear conversation history"
-            onPress={() => setShowClearConfirm(true)}
-            disabled={isClearing || savedTurnCount === 0}
-            style={({ pressed }) => [
-              styles.clearButton,
-              { borderColor: colors.destructive },
-              (isClearing || savedTurnCount === 0) && styles.disabled,
-              pressed && savedTurnCount > 0 && styles.pressed,
-            ]}
-          >
-            {isClearing ? (
-              <ActivityIndicator size="small" color={colors.destructive} />
-            ) : (
-              <Feather name="trash-2" size={15} color={colors.destructive} />
+            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
+              {voiceOutputAvailable ? 'Offline TTS ready.' : 'Verify or install an offline TTS voice.'}
+            </Text>
+            {!voiceOutputAvailable && voiceInputAvailable && !!localModel && (
+              <Pressable onPress={openVoiceSettings} style={({ pressed }) => [styles.smallPrimaryButton, { backgroundColor: colors.primary, marginTop: 10 }, pressed && styles.pressed]}>
+                <Text style={[styles.smallPrimaryButtonText, { color: colors.primaryForeground }]}>Install a voice</Text>
+              </Pressable>
             )}
-            <Text
-              style={[
-                styles.clearText,
-                {
-                  color:
-                    savedTurnCount === 0
-                      ? colors.mutedForeground
-                      : colors.destructive,
-                },
-              ]}
-            >
-              Clear history
-            </Text>
-          </Pressable>
+          </View>
         </View>
 
-        <View style={styles.footer}>
-          <Feather name="lock" size={13} color={colors.mutedForeground} />
-          <Text style={[styles.footerText, { color: colors.mutedForeground }]}>
-            Second Brain is local-first by design.
-          </Text>
+        <SectionLabel>Preferences</SectionLabel>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingRow icon="mic" title="Offline voice input" description="Use mic for dictation">
+            <Switch value={settings.voiceInputEnabled} onValueChange={(v) => updateSettings({ voiceInputEnabled: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.voiceInputEnabled ? colors.accentForeground : colors.mutedForeground} />
+          </SettingRow>
+          <SettingRow icon="volume-2" title="Spoken replies" description="Read new replies aloud">
+            <Switch value={settings.spokenRepliesEnabled} onValueChange={(v) => updateSettings({ spokenRepliesEnabled: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.spokenRepliesEnabled ? colors.accentForeground : colors.mutedForeground} />
+          </SettingRow>
+          <SettingRow icon="save" title="Save history" description="Keep conversations">
+            <Switch value={settings.saveConversations} onValueChange={(v) => updateSettings({ saveConversations: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.saveConversations ? colors.accentForeground : colors.mutedForeground} />
+          </SettingRow>
+          <SettingRow icon="smartphone" title="Haptic feedback" description="Light tap on send" noBorder>
+            <Switch value={settings.hapticsEnabled} onValueChange={(v) => updateSettings({ hapticsEnabled: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.hapticsEnabled ? colors.accentForeground : colors.mutedForeground} />
+          </SettingRow>
         </View>
+
+        <SectionLabel>Appearance</SectionLabel>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+            {appearanceOptions.map((option) => (
+              <Pressable
+                key={option.value}
+                onPress={() => updateSettings({ appearance: option.value })}
+                style={[styles.segment, settings.appearance === option.value && { backgroundColor: colors.card, borderColor: colors.border }]}
+              >
+                <Text style={[styles.segmentText, { color: settings.appearance === option.value ? colors.cardForeground : colors.mutedForeground }]}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <Pressable onPress={() => setShowClearConfirm(true)} style={({ pressed }) => [styles.dangerCard, { backgroundColor: colors.card, borderColor: colors.destructive }, pressed && styles.pressed]}>
+          <Feather name="trash-2" size={16} color={colors.destructive} />
+          <Text style={[styles.dangerText, { color: colors.destructive }]}>Clear conversation history</Text>
+        </Pressable>
+
       </ScrollView>
-      <PersonalProfileEditor
-        visible={showProfileEditor}
-        mode="settings"
-        onClose={() => setShowProfileEditor(false)}
-      />
 
-      <Modal
-        visible={showClearConfirm}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => setShowClearConfirm(false)}
-      >
-        <View
-          style={[
-            styles.modalBackdrop,
-            {
-              paddingTop: Math.max(24, insets.top + 12),
-              paddingBottom: Math.max(24, insets.bottom + 12),
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.confirmCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <View
-              style={[
-                styles.confirmIcon,
-                { backgroundColor: colors.secondary },
-              ]}
-            >
-              <Feather name="trash-2" size={20} color={colors.destructive} />
-            </View>
-            <Text style={[styles.confirmTitle, { color: colors.cardForeground }]}>
-              Clear conversation history?
-            </Text>
-            <Text
-              style={[
-                styles.confirmDescription,
-                { color: colors.mutedForeground },
-              ]}
-            >
-              This permanently removes the saved conversation from this device.
-              It cannot be undone.
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                testID="cancel-clear-history"
-                accessibilityRole="button"
-                onPress={() => setShowClearConfirm(false)}
-                style={({ pressed }) => [
-                  styles.confirmButton,
-                  { backgroundColor: colors.secondary },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.confirmButtonText,
-                    { color: colors.secondaryForeground },
-                  ]}
-                >
-                  Cancel
-                </Text>
+      <Modal visible={showClearConfirm} transparent animationType="fade" onRequestClose={() => setShowClearConfirm(false)}>
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.5)' }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>Clear history?</Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>This removes all past messages. Memories and settings are kept.</Text>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setShowClearConfirm(false)} style={styles.modalButton}>
+                <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>Cancel</Text>
               </Pressable>
-              <Pressable
-                testID="confirm-clear-history"
-                accessibilityRole="button"
-                onPress={handleClearHistory}
-                disabled={isClearing}
-                style={({ pressed }) => [
-                  styles.confirmButton,
-                  { backgroundColor: colors.destructive },
-                  pressed && styles.pressed,
-                ]}
-              >
-                {isClearing ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.destructiveForeground}
-                  />
-                ) : (
-                  <Text
-                    style={[
-                      styles.confirmButtonText,
-                      { color: colors.destructiveForeground },
-                    ]}
-                  >
-                    Clear history
-                  </Text>
-                )}
+              <Pressable onPress={handleClearHistory} style={styles.modalButton}>
+                <Text style={[styles.modalButtonText, { color: colors.destructive }]}>Clear</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
-      <Modal
-        visible={showRemoveModelConfirm}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={() => setShowRemoveModelConfirm(false)}
-      >
-        <View
-          style={[
-            styles.modalBackdrop,
-            {
-              paddingTop: Math.max(24, insets.top + 12),
-              paddingBottom: Math.max(24, insets.bottom + 12),
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.confirmCard,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-          >
-            <View style={[styles.confirmIcon, { backgroundColor: colors.secondary }]}>
-              <Feather name="cpu" size={20} color={colors.destructive} />
-            </View>
-            <Text style={[styles.confirmTitle, { color: colors.cardForeground }]}>
-              Remove this model?
-            </Text>
-            <Text style={[styles.confirmDescription, { color: colors.mutedForeground }]}>
-              The GGUF file will be deleted from Second Brain. Your conversation history
-              will stay on this device.
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                testID="cancel-remove-model"
-                accessibilityRole="button"
-                onPress={() => setShowRemoveModelConfirm(false)}
-                style={({ pressed }) => [
-                  styles.confirmButton,
-                  { backgroundColor: colors.secondary },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={[styles.confirmButtonText, { color: colors.secondaryForeground }]}>
-                  Cancel
-                </Text>
-              </Pressable>
-              <Pressable
-                testID="confirm-remove-model"
-                accessibilityRole="button"
-                onPress={handleRemoveModel}
-                style={({ pressed }) => [
-                  styles.confirmButton,
-                  { backgroundColor: colors.destructive },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={[styles.confirmButtonText, { color: colors.destructiveForeground }]}>
-                  Remove model
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+
+      <PersonalProfileEditor visible={showProfileEditor} mode="settings" onClose={() => setShowProfileEditor(false)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   screen: { flex: 1 },
-  loadingScreen: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  header: {
-    minHeight: 72,
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitleGroup: { flex: 1, alignItems: 'center', marginHorizontal: 12 },
-  headerTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 17,
-    letterSpacing: -0.4,
-  },
-  headerSubtitle: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 10,
-    marginTop: 2,
-  },
-  headerSpacer: { width: 38 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 28 },
-  intro: { paddingTop: 14, paddingBottom: 25 },
-  eyebrow: {
-    fontFamily: 'Rubik_700Bold',
-    fontSize: 10,
-    letterSpacing: 1.4,
-    marginBottom: 9,
-  },
-  pageTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 32,
-    lineHeight: 38,
-    letterSpacing: -1.1,
-    marginBottom: 8,
-  },
-  pageDescription: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 14,
-    lineHeight: 21,
-    maxWidth: 340,
-  },
-  sectionLabel: {
-    fontFamily: 'Rubik_700Bold',
-    fontSize: 10,
-    letterSpacing: 1.25,
-    marginBottom: 9,
-    marginTop: 4,
-  },
-  card: {
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    marginBottom: 23,
-  },
-  calendarLink: {
-    minHeight: 72,
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    marginBottom: 23,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  profileSummary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  profilePreview: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 11,
-    lineHeight: 16,
-    marginLeft: 47,
-    marginTop: -4,
-    marginBottom: 10,
-  },
-  profileButton: {
-    minHeight: 40,
-    borderWidth: 1,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    marginBottom: 8,
-  },
-  profileButtonText: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 11,
-  },
-  settingRow: {
-    minHeight: 70,
-    paddingVertical: 11,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-  rowCopy: { flex: 1 },
-  rowTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  rowDescription: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
-  },
-  segmented: {
-    borderRadius: 12,
-    padding: 3,
-    flexDirection: 'row',
-    marginBottom: 9,
-  },
-  segment: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    borderRadius: 9,
-    paddingVertical: 9,
-    alignItems: 'center',
-  },
-  segmentText: { fontFamily: 'Rubik_500Medium', fontSize: 11 },
-  engineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  engineIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-  engineTitleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  engineName: { flex: 1, flexShrink: 1 },
-  availablePill: {
-    borderRadius: 99,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  availableText: {
-    fontFamily: 'Rubik_700Bold',
-    fontSize: 8,
-    letterSpacing: 0.8,
-  },
-  setupGuide: {
-    borderRadius: 11,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    marginBottom: 9,
-  },
-  setupGuideHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    marginBottom: 4,
-  },
-  setupGuideTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  setupGuideText: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 10,
-    lineHeight: 15,
-  },
-  infoRow: {
-    borderRadius: 11,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    marginBottom: 9,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 7,
-  },
-  infoText: {
-    flex: 1,
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 10,
-    lineHeight: 15,
-  },
-  progressTrack: {
-    height: 6,
-    borderRadius: 99,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  progressFill: { height: '100%', borderRadius: 99 },
-  modelActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  primaryModelButton: {
-    flex: 1,
-    minHeight: 42,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-  },
-  secondaryModelButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modelButtonText: { fontFamily: 'Rubik_600SemiBold', fontSize: 11 },
-  voiceSummary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 13,
-    paddingBottom: 10,
-  },
-  pacePanel: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 11,
-    paddingBottom: 2,
-  },
-  paceSegments: { marginTop: 7, marginBottom: 4 },
-  devicePanel: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 11,
-    paddingBottom: 7,
-    flexDirection: 'row',
-  },
-  deviceMetric: { flex: 1 },
-  metricLabel: {
-    fontFamily: 'Rubik_700Bold',
-    fontSize: 8,
-    letterSpacing: 0.8,
-    marginBottom: 4,
-  },
-  metricValue: {
-    fontFamily: 'Rubik_500Medium',
-    fontSize: 10,
-    lineHeight: 14,
-  },
-  runtimeText: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 9,
-    lineHeight: 13,
-    paddingBottom: 9,
-  },
-  storageSummary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  clearButton: {
-    minHeight: 41,
-    borderWidth: 1,
-    borderRadius: 12,
-    marginBottom: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 7,
-  },
-  clearText: { fontFamily: 'Rubik_600SemiBold', fontSize: 12 },
-  disabled: { opacity: 0.5 },
-  footer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 8,
-  },
-  footerText: { fontFamily: 'Rubik_400Regular', fontSize: 11 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.66)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  confirmCard: {
-    width: '100%',
-    maxWidth: 370,
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: 20,
-  },
-  confirmIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 17,
-  },
-  confirmTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 20,
-    lineHeight: 26,
-    letterSpacing: -0.5,
-    marginBottom: 8,
-  },
-  confirmDescription: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  confirmActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  confirmButton: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  confirmButtonText: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 12,
-  },
-  pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
+  header: { height: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 18 },
+  headerSpacer: { width: 36 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 12 },
+  sectionLabel: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 11, letterSpacing: 1, marginBottom: 8, marginTop: 24, paddingLeft: 4 },
+  card: { borderWidth: 1, borderRadius: 20, padding: 16 },
+  profileSummary: { flexDirection: 'row', alignItems: 'center' },
+  rowIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  rowCopy: { flex: 1, justifyContent: 'center' },
+  rowTitle: { fontFamily: 'Inter_500Medium', fontSize: 15, marginBottom: 2 },
+  rowDescription: { fontFamily: 'Inter_400Regular', fontSize: 12 },
+  smallButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  smallButtonText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
+  linkCard: { marginTop: 12, borderWidth: 1, borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center' },
+  readinessItem: { paddingVertical: 8 },
+  readinessHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  readinessTitle: { fontFamily: 'Inter_500Medium', fontSize: 15 },
+  readinessDesc: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 18 },
+  downloadBox: { marginTop: 12, padding: 12, borderRadius: 12 },
+  downloadTitle: { fontFamily: 'Inter_500Medium', fontSize: 14, marginBottom: 4 },
+  downloadMeta: { fontFamily: 'Inter_400Regular', fontSize: 12 },
+  downloadActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  primaryButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  primaryButtonText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
+  secondaryButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  secondaryButtonText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
+  smallPrimaryButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, alignSelf: 'flex-start' },
+  smallPrimaryButtonText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
+  progressBar: { height: 6, borderRadius: 3, marginTop: 12, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3 },
+  divider: { height: 1, marginVertical: 8 },
+  errorText: { fontFamily: 'Inter_400Regular', fontSize: 12 },
+  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  segmented: { flexDirection: 'row', borderRadius: 12, padding: 4 },
+  segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: 'transparent' },
+  segmentText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
+  dangerCard: { marginTop: 32, padding: 16, borderRadius: 20, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  dangerText: { fontFamily: 'Inter_500Medium', fontSize: 14 },
+  modalBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modalCard: { width: '100%', maxWidth: 340, borderWidth: 1, borderRadius: 20, padding: 20 },
+  modalTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 18, marginBottom: 8 },
+  modalBody: { fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, marginBottom: 24 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 16 },
+  modalButton: { padding: 8 },
+  modalButtonText: { fontFamily: 'Inter_500Medium', fontSize: 14 },
+  pressed: { opacity: 0.7 },
 });

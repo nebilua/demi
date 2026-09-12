@@ -144,7 +144,7 @@ export default function CalendarScreen() {
             <Feather name="calendar" size={26} color={colors.accentForeground} />
           </View>
           <Text style={[styles.eyebrow, { color: colors.primary }]}>
-            YOUR PEOPLE, YOUR DATES
+            Your people, your dates
           </Text>
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
             Nothing to remember yet.
@@ -316,7 +316,7 @@ export default function CalendarScreen() {
           ListHeaderComponent={
             <View style={styles.listIntro}>
               <Text style={[styles.eyebrow, { color: colors.primary }]}>
-                COMING UP
+                Coming up
               </Text>
               <Text style={[styles.listTitle, { color: colors.foreground }]}>
                 Stay close to what matters.
@@ -455,9 +455,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerCopy: { flex: 1, alignItems: 'center', marginHorizontal: 10 },
-  headerTitle: { fontFamily: 'Rubik_600SemiBold', fontSize: 17 },
+  headerTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 17 },
   headerSubtitle: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 10,
     marginTop: 2,
   },
@@ -479,7 +479,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 11,
     lineHeight: 16,
   },
@@ -489,7 +489,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
-  stateText: { fontFamily: 'Rubik_400Regular', fontSize: 13 },
+  stateText: { fontFamily: 'Inter_400Regular', fontSize: 13 },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -505,20 +505,20 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   eyebrow: {
-    fontFamily: 'Rubik_700Bold',
+    fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 10,
     letterSpacing: 1.4,
     marginBottom: 9,
   },
   emptyTitle: {
-    fontFamily: 'Rubik_600SemiBold',
+    fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 30,
     lineHeight: 36,
     letterSpacing: -1,
     marginBottom: 10,
   },
   emptyBody: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 24,
@@ -531,18 +531,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  primaryButtonText: { fontFamily: 'Rubik_600SemiBold', fontSize: 13 },
+  primaryButtonText: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 13 },
   listContent: { paddingHorizontal: 20, paddingBottom: 28 },
   listIntro: { paddingTop: 14, paddingBottom: 23 },
   listTitle: {
-    fontFamily: 'Rubik_600SemiBold',
+    fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 28,
     lineHeight: 34,
     letterSpacing: -0.9,
     marginBottom: 8,
   },
   listBody: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 13,
     lineHeight: 20,
   },
@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
   },
   permissionText: {
     flex: 1,
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 10,
     lineHeight: 15,
   },
@@ -581,21 +581,21 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   dateMonth: {
-    fontFamily: 'Rubik_700Bold',
+    fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 8,
     letterSpacing: 1,
   },
-  dateDay: { fontFamily: 'Rubik_600SemiBold', fontSize: 23, lineHeight: 27 },
+  dateDay: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 23, lineHeight: 27 },
   cardCopy: { flex: 1 },
   nextLabel: {
-    fontFamily: 'Rubik_700Bold',
+    fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 8,
     letterSpacing: 1,
     marginBottom: 4,
   },
-  eventName: { fontFamily: 'Rubik_600SemiBold', fontSize: 15, lineHeight: 19 },
+  eventName: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 15, lineHeight: 19 },
   personName: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 12,
     marginTop: 2,
   },
@@ -614,7 +614,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  metaText: { flex: 1, fontFamily: 'Rubik_400Regular', fontSize: 10 },
+  metaText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 10 },
   repeatPill: {
     borderRadius: 99,
     paddingHorizontal: 7,
@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   repeatText: {
-    fontFamily: 'Rubik_700Bold',
+    fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 7,
     letterSpacing: 0.7,
   },
@@ -636,7 +636,7 @@ const styles = StyleSheet.create({
   },
   notificationText: {
     flex: 1,
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 9,
     lineHeight: 13,
   },
@@ -663,12 +663,12 @@ const styles = StyleSheet.create({
     marginBottom: 17,
   },
   confirmTitle: {
-    fontFamily: 'Rubik_600SemiBold',
+    fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 20,
     marginBottom: 8,
   },
   confirmDescription: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 13,
     lineHeight: 20,
     marginBottom: 20,
@@ -681,6 +681,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  confirmButtonText: { fontFamily: 'Rubik_600SemiBold', fontSize: 12 },
+  confirmButtonText: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 12 },
   pressed: { opacity: 0.74, transform: [{ scale: 0.98 }] },
 });

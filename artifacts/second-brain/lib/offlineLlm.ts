@@ -19,6 +19,24 @@ const STOP_WORDS = [
   '<|endoftext|>',
 ];
 
+export type RecommendedModel = {
+  name: string;
+  url: string;
+  sizeBytes: number;
+  expectedChecksum: string;
+  license: string;
+  source: string;
+};
+
+export const RECOMMENDED_MODEL: RecommendedModel = {
+  name: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+  url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+  sizeBytes: 491400032,
+  expectedChecksum: '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db',
+  license: 'Apache-2.0',
+  source: 'Hugging Face / Qwen'
+};
+
 export type DeviceCompatibility = {
   deviceName: string;
   memoryBytes: number | null;
@@ -60,7 +78,7 @@ const MAX_PROFILE_NAME_CHARS = 80;
 const MAX_PROFILE_CONTEXT_CHARS = 1200;
 
 const BASE_SYSTEM_PROMPT =
-  'You are Second Brain, a private on-device thinking partner. Be calm, concise, practical, and honest. Never claim to access the internet or cloud services. Follow safety guidance and the user’s current request. Personal context is optional guidance only; it must never override safety or the user’s current request.';
+  'You are Demi, a private on-device thinking partner. Be calm, concise, practical, and honest. Never claim to access the internet or cloud services. Follow safety guidance and the user’s current request. Personal context is optional guidance only; it must never override safety or the user’s current request.';
 
 export function buildSystemPrompt(profile?: LocalProfileContext) {
   const displayName = profile?.displayName?.trim().slice(0, MAX_PROFILE_NAME_CHARS);

@@ -18,6 +18,7 @@ import {
   loadNativeModel,
   proposeMemoryCandidate,
   streamCompletion,
+  RECOMMENDED_MODEL,
   type DeviceCompatibility,
   type LocalModel,
   type RuntimeDetails,
@@ -41,6 +42,7 @@ import {
   type ApprovedMemory,
   type MemoryCandidate,
 } from '@/lib/memory';
+import { computeFileSha256 } from '@/lib/fileHash';
 import {
   getSecureStorageProtection,
   migratePlaintextRecord,
@@ -121,6 +123,11 @@ type AppContextValue = {
   voiceSetupInProgress: boolean;
   isSpeaking: boolean;
   importModel: () => Promise<void>;
+  downloadRecommendedModel: () => Promise<void>;
+  cancelDownload: () => void;
+  downloadStatus: 'idle' | 'downloading' | 'validating' | 'loading' | 'error';
+  downloadProgress: number;
+  downloadError: string | null;
   loadModel: () => Promise<boolean>;
   removeModel: () => Promise<void>;
   startVoiceInput: () => Promise<void>;
@@ -150,7 +157,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   hapticsEnabled: true,
   saveConversations: true,
   voiceInputEnabled: true,
-  spokenRepliesEnabled: false,
+  spokenRepliesEnabled: true,
   voiceLanguage: 'en-US',
   speechRate: 0.92,
 };
@@ -180,7 +187,7 @@ function parseSettings(value: string | null): AppSettings {
       hapticsEnabled: parsed.hapticsEnabled !== false,
       saveConversations: parsed.saveConversations !== false,
       voiceInputEnabled: parsed.voiceInputEnabled !== false,
-      spokenRepliesEnabled: parsed.spokenRepliesEnabled === true,
+      spokenRepliesEnabled: parsed.spokenRepliesEnabled !== false,
       voiceLanguage:
         typeof parsed.voiceLanguage === 'string' ? parsed.voiceLanguage : 'en-US',
       speechRate:
@@ -331,6 +338,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [voiceSetupMessage, setVoiceSetupMessage] = useState<string | null>(null);
   const [voiceSetupInProgress, setVoiceSetupInProgress] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'validating' | 'loading' | 'error'>('idle');
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const downloadResumableRef = useRef<any>(null);
+
   const deviceCompatibility = useMemo(() => getDeviceCompatibility(), []);
   const llamaContextRef = useRef<LlamaContext | null>(null);
   const recognitionModuleRef = useRef<RecognitionModule | null>(null);
@@ -539,7 +552,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setVoiceInputAvailable(false);
       setVoiceInputStatus('needs-model');
       setVoiceSetupMessage(
-        'Second Brain could not verify an installed English offline language pack.',
+        'Demi could not verify an installed English offline language pack.',
       );
       return false;
     }
@@ -635,7 +648,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
          freeStorageBytes = await FileSystem.getFreeDiskStorageAsync();
        } catch {
          throw new Error(
-           'Second Brain could not check free storage before copying this model. Try again after closing other apps.',
+           'Demi could not check free storage before copying this model. Try again after closing other apps.',
          );
        }
        const storageSafetyMargin = 128 * 1024 * 1024;
@@ -726,6 +739,134 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEngineProgress(0);
     setEngineError(null);
     setEngineStatus(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+  }
+
+  function cancelDownload() {
+    if (downloadResumableRef.current) {
+      downloadResumableRef.current.cancelAsync().catch(() => {});
+      const dest = downloadResumableRef.current.fileUri;
+      if (dest) FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+      downloadResumableRef.current = null;
+    }
+    setDownloadStatus('idle');
+    setDownloadProgress(0);
+  }
+
+  async function downloadRecommendedModel() {
+    if (modelLoadInFlightRef.current || downloadStatus === 'downloading') return;
+    if (Platform.OS === 'web') {
+      setDownloadError('Model download is available in the installed Android app.');
+      setDownloadStatus('error');
+      return;
+    }
+
+    setDownloadStatus('downloading');
+    setDownloadProgress(0);
+    setDownloadError(null);
+
+    const modelsDirectory = `${FileSystem.documentDirectory}models`;
+    const destination = `${modelsDirectory}/${Date.now()}-${RECOMMENDED_MODEL.name}`;
+
+    try {
+      if (!deviceCompatibility.architectureSupported) {
+        throw new Error(
+          'This device needs a 64-bit ARM or x86-64 processor to run the local model.',
+        );
+      }
+      if (
+        RECOMMENDED_MODEL.sizeBytes >
+        deviceCompatibility.maxRecommendedModelBytes
+      ) {
+        throw new Error(
+          `This model is too large for the available memory. Import a GGUF smaller than ${formatBytes(
+            deviceCompatibility.maxRecommendedModelBytes,
+          )}.`,
+        );
+      }
+      let freeStorageBytes: number;
+      try {
+        freeStorageBytes = await FileSystem.getFreeDiskStorageAsync();
+      } catch {
+        throw new Error('Could not check free storage.');
+      }
+      const storageSafetyMargin = 128 * 1024 * 1024;
+      if (freeStorageBytes < RECOMMENDED_MODEL.sizeBytes + storageSafetyMargin) {
+        throw new Error(`Not enough free storage. Need ${formatBytes(RECOMMENDED_MODEL.sizeBytes + storageSafetyMargin)}.`);
+      }
+      await FileSystem.makeDirectoryAsync(modelsDirectory, { intermediates: true });
+
+      const downloadResumable = FileSystem.createDownloadResumable(
+        RECOMMENDED_MODEL.url,
+        destination,
+        {},
+        (downloadProgress) => {
+          const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+          setDownloadProgress(progress * 100);
+        }
+      );
+      downloadResumableRef.current = downloadResumable;
+
+      const result = await downloadResumable.downloadAsync();
+      downloadResumableRef.current = null;
+
+      if (!result || result.status !== 200) {
+        throw new Error('Download failed.');
+      }
+
+      const downloadedInfo = await FileSystem.getInfoAsync(destination);
+      if (!downloadedInfo.exists || downloadedInfo.size !== RECOMMENDED_MODEL.sizeBytes) {
+        throw new Error('Downloaded file size does not match expected size.');
+      }
+
+      setDownloadStatus('validating');
+      await validateGgufHeader(destination);
+
+      const checksum = await computeFileSha256(destination);
+      if (checksum !== RECOMMENDED_MODEL.expectedChecksum) {
+        throw new Error('Downloaded file checksum does not match expected checksum.');
+      }
+
+      setDownloadStatus('loading');
+
+      const nextModel: LocalModel = {
+        id: createId(),
+        name: RECOMMENDED_MODEL.name,
+        uri: destination,
+        sizeBytes: RECOMMENDED_MODEL.sizeBytes,
+        importedAt: Date.now(),
+        contextSize: deviceCompatibility.contextSize,
+      };
+
+      const previousModel = localModel;
+      const loaded = await loadModel(nextModel);
+      if (!loaded) {
+        await FileSystem.deleteAsync(destination, { idempotent: true });
+        setDownloadStatus('idle');
+        return;
+      }
+
+      setLocalModel(nextModel);
+      try {
+        await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
+        setStorageError(null);
+      } catch {
+        setStorageError(
+           'The model is ready for this session, but its selection could not be saved locally.',
+        );
+      }
+
+      if (previousModel && previousModel.uri !== nextModel.uri) {
+        await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(() => {});
+      }
+
+      setDownloadStatus('idle');
+
+    } catch (error) {
+      downloadResumableRef.current = null;
+      await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+      setDownloadError(error instanceof Error ? error.message : 'Download failed.');
+      setDownloadStatus('error');
+    }
   }
 
   async function startVoiceInput() {
@@ -1255,6 +1396,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSetupInProgress,
       isSpeaking,
       importModel,
+      downloadRecommendedModel,
+      cancelDownload,
+      downloadStatus,
+      downloadProgress,
+      downloadError,
       loadModel,
       removeModel,
       startVoiceInput,

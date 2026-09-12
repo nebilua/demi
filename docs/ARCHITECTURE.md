@@ -15,7 +15,7 @@ picker. Model files are never committed to this repository.
 
 Recognition is available only in an installed native Android build. Android
 13+ is required because earlier versions can treat offline recognition as a
-preference rather than a guarantee. Second Brain verifies that the selected
+preference rather than a guarantee. Demi verifies that the selected
 locale is installed for offline recognition before dictation begins.
 
 Spoken replies use a small local Expo module wrapping Android

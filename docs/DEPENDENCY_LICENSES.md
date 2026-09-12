@@ -2,7 +2,7 @@
 
 Audit date: 2026-09-04
 
-Second Brain accepts software dependencies only when they declare an
+Demi accepts software dependencies only when they declare an
 OSI-approved open-source license. Font and data packages must use recognized
 open-content licenses and carry required attribution.
 

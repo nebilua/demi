@@ -113,7 +113,7 @@ export function PersonalProfileEditor({
             </Text>
             <Text style={[styles.description, { color: colors.mutedForeground }]}>
               {isOnboarding
-                ? 'Tell Second Brain what would make its help more useful. You can skip this and change it anytime.'
+                ? 'Tell Demi what would make its help more useful. You can skip this and change it anytime.'
                 : 'Review or update the private context used by the offline model.'}
             </Text>
 
@@ -280,21 +280,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   eyebrow: {
-    fontFamily: 'Rubik_700Bold',
+    fontFamily: 'SpaceGrotesk_700Bold',
     fontSize: 9,
     letterSpacing: 1.2,
     marginTop: 18,
     marginBottom: 8,
   },
   title: {
-    fontFamily: 'Rubik_600SemiBold',
+    fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 26,
     lineHeight: 31,
     letterSpacing: -0.7,
     marginBottom: 8,
   },
   description: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 13,
     lineHeight: 19,
     marginBottom: 15,
@@ -310,12 +310,12 @@ const styles = StyleSheet.create({
   },
   privacyText: {
     flex: 1,
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 11,
     lineHeight: 16,
   },
   label: {
-    fontFamily: 'Rubik_600SemiBold',
+    fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 12,
     marginBottom: 7,
   },
@@ -325,7 +325,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     paddingHorizontal: 12,
     paddingVertical: 11,
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 14,
     marginBottom: 15,
   },
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   },
   counter: {
     alignSelf: 'flex-end',
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 10,
     marginTop: -10,
     marginBottom: 14,
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   primaryButtonText: {
-    fontFamily: 'Rubik_600SemiBold',
+    fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 12,
   },
   secondaryButton: {
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryButtonText: {
-    fontFamily: 'Rubik_500Medium',
+    fontFamily: 'Inter_500Medium',
     fontSize: 12,
   },
   clearButton: {
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   clearButtonText: {
-    fontFamily: 'Rubik_500Medium',
+    fontFamily: 'Inter_500Medium',
     fontSize: 11,
   },
   disabled: { opacity: 0.5 },

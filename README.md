@@ -1,6 +1,6 @@
-# Second Brain
+# Demi
 
-Second Brain is an open-source, local-first Android personal assistant. Its
+Demi is an open-source, local-first Android personal assistant. Its
 default experience keeps conversations, settings, model files, and important
 dates on the device instead of requiring an account or cloud service.
 
@@ -21,7 +21,7 @@ dates on the device instead of requiring an account or cloud service.
 
 ## Privacy model
 
-Second Brain does not upload chats or imported models in its default
+Demi does not upload chats or imported models in its default
 configuration. Conversation history, settings, and calendar entries are stored
 locally. The user chooses and imports their own GGUF model.
 
@@ -112,7 +112,7 @@ The generated APK is `android/app/build/outputs/apk/debug/app-debug.apk`.
 The build includes llama.rn's generic arm64 runtime, which works on supported
 arm64 devices without CPU-feature assumptions. For delivery, preserve a copy
 outside generated native output at
-`artifacts/second-brain/releases/second-brain-debug-arm64-v8a.apk`. The
+`artifacts/second-brain/releases/demi-debug-arm64-v8a.apk`. The
 `rnllamaBuildFromSource=false` flag uses llama.rn's Android prebuilt native
 libraries and keeps the build reproducible on a constrained workspace.
 
@@ -130,14 +130,14 @@ an existing delivery copy without rebuilding, set `SKIP_BUILD=1` and
 `APK_PATH`:
 
 ```bash
-SKIP_BUILD=1 APK_PATH=releases/second-brain-debug-arm64-v8a.apk \
+SKIP_BUILD=1 APK_PATH=releases/demi-debug-arm64-v8a.apk \
   pnpm --filter @workspace/second-brain run validate:android-apk
 ```
 
 Install it on a compatible phone with Android's file installer, or with:
 
 ```bash
-adb install -r artifacts/second-brain/releases/second-brain-debug-arm64-v8a.apk
+adb install -r artifacts/second-brain/releases/demi-debug-arm64-v8a.apk
 ```
 
 On first launch, allow microphone access for voice input and notification
@@ -152,8 +152,8 @@ unsupported ABIs.
 ## Models
 
 No model weights are bundled or redistributed. Import only GGUF files whose
-license permits your intended use. Model licenses are separate from Second
-Brain's MIT license and from the dependency audit in this repository.
+license permits your intended use. Model licenses are separate from Demi's MIT
+license and from the dependency audit in this repository.
 
 ## Repository layout
 
@@ -180,6 +180,6 @@ Issues and pull requests are welcome. Read
 
 ## License
 
-Second Brain is released under the [MIT License](LICENSE). Third-party
+Demi is released under the [MIT License](LICENSE). Third-party
 libraries, fonts, data, and user-supplied models remain under their respective
 licenses.

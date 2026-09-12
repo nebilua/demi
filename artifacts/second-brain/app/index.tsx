@@ -2,14 +2,13 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
-  Image,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -22,196 +21,35 @@ import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type ConversationTurn } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 
-function TypingIndicator() {
-  const { settings } = useApp();
-  const colors = useColors(settings.appearance);
-
-  return (
-    <View style={styles.typingRow}>
-      <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
-        <Feather name="aperture" size={15} color={colors.accentForeground} />
-      </View>
-      <View style={[styles.typingBubble, { backgroundColor: colors.card }]}>
-        <View style={[styles.dot, { backgroundColor: colors.mutedForeground }]} />
-        <View style={[styles.dot, { backgroundColor: colors.mutedForeground }]} />
-        <View style={[styles.dot, { backgroundColor: colors.mutedForeground }]} />
-      </View>
-    </View>
-  );
-}
-
 function MessageBubble({ item }: { item: ConversationTurn }) {
-  const { settings, isSpeaking, speakText, stopSpeaking } = useApp();
+  const { settings } = useApp();
   const colors = useColors(settings.appearance);
   const isUser = item.role === 'user';
 
   return (
     <View style={[styles.messageRow, isUser && styles.messageRowUser]}>
-      {!isUser && (
-        <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
-          <Feather name="aperture" size={15} color={colors.accentForeground} />
-        </View>
-      )}
       <View
         style={[
           styles.messageBubble,
           isUser
-            ? { backgroundColor: colors.primary }
-            : { backgroundColor: colors.card },
+            ? { backgroundColor: colors.secondary }
+            : { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
         ]}
       >
         <Text
           style={[
             styles.messageText,
-            { color: isUser ? colors.primaryForeground : colors.cardForeground },
+            { color: isUser ? colors.secondaryForeground : colors.cardForeground },
           ]}
         >
           {item.content}
         </Text>
-        {!isUser && item.content.length > 0 && (
-          <Pressable
-            testID={`speak-message-${item.id}`}
-            accessibilityRole="button"
-            accessibilityLabel={
-              isSpeaking ? 'Stop spoken response' : 'Speak this response locally'
-            }
-            onPress={() =>
-              isSpeaking ? void stopSpeaking() : void speakText(item.content)
-            }
-            style={({ pressed }) => [
-              styles.speakMessageButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Feather
-              name={isSpeaking ? 'square' : 'volume-2'}
-              size={13}
-              color={colors.mutedForeground}
-            />
-            <Text
-              style={[
-                styles.speakMessageText,
-                { color: colors.mutedForeground },
-              ]}
-            >
-              {isSpeaking ? 'Stop' : 'Speak'}
-            </Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
 }
 
-function MemorySuggestion() {
-  const router = useRouter();
-  const {
-    settings,
-    pendingMemoryCandidate,
-    saveMemoryCandidate,
-    rejectMemoryCandidate,
-  } = useApp();
-  const colors = useColors(settings.appearance);
-  const [edited, setEdited] = useState('');
-
-  useEffect(() => {
-    setEdited(
-      pendingMemoryCandidate?.kind === 'memory'
-        ? pendingMemoryCandidate.content
-        : '',
-    );
-  }, [pendingMemoryCandidate]);
-
-  if (!pendingMemoryCandidate) return null;
-  const isDate = pendingMemoryCandidate.kind === 'important-date';
-
-  function openDateEditor() {
-    if (pendingMemoryCandidate?.kind !== 'important-date') return;
-    const candidate = pendingMemoryCandidate;
-    rejectMemoryCandidate();
-    router.push({
-      pathname: '/calendar/edit',
-      params: {
-        label: candidate.label,
-        eventName: candidate.eventName,
-        date: candidate.date,
-        notes: candidate.notes,
-      },
-    });
-  }
-
-  return (
-    <View
-      testID="memory-suggestion"
-      style={[
-        styles.memorySuggestion,
-        { backgroundColor: colors.card, borderColor: colors.border },
-      ]}
-    >
-      <View style={styles.memorySuggestionHeader}>
-        <Feather
-          name={isDate ? 'calendar' : 'bookmark'}
-          size={15}
-          color={colors.primary}
-        />
-        <Text style={[styles.memorySuggestionTitle, { color: colors.cardForeground }]}>
-          {isDate
-            ? 'Add this to Important Dates?'
-            : pendingMemoryCandidate.explicit
-              ? 'Save this memory?'
-              : 'Worth remembering?'}
-        </Text>
-        <Pressable
-          testID="reject-memory"
-          accessibilityRole="button"
-          accessibilityLabel="Reject memory suggestion"
-          onPress={rejectMemoryCandidate}
-        >
-          <Feather name="x" size={17} color={colors.mutedForeground} />
-        </Pressable>
-      </View>
-      {isDate ? (
-        <Text style={[styles.memorySuggestionCopy, { color: colors.mutedForeground }]}>
-          {pendingMemoryCandidate.eventName} · {pendingMemoryCandidate.label} ·{' '}
-          {pendingMemoryCandidate.date}
-        </Text>
-      ) : (
-        <TextInput
-          testID="memory-suggestion-content"
-          value={edited}
-          onChangeText={setEdited}
-          maxLength={240}
-          multiline
-          style={[
-            styles.memorySuggestionInput,
-            {
-              color: colors.cardForeground,
-              borderColor: colors.border,
-              backgroundColor: colors.background,
-            },
-          ]}
-        />
-      )}
-      <View style={styles.memorySuggestionActions}>
-        <Text style={[styles.memorySource, { color: colors.mutedForeground }]}>
-          Proposed from your last message · not saved yet
-        </Text>
-        <Pressable
-          testID={isDate ? 'review-date-suggestion' : 'save-memory-suggestion'}
-          accessibilityRole="button"
-          onPress={isDate ? openDateEditor : () => void saveMemoryCandidate(edited)}
-          style={[styles.memorySaveButton, { backgroundColor: colors.primary }]}
-        >
-          <Text style={[styles.memorySaveText, { color: colors.primaryForeground }]}>
-            {isDate ? 'Review' : 'Save'}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-export default function SecondBrainScreen() {
+export default function DemiScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const {
@@ -221,48 +59,33 @@ export default function SecondBrainScreen() {
     turns,
     isConversationReady,
     isThinking,
-    storageError,
     localModel,
     engineStatus,
-    engineProgress,
-    engineError,
     modelSetupStatus,
     voiceInputStatus,
     voiceTranscript,
-    voiceError,
     isSpeaking,
     startVoiceInput,
     stopVoiceInput,
     cancelVoiceInput,
     clearVoiceTranscript,
     stopSpeaking,
-    dismissVoiceError,
     sendMessage,
+    storageError,
+    voiceError,
   } = useApp();
   const colors = useColors(settings.appearance);
   const [draft, setDraft] = useState('');
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [wasStopped, setWasStopped] = useState(false);
+  const sendingVoiceRef = useRef(false);
+
   const isCompact = width < 370;
-  const isShort = height < 720;
   const isListening = voiceInputStatus === 'listening';
-  const isProcessingVoice =
-    voiceInputStatus === 'checking' || voiceInputStatus === 'processing';
+  const isProcessingVoice = voiceInputStatus === 'checking' || voiceInputStatus === 'processing';
 
   const visibleTurns = useMemo(() => [...turns].reverse(), [turns]);
-  const canSend =
-    draft.trim().length > 0 &&
-    !isThinking &&
-    isConversationReady &&
-    engineStatus === 'ready';
-  const engineLabel =
-    modelSetupStatus === 'copying'
-      ? 'IMPORT'
-      : modelSetupStatus === 'validating'
-        ? 'CHECK'
-        : modelSetupStatus === 'loading'
-          ? `${Math.round(engineProgress)}%`
-          : engineStatus === 'ready'
-      ? 'LOCAL'
-            : 'SETUP';
+  const canSend = draft.trim().length > 0 && !isThinking && isConversationReady && engineStatus === 'ready';
 
   useEffect(() => {
     if (!voiceTranscript) return;
@@ -274,16 +97,59 @@ export default function SecondBrainScreen() {
     if (!canSend) return;
     const message = draft.trim();
     setDraft('');
-    await sendMessage(message);
+    setShowKeyboard(false);
+    try {
+      await sendMessage(message);
+    } finally {
+      sendingVoiceRef.current = false;
+    }
+  }
+
+  // Setup text for the single prompt
+  let setupNeeded = false;
+  let setupLabel = '';
+  if (engineStatus !== 'ready') {
+    setupNeeded = true;
+    setupLabel = 'Model setup required';
+  } else if (!settings.voiceInputEnabled || voiceInputStatus === 'needs-model' || voiceInputStatus === 'unavailable') {
+    setupNeeded = true;
+    setupLabel = 'Voice setup required';
   }
 
   function handleVoiceInput() {
+    if (isSpeaking) {
+      setWasStopped(true);
+      void stopSpeaking();
+      return;
+    }
+    if (isThinking) {
+      Alert.alert('Thinking', 'Demi is currently generating a response and cannot be interrupted.');
+      return;
+    }
+    if (setupNeeded) {
+      router.push('/settings');
+      return;
+    }
     if (isListening || isProcessingVoice) {
+      setWasStopped(true);
       stopVoiceInput();
       return;
     }
+    setWasStopped(false);
     void startVoiceInput();
   }
+
+  useEffect(() => {
+    if (voiceInputStatus === 'idle' && draft.trim().length > 0 && !isThinking && isConversationReady && engineStatus === 'ready' && !showKeyboard && !sendingVoiceRef.current) {
+      sendingVoiceRef.current = true;
+      void handleSend();
+    }
+  }, [voiceInputStatus, draft, isThinking, isConversationReady, engineStatus, showKeyboard]);
+
+  const circleSize = Math.max(
+    144,
+    Math.min(190, width * 0.44, height * 0.24),
+  );
 
   return (
     <KeyboardAvoidingView
@@ -294,84 +160,24 @@ export default function SecondBrainScreen() {
       <StatusBar style={colors.isDark ? 'light' : 'dark'} />
       <SafeAreaView
         edges={['top']}
-        style={[
-          styles.headerSafe,
-          {
-            backgroundColor: colors.background,
-            paddingTop: Platform.OS === 'web' ? 67 : 0,
-          },
-        ]}
+        style={[styles.headerSafe, { backgroundColor: colors.background, paddingTop: Platform.OS === 'web' ? 67 : 0 }]}
       >
-        <View
-          style={[
-            styles.header,
-            isCompact && styles.headerCompact,
-          ]}
-        >
-          <View style={styles.brandLockup}>
-            <Image
-              source={require('../assets/images/icon.png')}
-              style={[styles.brandMark, isCompact && styles.brandMarkCompact]}
-            />
-            <View>
-              <Text style={[styles.wordmark, { color: colors.foreground }]}>
-                second brain
-              </Text>
-              {!isCompact && (
-                <Text
-                  style={[
-                    styles.headerSubline,
-                    { color: colors.mutedForeground },
-                  ]}
-                >
-                  your private thinking space
-                </Text>
-              )}
-            </View>
-          </View>
+        <View style={styles.header}>
+          <Text style={[styles.wordmark, { color: colors.primary }]}>Demi</Text>
           <View style={styles.headerActions}>
-            {!isCompact && (
-              <View
-                style={[styles.statusPill, { backgroundColor: colors.accent }]}
-              >
-                <View
-                  style={[
-                    styles.statusDot,
-                    { backgroundColor: colors.accentForeground },
-                  ]}
-                />
-                <Text
-                  style={[styles.statusText, { color: colors.accentForeground }]}
-                >
-                  {engineLabel}
-                </Text>
-              </View>
-            )}
             <Pressable
-              testID="open-calendar"
               accessibilityRole="button"
-              accessibilityLabel="Open important dates"
               onPress={() => router.push('/calendar')}
-              style={({ pressed }) => [
-                styles.settingsButton,
-                { backgroundColor: colors.secondary },
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
-              <Feather name="calendar" size={17} color={colors.foreground} />
+              <Feather name="calendar" size={20} color={colors.foreground} />
             </Pressable>
             <Pressable
-              testID="open-settings"
               accessibilityRole="button"
-              accessibilityLabel="Open settings"
               onPress={() => router.push('/settings')}
-              style={({ pressed }) => [
-                styles.settingsButton,
-                { backgroundColor: colors.secondary },
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
-              <Feather name="sliders" size={17} color={colors.foreground} />
+              <Feather name="settings" size={20} color={colors.foreground} />
             </Pressable>
           </View>
         </View>
@@ -381,328 +187,127 @@ export default function SecondBrainScreen() {
         {!isConversationReady ? (
           <View style={styles.centerState}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={[styles.stateText, { color: colors.mutedForeground }]}>
-              Opening your private space…
-            </Text>
           </View>
-        ) : turns.length === 0 ? (
-          <ScrollView
-            style={styles.emptyScroll}
-            contentContainerStyle={[
-              styles.emptyState,
-              isCompact && styles.emptyStateCompact,
-              isShort && styles.emptyStateShort,
-            ]}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <View style={[styles.heroIcon, { backgroundColor: colors.accent }]}>
-              <Feather name="sun" size={25} color={colors.primary} />
-            </View>
-            <Text style={[styles.eyebrow, { color: colors.primary }]}>
-              GOOD TO HAVE YOU HERE
-            </Text>
-            <Text
-              style={[
-                styles.heroTitle,
-                isCompact && styles.heroTitleCompact,
-                { color: colors.foreground },
-              ]}
-            >
-              A quieter way{'\n'}to think.
-            </Text>
-            <Text style={[styles.heroBody, { color: colors.mutedForeground }]}>
-              Talk things out, untangle ideas, or simply begin wherever you are.
-              Your conversation stays on this phone.
-            </Text>
-            <View
-              style={[
-                styles.engineCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-            >
-              <View
-                style={[
-                  styles.engineIcon,
-                  { backgroundColor: colors.secondary },
-                ]}
-              >
-                <Feather name="cpu" size={18} color={colors.primary} />
-              </View>
-              <View style={styles.engineCopy}>
-                <Text
-                  numberOfLines={2}
-                  ellipsizeMode="tail"
-                  style={[
-                    styles.engineTitle,
-                    styles.engineName,
-                    { color: colors.cardForeground },
-                  ]}
-                >
-                  {engineStatus === 'ready'
-                    ? localModel?.name ?? 'On-device model'
-                    : 'Offline model setup needed'}
-                </Text>
-                <Text
-                  style={[styles.engineBody, { color: colors.mutedForeground }]}
-                >
-                  {modelSetupStatus === 'copying'
-                    ? 'Importing model locally…'
-                    : modelSetupStatus === 'validating'
-                      ? 'Checking model file…'
-                      : modelSetupStatus === 'loading'
-                        ? `Loading locally · ${Math.round(engineProgress)}%`
-                    : engineStatus === 'ready'
-                      ? 'Private by default · no network needed'
-                      : 'Choose a compatible GGUF model in Settings'}
-                </Text>
-              </View>
-              <Feather
-                name={engineStatus === 'ready' ? 'check' : 'chevron-right'}
-                size={18}
-                color={colors.accentForeground}
+        ) : (
+          <>
+            <View style={styles.historyContainer}>
+              <FlatList
+                data={visibleTurns}
+                inverted
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => <MessageBubble item={item} />}
+                contentContainerStyle={styles.messageList}
+                showsVerticalScrollIndicator={false}
+                keyboardDismissMode="interactive"
+                keyboardShouldPersistTaps="handled"
               />
             </View>
-          </ScrollView>
-        ) : (
-          <FlatList
-            data={visibleTurns}
-            inverted
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <MessageBubble item={item} />}
-            contentContainerStyle={styles.messageList}
-            contentInsetAdjustmentBehavior="never"
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={visibleTurns.length > 0}
-            keyboardDismissMode="interactive"
-            keyboardShouldPersistTaps="handled"
-            ListHeaderComponent={isThinking ? <TypingIndicator /> : null}
-          />
+
+            <View style={styles.centerStage}>
+              <Pressable
+                testID="demi-voice-circle"
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isListening ? "Stop listening" :
+                  isSpeaking ? "Stop speaking" :
+                  isThinking ? "Thinking" :
+                  setupNeeded ? "Open settings for setup" : "Start voice input"
+                }
+                onPress={handleVoiceInput}
+                style={({ pressed }) => [
+                  styles.voiceCircle,
+                  {
+                    width: circleSize,
+                    height: circleSize,
+                    borderRadius: circleSize / 2,
+                  },
+                  { backgroundColor: isListening ? colors.destructive : colors.primary },
+                  isThinking && { opacity: 0.6 },
+                  pressed && styles.pressedCircle
+                ]}
+              >
+                {isProcessingVoice || isThinking ? (
+                  <ActivityIndicator size="large" color={colors.primaryForeground} />
+                ) : (
+                  <Feather
+                    name={isListening || isSpeaking ? 'square' : setupNeeded ? 'settings' : 'mic'}
+                    size={36}
+                    color={colors.primaryForeground}
+                  />
+                )}
+              </Pressable>
+
+              <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
+                {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : wasStopped ? 'Stopped' : draft ? 'Draft ready' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
+              </Text>
+
+              {setupNeeded && !isListening && !isThinking && (
+                <Pressable
+                  onPress={() => router.push('/settings')}
+                  style={({ pressed }) => [styles.setupBadge, { backgroundColor: colors.accent }, pressed && styles.pressed]}
+                >
+                  <Text style={[styles.setupText, { color: colors.accentForeground }]}>{setupLabel}</Text>
+                  <Feather name="chevron-right" size={14} color={colors.accentForeground} />
+                </Pressable>
+              )}
+            </View>
+          </>
         )}
       </View>
 
       <SafeAreaView
         edges={['bottom']}
-        style={[
-          styles.composerSafe,
-          {
-            backgroundColor: colors.background,
-            borderTopColor: colors.border,
-            paddingBottom: Platform.OS === 'web' ? 34 : 0,
-          },
-        ]}
+        style={[styles.composerSafe, { backgroundColor: colors.background, paddingBottom: Platform.OS === 'web' ? 34 : 0 }]}
       >
-        {storageError && (
-          <View
-            style={[
-              styles.storageNotice,
-              { backgroundColor: colors.secondary },
-            ]}
-          >
-            <Feather
-              name="alert-circle"
-              size={14}
-              color={colors.primary}
-            />
-            <Text
-              style={[styles.storageNoticeText, { color: colors.foreground }]}
+        {showKeyboard ? (
+          <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              onPress={() => setShowKeyboard(false)}
+              style={({ pressed }) => [styles.closeKeyboardButton, pressed && styles.pressed]}
             >
-              {storageError}
-            </Text>
-          </View>
-        )}
-        <MemorySuggestion />
-        {engineStatus !== 'ready' && (
-          <Pressable
-            testID="open-model-setup"
-            accessibilityRole="button"
-            accessibilityLabel="Open offline model setup"
-            onPress={() => router.push('/settings')}
-            style={({ pressed }) => [
-              styles.engineNotice,
-              { backgroundColor: colors.secondary },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Feather
-              name={
-                engineStatus === 'error' && modelSetupStatus === 'idle'
-                  ? 'alert-circle'
-                  : 'cpu'
-              }
-              size={14}
-              color={
-                engineStatus === 'error' && modelSetupStatus === 'idle'
-                  ? colors.destructive
-                  : colors.primary
-              }
+              <Feather name="x" size={18} color={colors.mutedForeground} />
+            </Pressable>
+            <TextInput
+              testID="chat-input"
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Type to Demi..."
+              placeholderTextColor={colors.mutedForeground}
+              multiline
+              maxLength={1200}
+              editable={isConversationReady && engineStatus === 'ready'}
+              style={[styles.input, { color: colors.cardForeground }]}
+              onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
+              blurOnSubmit={false}
+              autoFocus
             />
-            <Text style={[styles.engineNoticeText, { color: colors.foreground }]}>
-              {modelSetupStatus === 'copying'
-                ? `Importing ${localModel?.name ?? 'model'}…`
-                : modelSetupStatus === 'validating'
-                  ? 'Checking the selected GGUF file…'
-                  : modelSetupStatus === 'loading'
-                    ? `Loading ${localModel?.name ?? 'model'} · ${Math.round(engineProgress)}%`
-                : engineError ?? 'Choose a GGUF model before starting a conversation.'}
-            </Text>
-            <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
-          </Pressable>
-        )}
-        {(isListening || isProcessingVoice) && (
-          <View
-            testID="voice-listening-status"
-            style={[styles.voiceNotice, { backgroundColor: colors.accent }]}
-          >
-            <View style={[styles.voicePulse, { backgroundColor: colors.primary }]} />
-            <Text
-              style={[
-                styles.voiceNoticeText,
-                { color: colors.accentForeground },
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleSend}
+              disabled={!canSend}
+              style={({ pressed }) => [
+                styles.sendButton,
+                { backgroundColor: canSend ? colors.primary : colors.secondary },
+                pressed && canSend && styles.pressed,
               ]}
             >
-              {isListening
-                ? 'Listening on this device…'
-                : 'Finishing your transcript…'}
-            </Text>
-            <Pressable
-              testID="cancel-voice-input"
-              accessibilityRole="button"
-              accessibilityLabel="Cancel voice input"
-              onPress={cancelVoiceInput}
-              hitSlop={10}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <Feather name="x" size={17} color={colors.accentForeground} />
-            </Pressable>
-          </View>
-        )}
-        {isSpeaking && (
-          <View
-            testID="voice-speaking-status"
-            style={[styles.voiceNotice, { backgroundColor: colors.secondary }]}
-          >
-            <Feather name="volume-2" size={14} color={colors.primary} />
-            <Text
-              style={[styles.voiceNoticeText, { color: colors.foreground }]}
-            >
-              Speaking locally
-            </Text>
-            <Pressable
-              testID="stop-speaking"
-              accessibilityRole="button"
-              accessibilityLabel="Stop spoken response"
-              onPress={() => void stopSpeaking()}
-              hitSlop={10}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <Feather name="square" size={14} color={colors.primary} />
-            </Pressable>
-          </View>
-        )}
-        {voiceError && !isListening && (
-          <View
-            testID="voice-error"
-            style={[styles.voiceNotice, { backgroundColor: colors.secondary }]}
-          >
-            <Feather name="alert-circle" size={14} color={colors.destructive} />
-            <Text
-              style={[styles.voiceNoticeText, { color: colors.foreground }]}
-            >
-              {voiceError}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss voice message"
-              onPress={dismissVoiceError}
-              hitSlop={10}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <Feather name="x" size={16} color={colors.mutedForeground} />
-            </Pressable>
-          </View>
-        )}
-        <View
-          style={[
-            styles.composer,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <Pressable
-            testID="voice-input"
-            accessibilityRole="button"
-            accessibilityLabel={
-              isListening ? 'Finish voice input' : 'Start offline voice input'
-            }
-            accessibilityState={{ disabled: !settings.voiceInputEnabled }}
-            onPress={handleVoiceInput}
-            disabled={!settings.voiceInputEnabled || isThinking}
-            style={({ pressed }) => [
-              styles.voiceButton,
-              {
-                backgroundColor: isListening
-                  ? colors.destructive
-                  : colors.secondary,
-              },
-              (!settings.voiceInputEnabled || isThinking) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-          >
-            {isProcessingVoice ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : (
-              <Feather
-                name={isListening ? 'square' : 'mic'}
-                size={17}
-                color={
-                  isListening
-                    ? colors.destructiveForeground
-                    : colors.primary
-                }
-              />
-            )}
-          </Pressable>
-          <TextInput
-            testID="chat-input"
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="What’s on your mind?"
-            placeholderTextColor={colors.mutedForeground}
-            multiline
-            maxLength={1200}
-            editable={isConversationReady && engineStatus === 'ready'}
-            style={[styles.input, { color: colors.cardForeground }]}
-            onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
-            blurOnSubmit={false}
-          />
-          <Pressable
-            testID="send-message"
-            accessibilityRole="button"
-            accessibilityLabel="Send message"
-            onPress={handleSend}
-            disabled={!canSend}
-            style={({ pressed }) => [
-              styles.sendButton,
-              { backgroundColor: canSend ? colors.primary : colors.secondary },
-              pressed && canSend && styles.pressed,
-            ]}
-          >
-            {isThinking ? (
-              <ActivityIndicator size="small" color={colors.primaryForeground} />
-            ) : (
               <Feather
                 name="arrow-up"
-                size={19}
+                size={18}
                 color={canSend ? colors.primaryForeground : colors.mutedForeground}
               />
-            )}
-          </Pressable>
-        </View>
-        <Text style={[styles.privacyNote, { color: colors.mutedForeground }]}>
-          {settings.saveConversations
-            ? 'stored locally on this device'
-            : 'session only · not saving new messages'}
-        </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.bottomBar}>
+             <Pressable
+              onPress={() => setShowKeyboard(true)}
+              style={({ pressed }) => [styles.keyboardToggle, pressed && styles.pressed]}
+             >
+               <Feather name="edit-2" size={20} color={colors.mutedForeground} />
+             </Pressable>
+          </View>
+        )}
       </SafeAreaView>
       <PersonalProfileEditor
         visible={settingsReady && !profile.onboardingCompleted}
@@ -714,337 +319,144 @@ export default function SecondBrainScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  headerSafe: { width: '100%' },
+  headerSafe: { width: '100%', zIndex: 10 },
   header: {
-    minHeight: 72,
-    paddingHorizontal: 22,
-    paddingVertical: 14,
+    height: 60,
+    paddingHorizontal: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  headerCompact: { paddingHorizontal: 14 },
-  brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  brandMark: { width: 32, height: 32, borderRadius: 10 },
-  brandMarkCompact: { width: 29, height: 29, borderRadius: 9 },
   wordmark: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 22,
+    letterSpacing: -0.5,
   },
-  headerSubline: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 10,
-    letterSpacing: 0.4,
-    marginTop: 2,
-  },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  statusPill: {
-    borderRadius: 99,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  statusDot: { width: 5, height: 5, borderRadius: 99 },
-  statusText: {
-    fontFamily: 'Rubik_700Bold',
-    fontSize: 9,
-    letterSpacing: 1,
-  },
-  settingsButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
+  headerActions: { flexDirection: 'row', gap: 16 },
+  iconButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  content: { flex: 1 },
-  emptyScroll: { flex: 1 },
-  emptyState: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    paddingVertical: 18,
-  },
-  emptyStateCompact: { paddingHorizontal: 20 },
-  emptyStateShort: { paddingBottom: 16 },
-  heroIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 22,
-  },
-  eyebrow: {
-    fontFamily: 'Rubik_700Bold',
-    fontSize: 10,
-    letterSpacing: 1.5,
-    marginBottom: 10,
-  },
-  heroTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 38,
-    lineHeight: 42,
-    letterSpacing: -1.5,
-    marginBottom: 15,
-  },
-  heroTitleCompact: { fontSize: 34, lineHeight: 38 },
-  heroBody: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 15,
-    lineHeight: 23,
-    maxWidth: 330,
-  },
-  engineCard: {
-    borderWidth: 1,
-    borderRadius: 18,
-    marginTop: 28,
-    padding: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  engineIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-  engineCopy: { flex: 1 },
-  engineTitle: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 13,
-    marginBottom: 3,
-  },
-  engineName: { flexShrink: 1 },
-  engineBody: { fontFamily: 'Rubik_400Regular', fontSize: 11 },
-  centerState: {
+  content: { flex: 1, position: 'relative' },
+  historyContainer: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 36,
-    gap: 10,
+    paddingBottom: 200, // Space for the center stage
   },
-  stateText: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: 'center',
-  },
-  messageList: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18 },
+  messageList: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
   messageRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   messageRowUser: { justifyContent: 'flex-end' },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   messageBubble: {
-    maxWidth: '79%',
-    borderRadius: 18,
-    borderBottomLeftRadius: 5,
-    paddingHorizontal: 15,
-    paddingVertical: 11,
+    maxWidth: '85%',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   messageText: {
-    fontFamily: 'Rubik_400Regular',
+    fontFamily: 'Inter_400Regular',
     fontSize: 15,
     lineHeight: 22,
   },
-  typingRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
-    paddingHorizontal: 18,
-    paddingBottom: 4,
+  centerStage: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'box-none',
   },
-  typingBubble: {
-    height: 38,
-    paddingHorizontal: 13,
-    borderRadius: 18,
-    borderBottomLeftRadius: 5,
+  voiceCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    pointerEvents: 'auto',
+  },
+  statusText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    marginTop: 20,
+    letterSpacing: 0.3,
+  },
+  setupBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-  },
-  speakMessageButton: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 8,
-    paddingVertical: 2,
-  },
-  speakMessageText: {
-    fontFamily: 'Rubik_500Medium',
-    fontSize: 10,
-  },
-  dot: { width: 5, height: 5, borderRadius: 99 },
-  composerSafe: { borderTopWidth: StyleSheet.hairlineWidth },
-  storageNotice: {
-    minHeight: 34,
-    marginHorizontal: 16,
-    marginTop: 8,
-    paddingHorizontal: 11,
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
+    borderRadius: 20,
+    marginTop: 12,
+    gap: 6,
+    pointerEvents: 'auto',
   },
-  storageNoticeText: {
-    flex: 1,
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  memorySuggestion: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 11,
-  },
-  memorySuggestionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    marginBottom: 8,
-  },
-  memorySuggestionTitle: {
-    flex: 1,
-    fontFamily: 'Rubik_600SemiBold',
+  setupText: {
+    fontFamily: 'Inter_500Medium',
     fontSize: 12,
   },
-  memorySuggestionCopy: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  memorySuggestionInput: {
-    minHeight: 44,
-    maxHeight: 78,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 12,
-  },
-  memorySuggestionActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 8,
-  },
-  memorySource: {
-    flex: 1,
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 9,
-  },
-  memorySaveButton: {
-    minHeight: 32,
-    borderRadius: 10,
-    paddingHorizontal: 13,
+  composerSafe: { width: '100%' },
+  bottomBar: {
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  memorySaveText: {
-    fontFamily: 'Rubik_600SemiBold',
-    fontSize: 11,
-  },
-  engineNotice: {
-    minHeight: 38,
-    marginHorizontal: 16,
-    marginTop: 8,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 11,
-    flexDirection: 'row',
+  keyboardToggle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
-    gap: 7,
-  },
-  engineNoticeText: {
-    flex: 1,
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 11,
-    lineHeight: 15,
+    justifyContent: 'center',
   },
   composer: {
-    minHeight: 52,
-    marginTop: 11,
+    minHeight: 60,
     marginHorizontal: 16,
+    marginBottom: 12,
     borderWidth: 1,
-    borderRadius: 19,
-    paddingLeft: 7,
-    paddingRight: 7,
-    paddingVertical: 6,
+    borderRadius: 24,
+    paddingLeft: 8,
+    paddingRight: 8,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
+  closeKeyboardButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 4,
+  },
   input: {
     flex: 1,
-    minHeight: 38,
-    maxHeight: 110,
-    paddingTop: 9,
-    paddingBottom: 7,
-    fontFamily: 'Rubik_400Regular',
+    minHeight: 36,
+    maxHeight: 120,
+    paddingTop: 8,
+    paddingBottom: 8,
+    fontFamily: 'Inter_400Regular',
     fontSize: 15,
     lineHeight: 21,
   },
   sendButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
   },
-  voiceButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
+  centerState: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
   },
-  voiceNotice: {
-    minHeight: 38,
-    marginHorizontal: 16,
-    marginTop: 8,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  voicePulse: { width: 7, height: 7, borderRadius: 99 },
-  voiceNoticeText: {
-    flex: 1,
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  disabled: { opacity: 0.48 },
-  pressed: { opacity: 0.75, transform: [{ scale: 0.96 }] },
-  privacyNote: {
-    fontFamily: 'Rubik_400Regular',
-    fontSize: 10,
-    textAlign: 'center',
-    letterSpacing: 0.25,
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
+  disabled: { opacity: 0.6 },
+  pressed: { opacity: 0.7 },
+  pressedCircle: { transform: [{ scale: 0.94 }] },
 });
