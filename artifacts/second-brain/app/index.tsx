@@ -80,7 +80,6 @@ export default function DemiScreen() {
   const [wasStopped, setWasStopped] = useState(false);
   const sendingVoiceRef = useRef(false);
 
-  const isCompact = width < 370;
   const isListening = voiceInputStatus === 'listening';
   const isProcessingVoice = voiceInputStatus === 'checking' || voiceInputStatus === 'processing';
 
@@ -147,9 +146,10 @@ export default function DemiScreen() {
   }, [voiceInputStatus, draft, isThinking, isConversationReady, engineStatus, showKeyboard]);
 
   const circleSize = Math.max(
-    144,
-    Math.min(190, width * 0.44, height * 0.24),
+    132,
+    Math.min(190, width * 0.42, height * 0.21),
   );
+  const centerStageHeight = circleSize + (setupNeeded ? 78 : 48);
 
   return (
     <KeyboardAvoidingView
@@ -190,7 +190,7 @@ export default function DemiScreen() {
           </View>
         ) : (
           <>
-            <View style={styles.historyContainer}>
+            <View style={[styles.historyContainer, { paddingBottom: centerStageHeight }]}>
               <FlatList
                 data={visibleTurns}
                 inverted
@@ -203,7 +203,7 @@ export default function DemiScreen() {
               />
             </View>
 
-            <View style={styles.centerStage}>
+            <View style={[styles.centerStage, { height: centerStageHeight }]}>
               <Pressable
                 testID="demi-voice-circle"
                 accessibilityRole="button"
@@ -342,7 +342,6 @@ const styles = StyleSheet.create({
   content: { flex: 1, position: 'relative' },
   historyContainer: {
     flex: 1,
-    paddingBottom: 200, // Space for the center stage
   },
   messageList: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
   messageRow: {
@@ -367,7 +366,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 240,
+    minHeight: 200,
     alignItems: 'center',
     justifyContent: 'center',
     pointerEvents: 'box-none',

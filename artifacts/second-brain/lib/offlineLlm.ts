@@ -220,6 +220,8 @@ export async function loadNativeModel(
     );
   }
 
+  await llama.installJsi();
+
   const context = await llama.initLlama(
     {
       model: model.uri,
