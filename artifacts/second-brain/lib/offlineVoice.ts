@@ -4,6 +4,9 @@ import type {
   ExpoSpeechRecognitionErrorEvent,
   ExpoSpeechRecognitionResultEvent,
 } from 'expo-speech-recognition';
+import type { OfflineVoice } from '../modules/offline-tts';
+
+export type { OfflineVoice };
 
 export type VoiceInputStatus =
   | 'unavailable'
@@ -67,17 +70,21 @@ export function voiceErrorMessage(
 }
 
 export async function canSpeakLocally() {
+  const voices = await getOfflineVoices();
+  return voices.length > 0;
+}
+
+export async function getOfflineVoices(): Promise<OfflineVoice[]> {
   const module = getOfflineTtsModule();
-  if (!module) return false;
+  if (!module) return [];
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
-      const voices = await module.getOfflineVoicesAsync();
-      return voices.length > 0;
+      return await module.getOfflineVoicesAsync();
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
-  return false;
+  return [];
 }
 
 export async function stopLocalSpeech() {
@@ -98,6 +105,7 @@ export async function speakLocally(
   options: {
     language: string;
     rate: number;
+    preferredVoiceId?: string | null;
     onStart: () => void;
     onDone: () => void;
     onStopped: () => void;
@@ -118,6 +126,7 @@ export async function speakLocally(
       text.slice(0, 3800),
       options.language,
       options.rate,
+      options.preferredVoiceId ?? null,
     );
     if (result.status === 'stopped') options.onStopped();
     else options.onDone();

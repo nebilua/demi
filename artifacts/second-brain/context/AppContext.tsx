@@ -24,13 +24,14 @@ import {
   type RuntimeDetails,
 } from '@/lib/offlineLlm';
 import {
-  canSpeakLocally,
+  getOfflineVoices,
   getRecognitionModule,
   speakLocally,
   stopLocalSpeech,
   openLocalVoiceSettings,
   voiceErrorMessage,
   type ExpoSpeechRecognitionResultEvent,
+  type OfflineVoice,
   type RecognitionModule,
   type VoiceInputStatus,
 } from '@/lib/offlineVoice';
@@ -69,6 +70,7 @@ export type AppSettings = {
   spokenRepliesEnabled: boolean;
   voiceLanguage: string;
   speechRate: number;
+  preferredVoiceId: string | null;
 };
 
 export type PersonalProfile = {
@@ -117,6 +119,9 @@ type AppContextValue = {
   voiceInputStatus: VoiceInputStatus;
   voiceInputAvailable: boolean;
   voiceOutputAvailable: boolean;
+  offlineVoices: OfflineVoice[];
+  offlineVoicesLoading: boolean;
+  refreshOfflineVoices: () => Promise<void>;
   voiceTranscript: string;
   voiceError: string | null;
   voiceSetupMessage: string | null;
@@ -160,6 +165,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   spokenRepliesEnabled: true,
   voiceLanguage: 'en-US',
   speechRate: 0.92,
+  preferredVoiceId: null,
 };
 
 const DEFAULT_PROFILE: PersonalProfile = {
@@ -172,6 +178,15 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 function createId() {
   return `${Date.now().toString()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function voiceMatchesLanguage(voiceLanguage: string, targetLanguage: string) {
+  const voiceLocale = voiceLanguage.toLowerCase().replace('_', '-');
+  const targetLocale = targetLanguage.toLowerCase().replace('_', '-');
+  return (
+    voiceLocale === targetLocale ||
+    voiceLocale.split('-')[0] === targetLocale.split('-')[0]
+  );
 }
 
 function parseSettings(value: string | null): AppSettings {
@@ -196,6 +211,10 @@ function parseSettings(value: string | null): AppSettings {
         parsed.speechRate <= 1.2
           ? parsed.speechRate
           : 0.92,
+      preferredVoiceId:
+        typeof parsed.preferredVoiceId === 'string'
+          ? parsed.preferredVoiceId
+          : null,
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -333,6 +352,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const [voiceInputAvailable, setVoiceInputAvailable] = useState(false);
   const [voiceOutputAvailable, setVoiceOutputAvailable] = useState(false);
+  const [offlineVoices, setOfflineVoices] = useState<OfflineVoice[]>([]);
+  const [offlineVoicesLoading, setOfflineVoicesLoading] = useState(true);
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceSetupMessage, setVoiceSetupMessage] = useState<string | null>(null);
@@ -415,9 +436,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
-    void canSpeakLocally().then((available) => {
-      if (isMounted) setVoiceOutputAvailable(available);
-    });
+    void refreshOfflineVoices();
 
     const module = getRecognitionModule();
     recognitionModuleRef.current = module;
@@ -433,9 +452,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const appStateSubscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void refreshVoiceAvailability(module);
-        void canSpeakLocally().then((available) => {
-          if (isMounted) setVoiceOutputAvailable(available);
-        });
+        void refreshOfflineVoices();
         if (offlineVoiceSetupInFlightRef.current) {
           offlineVoiceSetupInFlightRef.current = false;
           setVoiceSetupInProgress(false);
@@ -487,6 +504,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offlineVoiceSetupInFlightRef.current = false;
     };
   }, []);
+
+  async function refreshOfflineVoices() {
+    setOfflineVoicesLoading(true);
+    try {
+      const voices = await getOfflineVoices();
+      setOfflineVoices(voices);
+      setVoiceOutputAvailable(
+        voices.some((voice) =>
+          voiceMatchesLanguage(voice.language, settings.voiceLanguage),
+        ),
+      );
+    } finally {
+      setOfflineVoicesLoading(false);
+    }
+  }
 
   async function refreshVoiceAvailability(
     moduleOverride?: RecognitionModule,
@@ -1023,18 +1055,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setVoiceError(null);
     await stopLocalSpeech();
 
-    if (!(await canSpeakLocally())) {
-      setVoiceOutputAvailable(false);
+    const availableVoices = await getOfflineVoices();
+    setOfflineVoices(availableVoices);
+    const languageVoiceAvailable = availableVoices.some((voice) =>
+      voiceMatchesLanguage(voice.language, settings.voiceLanguage),
+    );
+    setVoiceOutputAvailable(languageVoiceAvailable);
+    if (!languageVoiceAvailable) {
       setVoiceError(
-        'No local Android voice is installed. Add a text-to-speech voice in device Settings.',
+        `No verified offline Android voice is installed for ${settings.voiceLanguage}. Add one in device Settings.`,
       );
       return;
     }
 
-    setVoiceOutputAvailable(true);
     speakLocally(trimmedText, {
       language: settings.voiceLanguage,
       rate: settings.speechRate,
+      preferredVoiceId: settings.preferredVoiceId,
       onStart: () => setIsSpeaking(true),
       onDone: () => setIsSpeaking(false),
       onStopped: () => setIsSpeaking(false),
@@ -1390,6 +1427,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceInputStatus,
       voiceInputAvailable,
       voiceOutputAvailable,
+      offlineVoices,
+      offlineVoicesLoading,
+      refreshOfflineVoices,
       voiceTranscript,
       voiceError,
       voiceSetupMessage,
@@ -1437,6 +1477,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceInputStatus,
       voiceInputAvailable,
       voiceOutputAvailable,
+      offlineVoices,
+      offlineVoicesLoading,
       voiceTranscript,
       voiceError,
       voiceSetupMessage,

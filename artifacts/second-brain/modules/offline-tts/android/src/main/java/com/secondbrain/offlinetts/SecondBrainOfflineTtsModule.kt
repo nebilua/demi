@@ -32,7 +32,7 @@ class SecondBrainOfflineTtsModule : Module(), TextToSpeech.OnInitListener {
         .map { voice ->
           mapOf(
             "id" to voice.name,
-            "name" to voice.name,
+            "name" to displayName(voice),
             "language" to voice.locale.toLanguageTag(),
           )
         }
@@ -42,6 +42,7 @@ class SecondBrainOfflineTtsModule : Module(), TextToSpeech.OnInitListener {
         text: String,
         language: String,
         rate: Double,
+        preferredVoiceId: String?,
         promise: Promise ->
       val tts = try {
         requireReadyEngine()
@@ -50,14 +51,17 @@ class SecondBrainOfflineTtsModule : Module(), TextToSpeech.OnInitListener {
         return@AsyncFunction
       }
       val locale = Locale.forLanguageTag(language)
-      val voice = verifiedOfflineVoices(tts)
-        .firstOrNull { candidate ->
+      val verifiedVoices = verifiedOfflineVoices(tts)
+      val voice = preferredVoiceId
+        ?.let { selectedId ->
+          verifiedVoices.firstOrNull { candidate -> candidate.name == selectedId }
+        }
+        ?: verifiedVoices.firstOrNull { candidate ->
           candidate.locale.toLanguageTag().equals(language, ignoreCase = true)
         }
-        ?: verifiedOfflineVoices(tts)
-          .firstOrNull { candidate ->
-            candidate.locale.language.equals(locale.language, ignoreCase = true)
-          }
+        ?: verifiedVoices.firstOrNull { candidate ->
+          candidate.locale.language.equals(locale.language, ignoreCase = true)
+        }
 
       if (voice == null) {
         promise.reject(
@@ -177,6 +181,12 @@ class SecondBrainOfflineTtsModule : Module(), TextToSpeech.OnInitListener {
         !voice.isNetworkConnectionRequired &&
           !voice.features.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
       }
+
+  private fun displayName(voice: android.speech.tts.Voice): String {
+    val language = voice.locale.getDisplayLanguage(Locale.ENGLISH)
+    val country = voice.locale.getDisplayCountry(Locale.ENGLISH)
+    return if (country.isBlank()) language else "$language ($country)"
+  }
 
   private fun rejectUtterance(utteranceId: String?) {
     if (utteranceId == null) return

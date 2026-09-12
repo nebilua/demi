@@ -17,6 +17,7 @@ declare class SecondBrainOfflineTtsModule extends NativeModule {
     text: string,
     language: string,
     rate: number,
+    preferredVoiceId?: string | null,
   ): Promise<SpeakResult>;
   stopAsync(): Promise<void>;
   openTtsSettingsAsync(): Promise<void>;

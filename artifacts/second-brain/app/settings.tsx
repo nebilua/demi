@@ -90,6 +90,9 @@ export default function SettingsScreen() {
     modelSetupStatus,
     voiceInputAvailable,
     voiceOutputAvailable,
+    offlineVoices,
+    offlineVoicesLoading,
+    refreshOfflineVoices,
     voiceError,
     voiceSetupInProgress,
     importModel,
@@ -114,6 +117,12 @@ export default function SettingsScreen() {
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
   const canSetupSpeech = !voiceInputAvailable && !requiresNewerAndroid && !voiceSetupInProgress;
   const canSetupSpokenReplies = !voiceOutputAvailable;
+  const englishOfflineVoices = offlineVoices.filter(
+    (voice) => voice.language.toLowerCase().split('-')[0] === 'en',
+  );
+  const selectedVoiceIsInstalled = englishOfflineVoices.some(
+    (voice) => voice.id === settings.preferredVoiceId,
+  );
 
   async function handleClearHistory() {
     setIsClearing(true);
@@ -245,8 +254,10 @@ export default function SettingsScreen() {
               </Text>
             )}
           </View>
+        </View>
 
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        <SectionLabel>Local voice</SectionLabel>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
 
           <Pressable
             testID="offline-speech-setup"
@@ -298,6 +309,96 @@ export default function SettingsScreen() {
               {voiceOutputAvailable ? 'Offline TTS ready.' : 'Verify or install an offline TTS voice.'}
             </Text>
           </Pressable>
+
+          <View style={[styles.voicePicker, { borderTopColor: colors.border }]}>
+            <View style={styles.voicePickerHeader}>
+              <View style={styles.rowCopy}>
+                <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                  Preferred English voice
+                </Text>
+                <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
+                  Automatic matching is used if the selected voice is unavailable.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Refresh installed offline voices"
+                onPress={() => void refreshOfflineVoices()}
+                style={({ pressed }) => [
+                  styles.refreshButton,
+                  { backgroundColor: colors.secondary },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Feather name="refresh-cw" size={15} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            {offlineVoicesLoading ? (
+              <View style={styles.voiceLoading}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                  Checking installed offline voices...
+                </Text>
+              </View>
+            ) : englishOfflineVoices.length === 0 ? (
+              <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                No verified English offline voice is installed. Use Spoken replies above to open Android text-to-speech settings.
+              </Text>
+            ) : (
+              <View style={styles.voiceOptions}>
+                <Pressable
+                  testID="voice-option-automatic"
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: !selectedVoiceIsInstalled }}
+                  onPress={() => void updateSettings({ preferredVoiceId: null })}
+                  style={({ pressed }) => [
+                    styles.voiceOption,
+                    { borderColor: !selectedVoiceIsInstalled ? colors.primary : colors.border },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.voiceOptionCopy}>
+                    <Text style={[styles.voiceOptionTitle, { color: colors.cardForeground }]}>
+                      Automatic
+                    </Text>
+                    <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                      Match the reply language
+                    </Text>
+                  </View>
+                  {!selectedVoiceIsInstalled && <Feather name="check-circle" size={17} color={colors.primary} />}
+                </Pressable>
+
+                {englishOfflineVoices.map((voice) => {
+                  const selected = settings.preferredVoiceId === voice.id;
+                  return (
+                    <Pressable
+                      key={voice.id}
+                      testID={`voice-option-${voice.id}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      onPress={() => void updateSettings({ preferredVoiceId: voice.id })}
+                      style={({ pressed }) => [
+                        styles.voiceOption,
+                        { borderColor: selected ? colors.primary : colors.border },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View style={styles.voiceOptionCopy}>
+                        <Text style={[styles.voiceOptionTitle, { color: colors.cardForeground }]}>
+                          {voice.name}
+                        </Text>
+                        <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                          {voice.language} · {voice.id}
+                        </Text>
+                      </View>
+                      {selected && <Feather name="check-circle" size={17} color={colors.primary} />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
         </View>
 
         <SectionLabel>Preferences</SectionLabel>
@@ -383,6 +484,15 @@ const styles = StyleSheet.create({
   readinessTitle: { fontFamily: 'Inter_500Medium', fontSize: 15 },
   readinessDesc: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 18 },
   pressedReadiness: { opacity: 0.7 },
+  voicePicker: { borderTopWidth: 1, marginTop: 8, paddingTop: 16 },
+  voicePickerHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  refreshButton: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  voiceLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  voiceOptions: { gap: 8, marginTop: 12 },
+  voiceOption: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
+  voiceOptionCopy: { flex: 1 },
+  voiceOptionTitle: { fontFamily: 'Inter_500Medium', fontSize: 13, marginBottom: 2 },
+  voiceMeta: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
   downloadBox: { marginTop: 12, padding: 12, borderRadius: 12 },
   downloadTitle: { fontFamily: 'Inter_500Medium', fontSize: 14, marginBottom: 4 },
   downloadMeta: { fontFamily: 'Inter_400Regular', fontSize: 12 },
