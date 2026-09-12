@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type ConversationTurn } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 
@@ -107,6 +108,8 @@ export default function SecondBrainScreen() {
   const { width, height } = useWindowDimensions();
   const {
     settings,
+    settingsReady,
+    profile,
     turns,
     isConversationReady,
     isThinking,
@@ -592,6 +595,10 @@ export default function SecondBrainScreen() {
             : 'session only · not saving new messages'}
         </Text>
       </SafeAreaView>
+      <PersonalProfileEditor
+        visible={settingsReady && !profile.onboardingCompleted}
+        mode="onboarding"
+      />
     </KeyboardAvoidingView>
   );
 }

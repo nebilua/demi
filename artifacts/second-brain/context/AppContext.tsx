@@ -52,6 +52,12 @@ export type AppSettings = {
   speechRate: number;
 };
 
+export type PersonalProfile = {
+  displayName: string;
+  context: string;
+  onboardingCompleted: boolean;
+};
+
 export type ModelSetupStatus =
   | 'idle'
   | 'selecting'
@@ -63,6 +69,12 @@ type AppContextValue = {
   settings: AppSettings;
   settingsReady: boolean;
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>;
+  profile: PersonalProfile;
+  saveProfile: (
+    profile: Pick<PersonalProfile, 'displayName' | 'context'>,
+  ) => Promise<void>;
+  skipProfile: () => Promise<void>;
+  clearProfile: () => Promise<void>;
   turns: ConversationTurn[];
   isConversationReady: boolean;
   isThinking: boolean;
@@ -102,6 +114,7 @@ type AppContextValue = {
 const SETTINGS_KEY = '@second-brain/settings-v1';
 const CONVERSATION_KEY = '@second-brain/conversation-v1';
 const MODEL_KEY = '@second-brain/local-model-v1';
+const PROFILE_KEY = '@second-brain/personal-profile-v1';
 
 const DEFAULT_SETTINGS: AppSettings = {
   appearance: 'system',
@@ -111,6 +124,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   spokenRepliesEnabled: false,
   voiceLanguage: 'en-US',
   speechRate: 0.92,
+};
+
+const DEFAULT_PROFILE: PersonalProfile = {
+  displayName: '',
+  context: '',
+  onboardingCompleted: false,
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -144,6 +163,27 @@ function parseSettings(value: string | null): AppSettings {
     };
   } catch {
     return DEFAULT_SETTINGS;
+  }
+}
+
+function parseProfile(value: string | null): PersonalProfile {
+  if (!value) return DEFAULT_PROFILE;
+
+  try {
+    const parsed = JSON.parse(value) as Partial<PersonalProfile>;
+    return {
+      displayName:
+        typeof parsed.displayName === 'string'
+          ? parsed.displayName.trim().slice(0, 80)
+          : '',
+      context:
+        typeof parsed.context === 'string'
+          ? parsed.context.trim().slice(0, 2000)
+          : '',
+      onboardingCompleted: parsed.onboardingCompleted === true,
+    };
+  } catch {
+    return DEFAULT_PROFILE;
   }
 }
 
@@ -231,6 +271,7 @@ async function validateGgufHeader(uri: string) {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
+  const [profile, setProfile] = useState<PersonalProfile>(DEFAULT_PROFILE);
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [savedTurnCount, setSavedTurnCount] = useState(0);
   const [isConversationReady, setIsConversationReady] = useState(false);
@@ -271,14 +312,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.getItem(SETTINGS_KEY),
       AsyncStorage.getItem(CONVERSATION_KEY),
       AsyncStorage.getItem(MODEL_KEY),
+      AsyncStorage.getItem(PROFILE_KEY),
     ])
-      .then(async ([storedSettings, storedConversation, storedModel]) => {
+      .then(
+        async ([
+          storedSettings,
+          storedConversation,
+          storedModel,
+          storedProfile,
+        ]) => {
         if (!isMounted) return;
         const nextSettings = parseSettings(storedSettings);
         const savedTurns = parseTurns(storedConversation);
         const savedModel = parseModel(storedModel);
+        const savedProfile = parseProfile(storedProfile);
 
         setSettings(nextSettings);
+        setProfile(savedProfile);
         setSavedTurnCount(savedTurns.length);
         setTurns(nextSettings.saveConversations ? savedTurns : []);
         if (savedModel && Platform.OS !== 'web') {
@@ -292,7 +342,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         setSettingsReady(true);
         setIsConversationReady(true);
-      })
+        },
+      )
       .catch(() => {
         if (!isMounted) return;
         setStorageError('Local storage could not be opened. New messages will remain in memory.');
@@ -846,6 +897,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function persistProfile(nextProfile: PersonalProfile) {
+    setProfile(nextProfile);
+
+    try {
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(nextProfile));
+      setStorageError(null);
+    } catch {
+      setStorageError('Your local profile could not be saved on this device.');
+    }
+  }
+
+  async function saveProfile(
+    nextProfile: Pick<PersonalProfile, 'displayName' | 'context'>,
+  ) {
+    await persistProfile({
+      displayName: nextProfile.displayName.trim().slice(0, 80),
+      context: nextProfile.context.trim().slice(0, 2000),
+      onboardingCompleted: true,
+    });
+  }
+
+  async function skipProfile() {
+    await persistProfile({
+      displayName: '',
+      context: '',
+      onboardingCompleted: true,
+    });
+  }
+
+  async function clearProfile() {
+    await persistProfile({
+      displayName: '',
+      context: '',
+      onboardingCompleted: true,
+    });
+  }
+
   async function persistTurns(nextTurns: ConversationTurn[]) {
     if (!settings.saveConversations) return;
 
@@ -913,6 +1001,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ),
           );
         },
+        {
+          displayName: profile.displayName,
+          context: profile.context,
+        },
       );
       const completedTurns = withAssistantTurn.map((turn) =>
         turn.id === assistantTurn.id
@@ -964,6 +1056,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       settings,
       settingsReady,
       updateSettings,
+      profile,
+      saveProfile,
+      skipProfile,
+      clearProfile,
       turns,
       isConversationReady,
       isThinking,
@@ -1002,6 +1098,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [
       settings,
       settingsReady,
+      profile,
       turns,
       isConversationReady,
       isThinking,

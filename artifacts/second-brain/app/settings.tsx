@@ -17,6 +17,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
+import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type Appearance } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 
@@ -81,6 +82,7 @@ export default function SettingsScreen() {
     settings,
     settingsReady,
     updateSettings,
+    profile,
     savedTurnCount,
     clearConversation,
     localModel,
@@ -117,6 +119,7 @@ export default function SettingsScreen() {
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
   const modelOperationActive = modelSetupStatus !== 'idle';
 
   async function handleClearHistory() {
@@ -197,6 +200,61 @@ export default function SettingsScreen() {
             Everything here stays on this device. No account or cloud connection
             is required.
           </Text>
+        </View>
+
+        <SectionLabel>PERSONAL CONTEXT</SectionLabel>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.profileSummary}>
+            <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+              <Feather name="user" size={17} color={colors.primary} />
+            </View>
+            <View style={styles.rowCopy}>
+              <View style={styles.engineTitleLine}>
+                <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                  {profile.displayName ? `For ${profile.displayName}` : 'No local profile yet'}
+                </Text>
+                <View style={[styles.availablePill, { backgroundColor: colors.accent }]}>
+                  <Text style={[styles.availableText, { color: colors.accentForeground }]}>
+                    {profile.displayName || profile.context ? 'ACTIVE' : 'OPTIONAL'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                {profile.displayName || profile.context
+                  ? 'Used only to tailor replies from your offline model'
+                  : 'Add a name, goals, routines, or response preferences'}
+              </Text>
+            </View>
+          </View>
+          {(profile.displayName || profile.context) && (
+            <Text
+              numberOfLines={2}
+              style={[styles.profilePreview, { color: colors.mutedForeground }]}
+            >
+              {profile.context || 'Preferred name saved locally'}
+            </Text>
+          )}
+          <Pressable
+            testID="edit-profile"
+            accessibilityRole="button"
+            accessibilityLabel="Edit local profile"
+            onPress={() => setShowProfileEditor(true)}
+            style={({ pressed }) => [
+              styles.profileButton,
+              { borderColor: colors.border },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Feather name="edit-2" size={14} color={colors.primary} />
+            <Text style={[styles.profileButtonText, { color: colors.primary }]}>
+              {profile.displayName || profile.context ? 'Edit profile' : 'Add local context'}
+            </Text>
+          </Pressable>
         </View>
 
         <SectionLabel>APPEARANCE</SectionLabel>
@@ -866,6 +924,11 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </ScrollView>
+      <PersonalProfileEditor
+        visible={showProfileEditor}
+        mode="settings"
+        onClose={() => setShowProfileEditor(false)}
+      />
 
       <Modal
         visible={showClearConfirm}
@@ -1110,6 +1173,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 11,
+  },
+  profileSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+  },
+  profilePreview: {
+    fontFamily: 'Rubik_400Regular',
+    fontSize: 11,
+    lineHeight: 16,
+    marginLeft: 47,
+    marginTop: -4,
+    marginBottom: 10,
+  },
+  profileButton: {
+    minHeight: 40,
+    borderWidth: 1,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginBottom: 8,
+  },
+  profileButtonText: {
+    fontFamily: 'Rubik_600SemiBold',
+    fontSize: 11,
   },
   settingRow: {
     minHeight: 70,
