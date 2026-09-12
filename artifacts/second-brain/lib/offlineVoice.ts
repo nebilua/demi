@@ -85,6 +85,14 @@ export async function stopLocalSpeech() {
   if (module) await module.stopAsync();
 }
 
+export async function openLocalVoiceSettings() {
+  const module = getOfflineTtsModule();
+  if (!module) {
+    throw new Error('The Android text-to-speech module is not available.');
+  }
+  await module.openTtsSettingsAsync();
+}
+
 export async function speakLocally(
   text: string,
   options: {

@@ -1,6 +1,8 @@
 package com.secondbrain.offlinetts
 
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
@@ -102,6 +104,15 @@ class SecondBrainOfflineTtsModule : Module(), TextToSpeech.OnInitListener {
     AsyncFunction("stopAsync") {
       engine?.stop()
       resolveAllAsStopped()
+    }
+
+    AsyncFunction("openTtsSettingsAsync") {
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("Android application context is unavailable.")
+      val intent = Intent(Settings.ACTION_TTS_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      context.startActivity(intent)
     }
 
     OnDestroy {

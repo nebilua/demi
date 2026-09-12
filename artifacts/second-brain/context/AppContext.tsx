@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AppState, Linking, Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import type { LlamaContext } from 'llama.rn';
 import {
   formatBytes,
@@ -26,6 +26,7 @@ import {
   getRecognitionModule,
   speakLocally,
   stopLocalSpeech,
+  openLocalVoiceSettings,
   voiceErrorMessage,
   type ExpoSpeechRecognitionResultEvent,
   type RecognitionModule,
@@ -51,6 +52,13 @@ export type AppSettings = {
   speechRate: number;
 };
 
+export type ModelSetupStatus =
+  | 'idle'
+  | 'selecting'
+  | 'copying'
+  | 'validating'
+  | 'loading';
+
 type AppContextValue = {
   settings: AppSettings;
   settingsReady: boolean;
@@ -65,6 +73,7 @@ type AppContextValue = {
   engineStatus: 'unsupported' | 'no-model' | 'loading' | 'ready' | 'error';
   engineProgress: number;
   engineError: string | null;
+  modelSetupStatus: ModelSetupStatus;
   runtimeDetails: RuntimeDetails | null;
   voiceInputStatus: VoiceInputStatus;
   voiceInputAvailable: boolean;
@@ -72,9 +81,10 @@ type AppContextValue = {
   voiceTranscript: string;
   voiceError: string | null;
   voiceSetupMessage: string | null;
+  voiceSetupInProgress: boolean;
   isSpeaking: boolean;
   importModel: () => Promise<void>;
-  loadModel: () => Promise<void>;
+  loadModel: () => Promise<boolean>;
   removeModel: () => Promise<void>;
   startVoiceInput: () => Promise<void>;
   stopVoiceInput: () => void;
@@ -180,8 +190,42 @@ function cleanFileName(name: string) {
 }
 
 function readableError(error: unknown) {
-  if (error instanceof Error) return error.message;
+  const message = error instanceof Error ? error.message : '';
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes('outofmemory') ||
+    normalized.includes('out of memory') ||
+    normalized.includes('allocation failed') ||
+    normalized.includes('cannot allocate') ||
+    normalized.includes('bad_alloc') ||
+    normalized.includes('failed to create context') ||
+    normalized.includes('failed to load model')
+  ) {
+    return 'Android ran out of memory while loading this model. Remove other apps from recents and retry with a smaller Q4 GGUF model.';
+  }
+  if (
+    normalized.includes('no space') ||
+    normalized.includes('insufficient storage') ||
+    normalized.includes('storage full') ||
+    normalized.includes('enospc')
+  ) {
+    return 'There is not enough free storage to copy this model. Free space on the device and try again.';
+  }
+  if (message) return message;
   return 'The model could not be loaded. Choose a smaller compatible GGUF file and try again.';
+}
+
+async function validateGgufHeader(uri: string) {
+  const header = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+    position: 0,
+    length: 4,
+  });
+  if (!header.replace(/\s/g, '').startsWith('R0dVRg')) {
+    throw new Error(
+      'This file is not a valid GGUF model. Choose a compatible Q4_K_M or other Q4 GGUF file.',
+    );
+  }
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -198,6 +242,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   >(Platform.OS === 'web' ? 'unsupported' : 'no-model');
   const [engineProgress, setEngineProgress] = useState(0);
   const [engineError, setEngineError] = useState<string | null>(null);
+  const [modelSetupStatus, setModelSetupStatus] =
+    useState<ModelSetupStatus>('idle');
   const [runtimeDetails, setRuntimeDetails] = useState<RuntimeDetails | null>(null);
   const [voiceInputStatus, setVoiceInputStatus] = useState<VoiceInputStatus>(
     Platform.OS === 'web' ? 'unavailable' : 'checking',
@@ -207,12 +253,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [voiceTranscript, setVoiceTranscript] = useState('');
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceSetupMessage, setVoiceSetupMessage] = useState<string | null>(null);
+  const [voiceSetupInProgress, setVoiceSetupInProgress] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const deviceCompatibility = useMemo(() => getDeviceCompatibility(), []);
   const llamaContextRef = useRef<LlamaContext | null>(null);
   const recognitionModuleRef = useRef<RecognitionModule | null>(null);
   const recognitionServicePackageRef = useRef<string | undefined>(undefined);
   const didRestoreModelRef = useRef(false);
+  const modelImportInFlightRef = useRef(false);
+  const modelLoadInFlightRef = useRef(false);
+  const offlineVoiceSetupInFlightRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -275,7 +325,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     void refreshVoiceAvailability(module);
     const appStateSubscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void refreshVoiceAvailability(module);
+      if (state === 'active') {
+        void refreshVoiceAvailability(module);
+        void canSpeakLocally().then((available) => {
+          if (isMounted) setVoiceOutputAvailable(available);
+        });
+        if (offlineVoiceSetupInFlightRef.current) {
+          offlineVoiceSetupInFlightRef.current = false;
+          setVoiceSetupInProgress(false);
+        }
+      }
     });
 
     const subscriptions = [
@@ -319,6 +378,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // The recognizer may already be inactive.
       }
       void stopLocalSpeech();
+      offlineVoiceSetupInFlightRef.current = false;
     };
   }, []);
 
@@ -399,10 +459,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRuntimeDetails(null);
   }
 
-  async function loadModel(modelOverride?: LocalModel) {
+  async function loadModel(modelOverride?: LocalModel): Promise<boolean> {
     const model = modelOverride ?? localModel;
-    if (!model || engineStatus === 'loading') return;
+    if (!model || modelLoadInFlightRef.current) return false;
 
+    modelLoadInFlightRef.current = true;
+    setModelSetupStatus('loading');
     setEngineStatus('loading');
     setEngineProgress(0);
     setEngineError(null);
@@ -414,9 +476,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRuntimeDetails(loaded.details);
       setEngineProgress(100);
       setEngineStatus('ready');
+      return true;
     } catch (error) {
       setEngineError(readableError(error));
       setEngineStatus('error');
+      return false;
+    } finally {
+      modelLoadInFlightRef.current = false;
+      setModelSetupStatus('idle');
     }
   }
 
@@ -427,6 +494,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [settingsReady, localModel]);
 
   async function importModel() {
+    if (modelImportInFlightRef.current || modelLoadInFlightRef.current) return;
     if (Platform.OS === 'web') {
       setEngineError(
         'Model import and offline inference are available in the installed Android app.',
@@ -435,34 +503,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    modelImportInFlightRef.current = true;
+    setModelSetupStatus('selecting');
     setEngineError(null);
+    let destination: string | null = null;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/octet-stream',
         copyToCacheDirectory: true,
         multiple: false,
       });
-      if (result.canceled) return;
+       if (result.canceled) {
+         setModelSetupStatus('idle');
+         return;
+       }
 
       const asset = result.assets[0];
       if (!asset.name.toLowerCase().endsWith('.gguf')) {
         setEngineError('Choose a quantized model file ending in .gguf.');
         setEngineStatus('error');
+         setModelSetupStatus('idle');
         return;
       }
 
+       setModelSetupStatus('validating');
       const sourceInfo = await FileSystem.getInfoAsync(asset.uri);
       const sizeBytes = asset.size ?? (sourceInfo.exists ? sourceInfo.size ?? 0 : 0);
       if (sizeBytes <= 0) {
         setEngineError('The selected file could not be read.');
         setEngineStatus('error');
+         setModelSetupStatus('idle');
         return;
       }
+       await validateGgufHeader(asset.uri);
+
+       let freeStorageBytes: number;
+       try {
+         freeStorageBytes = await FileSystem.getFreeDiskStorageAsync();
+       } catch {
+         throw new Error(
+           'Second Brain could not check free storage before copying this model. Try again after closing other apps.',
+         );
+       }
+       const storageSafetyMargin = 128 * 1024 * 1024;
+       if (freeStorageBytes < sizeBytes + storageSafetyMargin) {
+         throw new Error(
+           `There is not enough free storage to copy this ${formatBytes(sizeBytes)} model. Free at least ${formatBytes(
+             sizeBytes + storageSafetyMargin,
+           )} and try again.`,
+         );
+       }
 
       const modelsDirectory = `${FileSystem.documentDirectory}models`;
       await FileSystem.makeDirectoryAsync(modelsDirectory, { intermediates: true });
-      const destination = `${modelsDirectory}/${Date.now()}-${cleanFileName(asset.name)}`;
+       destination = `${modelsDirectory}/${Date.now()}-${cleanFileName(asset.name)}`;
+       setModelSetupStatus('copying');
       await FileSystem.copyAsync({ from: asset.uri, to: destination });
+       setModelSetupStatus('validating');
+       const copiedInfo = await FileSystem.getInfoAsync(destination);
+       if (!copiedInfo.exists || (copiedInfo.size ?? 0) !== sizeBytes) {
+         throw new Error(
+           'The model copy did not finish correctly. Remove the partial file and try importing it again.',
+         );
+       }
+       await validateGgufHeader(destination);
 
       const nextModel: LocalModel = {
         id: createId(),
@@ -475,26 +579,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (nextModel.sizeBytes > deviceCompatibility.maxRecommendedModelBytes) {
         await FileSystem.deleteAsync(destination, { idempotent: true });
+         destination = null;
         setEngineError(
           `${asset.name} is ${formatBytes(sizeBytes)}. Choose a model smaller than ${formatBytes(
             deviceCompatibility.maxRecommendedModelBytes,
           )} to avoid a low-memory crash.`,
         );
         setEngineStatus('error');
+         setModelSetupStatus('idle');
         return;
       }
 
-      const previousModel = localModel;
-      await releaseModelContext();
-      setLocalModel(nextModel);
-      await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
-      if (previousModel && previousModel.uri !== nextModel.uri) {
-        await FileSystem.deleteAsync(previousModel.uri, { idempotent: true });
+       const previousModel = localModel;
+       const loaded = await loadModel(nextModel);
+       if (!loaded) {
+         await FileSystem.deleteAsync(destination, { idempotent: true });
+         destination = null;
+         return;
       }
-      await loadModel(nextModel);
+       setLocalModel(nextModel);
+       destination = null;
+       try {
+         await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
+         setStorageError(null);
+       } catch {
+         setStorageError(
+           'The model is ready for this session, but its selection could not be saved locally.',
+         );
+       }
+       if (previousModel && previousModel.uri !== nextModel.uri) {
+         await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(
+           () => {},
+         );
+       }
     } catch (error) {
+      if (destination) {
+        await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+      }
       setEngineError(readableError(error));
       setEngineStatus('error');
+      setModelSetupStatus('idle');
+    } finally {
+      modelImportInFlightRef.current = false;
     }
   }
 
@@ -605,6 +731,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function installOfflineVoiceModel() {
+    if (offlineVoiceSetupInFlightRef.current) return;
     const module = recognitionModuleRef.current;
     if (!module || Platform.OS !== 'android') {
       setVoiceError(
@@ -623,6 +750,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    offlineVoiceSetupInFlightRef.current = true;
+    setVoiceSetupInProgress(true);
     setVoiceError(null);
     setVoiceSetupMessage(null);
     setVoiceInputStatus('checking');
@@ -638,7 +767,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : 'Android opened the offline language download. Return here when it finishes.',
       );
       await refreshVoiceAvailability(module);
+      if (result.status !== 'opened_dialog') {
+        offlineVoiceSetupInFlightRef.current = false;
+        setVoiceSetupInProgress(false);
+      }
     } catch (error) {
+      offlineVoiceSetupInFlightRef.current = false;
+      setVoiceSetupInProgress(false);
       setVoiceInputStatus('needs-model');
       setVoiceError(
         error instanceof Error
@@ -683,9 +818,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function openVoiceSettings() {
     try {
-      await Linking.openSettings();
+      await openLocalVoiceSettings();
     } catch {
-      setVoiceError('Android Settings could not be opened from this preview.');
+      setVoiceError(
+        'Android text-to-speech settings could not be opened from this build. Open Android Settings, then choose Text-to-speech output.',
+      );
     }
   }
 
@@ -837,6 +974,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       engineStatus,
       engineProgress,
       engineError,
+      modelSetupStatus,
       runtimeDetails,
       voiceInputStatus,
       voiceInputAvailable,
@@ -844,6 +982,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceTranscript,
       voiceError,
       voiceSetupMessage,
+      voiceSetupInProgress,
       isSpeaking,
       importModel,
       loadModel,
@@ -873,6 +1012,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       engineStatus,
       engineProgress,
       engineError,
+      modelSetupStatus,
       runtimeDetails,
       voiceInputStatus,
       voiceInputAvailable,
@@ -880,6 +1020,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceTranscript,
       voiceError,
       voiceSetupMessage,
+      voiceSetupInProgress,
       isSpeaking,
     ],
   );

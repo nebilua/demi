@@ -88,12 +88,14 @@ export default function SettingsScreen() {
     engineStatus,
     engineProgress,
     engineError,
+    modelSetupStatus,
     runtimeDetails,
     voiceInputStatus,
     voiceInputAvailable,
     voiceOutputAvailable,
     voiceError,
     voiceSetupMessage,
+    voiceSetupInProgress,
     isSpeaking,
     importModel,
     loadModel,
@@ -115,6 +117,7 @@ export default function SettingsScreen() {
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
+  const modelOperationActive = modelSetupStatus !== 'idle';
 
   async function handleClearHistory() {
     setIsClearing(true);
@@ -420,8 +423,12 @@ export default function SettingsScreen() {
                       { color: colors.accentForeground },
                     ]}
                   >
-                    {voiceInputAvailable
+                    {voiceInputAvailable && voiceOutputAvailable
                       ? 'READY'
+                      : voiceInputAvailable
+                        ? 'INPUT READY'
+                        : voiceOutputAvailable
+                          ? 'TTS READY'
                       : voiceInputStatus === 'checking'
                         ? 'CHECKING'
                         : requiresNewerAndroid
@@ -435,13 +442,31 @@ export default function SettingsScreen() {
               <Text
                 style={[styles.rowDescription, { color: colors.mutedForeground }]}
               >
-                {voiceInputAvailable
-                  ? 'English recognition stays on this device'
+                {voiceInputAvailable && voiceOutputAvailable
+                  ? 'Offline input and spoken replies are ready'
+                  : voiceInputAvailable
+                    ? 'Input is ready · install an offline TTS voice for replies'
+                    : voiceOutputAvailable
+                      ? 'Spoken replies are ready · install offline input data'
                   : requiresNewerAndroid
                     ? 'Enforced offline recognition requires Android 13+'
                   : 'Install the English offline language pack'}
               </Text>
             </View>
+          </View>
+          <View style={[styles.setupGuide, { backgroundColor: colors.secondary }]}>
+            <View style={styles.setupGuideHeading}>
+              <Feather name="help-circle" size={14} color={colors.primary} />
+              <Text style={[styles.setupGuideTitle, { color: colors.cardForeground }]}>
+                How local voice works
+              </Text>
+            </View>
+            <Text style={[styles.setupGuideText, { color: colors.mutedForeground }]}>
+              Offline voice input turns speech into editable text with Android's
+              on-device recognition language pack. Spoken replies use a separate
+              Android text-to-speech engine and an installed offline voice. The GGUF
+              model below is separate again: it generates the private text replies.
+            </Text>
           </View>
           <View style={[styles.infoRow, { backgroundColor: colors.secondary }]}>
             <Feather
@@ -476,41 +501,47 @@ export default function SettingsScreen() {
               accessibilityRole="button"
               accessibilityLabel="Install English offline recognition"
               onPress={installOfflineVoiceModel}
+              disabled={voiceSetupInProgress}
               style={({ pressed }) => [
                 styles.primaryModelButton,
                 { backgroundColor: colors.primary },
+                voiceSetupInProgress && styles.disabled,
                 pressed && styles.pressed,
               ]}
             >
-              <Feather
-                name="download"
-                size={15}
-                color={colors.primaryForeground}
-              />
+              {voiceSetupInProgress ? (
+                <ActivityIndicator size="small" color={colors.primaryForeground} />
+              ) : (
+                <Feather
+                  name="download"
+                  size={15}
+                  color={colors.primaryForeground}
+                />
+              )}
               <Text
                 style={[
                   styles.modelButtonText,
                   { color: colors.primaryForeground },
                 ]}
               >
-                Manage offline English
+                {voiceSetupInProgress
+                  ? 'Checking offline English…'
+                  : 'Manage offline English'}
               </Text>
             </Pressable>
-            {voiceInputStatus === 'error' && (
-              <Pressable
-                testID="open-voice-settings"
-                accessibilityRole="button"
-                accessibilityLabel="Open Android voice settings"
-                onPress={openVoiceSettings}
-                style={({ pressed }) => [
-                  styles.secondaryModelButton,
-                  { borderColor: colors.border },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Feather name="settings" size={15} color={colors.primary} />
-              </Pressable>
-            )}
+            <Pressable
+              testID="open-voice-settings"
+              accessibilityRole="button"
+              accessibilityLabel="Open Android text-to-speech settings"
+              onPress={openVoiceSettings}
+              style={({ pressed }) => [
+                styles.secondaryModelButton,
+                { borderColor: colors.border },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather name="settings" size={15} color={colors.primary} />
+            </Pressable>
             <Pressable
               testID="preview-local-voice"
               accessibilityRole="button"
@@ -609,11 +640,15 @@ export default function SettingsScreen() {
                       { color: colors.accentForeground },
                     ]}
                   >
-                    {engineStatus === 'ready'
+                    {modelSetupStatus === 'copying'
+                      ? 'IMPORTING'
+                      : modelSetupStatus === 'validating'
+                        ? 'CHECKING'
+                        : modelSetupStatus === 'loading'
+                          ? 'LOADING'
+                          : engineStatus === 'ready'
                       ? 'ACTIVE'
-                      : engineStatus === 'loading'
-                        ? 'LOADING'
-                        : 'SETUP'}
+                          : 'SETUP'}
                   </Text>
                 </View>
               </View>
@@ -630,47 +665,77 @@ export default function SettingsScreen() {
           <View style={[styles.infoRow, { backgroundColor: colors.secondary }]}>
             <Feather name="info" size={14} color={colors.mutedForeground} />
             <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
-              {engineStatus === 'loading'
-                ? `Loading model into memory · ${Math.round(engineProgress)}%`
+              {modelSetupStatus === 'selecting'
+                ? 'Choose a model file ending in .gguf.'
+                : modelSetupStatus === 'copying'
+                  ? 'Copying the model into Second Brain. Keep this screen open…'
+                  : modelSetupStatus === 'validating'
+                    ? 'Checking the GGUF header, size, and available storage…'
+                    : modelSetupStatus === 'loading'
+                      ? `Loading model into memory · ${Math.round(engineProgress)}%`
                 : engineError ??
                   (deviceCompatibility.nativeRuntimeAvailable
                     ? deviceCompatibility.recommendation
                     : 'The browser preview cannot run llama.cpp. Use the installed Android app to import and run a model.')}
             </Text>
           </View>
-          {engineStatus === 'loading' && (
+          {(modelSetupStatus === 'copying' ||
+            modelSetupStatus === 'validating' ||
+            modelSetupStatus === 'loading') && (
             <View style={[styles.progressTrack, { backgroundColor: colors.secondary }]}>
               <View
                 style={[
                   styles.progressFill,
                   {
                     backgroundColor: colors.primary,
-                    width: `${Math.max(2, engineProgress)}%`,
+                    width:
+                      modelSetupStatus === 'loading'
+                        ? `${Math.max(2, engineProgress)}%`
+                        : modelSetupStatus === 'copying'
+                          ? '42%'
+                          : '76%',
                   },
                 ]}
               />
             </View>
           )}
+          <View style={[styles.setupGuide, { backgroundColor: colors.secondary }]}>
+            <View style={styles.setupGuideHeading}>
+              <Feather name="download" size={14} color={colors.primary} />
+              <Text style={[styles.setupGuideTitle, { color: colors.cardForeground }]}>
+                Recommended private model path
+              </Text>
+            </View>
+            <Text style={[styles.setupGuideText, { color: colors.mutedForeground }]}>
+              Download a compatible Q4_K_M GGUF model yourself, preferably a small
+              1–3B model that fits the memory and storage shown below. Model weights
+              are never bundled in this APK. Importing does not use the network.
+            </Text>
+          </View>
           <View style={styles.modelActions}>
             <Pressable
               testID="import-model"
               accessibilityRole="button"
               accessibilityLabel={localModel ? 'Choose another GGUF model' : 'Import GGUF model'}
               onPress={importModel}
-              disabled={engineStatus === 'loading'}
+              disabled={modelOperationActive}
               style={({ pressed }) => [
                 styles.primaryModelButton,
                 { backgroundColor: colors.primary },
-                engineStatus === 'loading' && styles.disabled,
+                modelOperationActive && styles.disabled,
                 pressed && styles.pressed,
               ]}
             >
               <Feather name="folder-plus" size={15} color={colors.primaryForeground} />
               <Text style={[styles.modelButtonText, { color: colors.primaryForeground }]}>
-                {localModel ? 'Choose another' : 'Import GGUF model'}
+                {modelSetupStatus === 'selecting'
+                  ? 'Choose a file…'
+                  : localModel
+                    ? 'Choose another'
+                    : 'Import GGUF model'}
               </Text>
             </Pressable>
-            {localModel && engineStatus !== 'ready' && engineStatus !== 'loading' && (
+            {localModel && engineStatus !== 'ready' && !modelOperationActive && (
               <Pressable
                 testID="retry-model-load"
                 accessibilityRole="button"
@@ -684,7 +749,7 @@ export default function SettingsScreen() {
                 <Feather name="refresh-cw" size={15} color={colors.primary} />
               </Pressable>
             )}
-            {localModel && engineStatus !== 'loading' && (
+            {localModel && !modelOperationActive && (
               <Pressable
                 testID="remove-model"
                 accessibilityRole="button"
@@ -1116,6 +1181,28 @@ const styles = StyleSheet.create({
     fontFamily: 'Rubik_700Bold',
     fontSize: 8,
     letterSpacing: 0.8,
+  },
+  setupGuide: {
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginBottom: 9,
+  },
+  setupGuideHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 4,
+  },
+  setupGuideTitle: {
+    fontFamily: 'Rubik_600SemiBold',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  setupGuideText: {
+    fontFamily: 'Rubik_400Regular',
+    fontSize: 10,
+    lineHeight: 15,
   },
   infoRow: {
     borderRadius: 11,

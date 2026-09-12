@@ -19,6 +19,7 @@ declare class SecondBrainOfflineTtsModule extends NativeModule {
     rate: number,
   ): Promise<SpeakResult>;
   stopAsync(): Promise<void>;
+  openTtsSettingsAsync(): Promise<void>;
 }
 
 export default requireNativeModule<SecondBrainOfflineTtsModule>(

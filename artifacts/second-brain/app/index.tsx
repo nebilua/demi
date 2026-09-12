@@ -115,6 +115,7 @@ export default function SecondBrainScreen() {
     engineStatus,
     engineProgress,
     engineError,
+    modelSetupStatus,
     voiceInputStatus,
     voiceTranscript,
     voiceError,
@@ -142,11 +143,15 @@ export default function SecondBrainScreen() {
     isConversationReady &&
     engineStatus === 'ready';
   const engineLabel =
-    engineStatus === 'ready'
+    modelSetupStatus === 'copying'
+      ? 'IMPORT'
+      : modelSetupStatus === 'validating'
+        ? 'CHECK'
+        : modelSetupStatus === 'loading'
+          ? `${Math.round(engineProgress)}%`
+          : engineStatus === 'ready'
       ? 'LOCAL'
-      : engineStatus === 'loading'
-        ? `${Math.round(engineProgress)}%`
-        : 'SETUP';
+            : 'SETUP';
 
   useEffect(() => {
     if (!voiceTranscript) return;
@@ -330,8 +335,12 @@ export default function SecondBrainScreen() {
                 <Text
                   style={[styles.engineBody, { color: colors.mutedForeground }]}
                 >
-                  {engineStatus === 'loading'
-                    ? `Loading locally · ${Math.round(engineProgress)}%`
+                  {modelSetupStatus === 'copying'
+                    ? 'Importing model locally…'
+                    : modelSetupStatus === 'validating'
+                      ? 'Checking model file…'
+                      : modelSetupStatus === 'loading'
+                        ? `Loading locally · ${Math.round(engineProgress)}%`
                     : engineStatus === 'ready'
                       ? 'Private by default · no network needed'
                       : 'Choose a compatible GGUF model in Settings'}
@@ -404,13 +413,25 @@ export default function SecondBrainScreen() {
             ]}
           >
             <Feather
-              name={engineStatus === 'error' ? 'alert-circle' : 'cpu'}
+              name={
+                engineStatus === 'error' && modelSetupStatus === 'idle'
+                  ? 'alert-circle'
+                  : 'cpu'
+              }
               size={14}
-              color={engineStatus === 'error' ? colors.destructive : colors.primary}
+              color={
+                engineStatus === 'error' && modelSetupStatus === 'idle'
+                  ? colors.destructive
+                  : colors.primary
+              }
             />
             <Text style={[styles.engineNoticeText, { color: colors.foreground }]}>
-              {engineStatus === 'loading'
-                ? `Loading ${localModel?.name ?? 'model'} · ${Math.round(engineProgress)}%`
+              {modelSetupStatus === 'copying'
+                ? `Importing ${localModel?.name ?? 'model'}…`
+                : modelSetupStatus === 'validating'
+                  ? 'Checking the selected GGUF file…'
+                  : modelSetupStatus === 'loading'
+                    ? `Loading ${localModel?.name ?? 'model'} · ${Math.round(engineProgress)}%`
                 : engineError ?? 'Choose a GGUF model before starting a conversation.'}
             </Text>
             <Feather name="chevron-right" size={15} color={colors.mutedForeground} />
