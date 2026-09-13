@@ -94,9 +94,9 @@ Expo Go. With the Android SDK and NDK installed, run:
 cd artifacts/second-brain
 pnpm exec expo prebuild --platform android
 
-export ANDROID_HOME=/nix/store/rcpalf7dyjk0bz0ly2j6lkf51b89ramk-androidsdk/libexec/android-sdk
+export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.1.12297006}"
 export CMAKE_BUILD_PARALLEL_LEVEL=1
 
 cd android
@@ -134,10 +134,10 @@ SKIP_BUILD=1 APK_PATH=releases/demi-release-arm64-v8a.apk \
   pnpm --filter @workspace/second-brain run validate:android-apk
 ```
 
-Install it on a compatible phone with Android's file installer, or with:
+Install the release APK on a compatible phone with Android's file installer, or with:
 
 ```bash
-adb install -r artifacts/second-brain/releases/demi-debug-arm64-v8a.apk
+adb install -r artifacts/second-brain/releases/demi-release-arm64-v8a.apk
 ```
 
 On first launch, allow microphone access for voice input and notification
@@ -146,7 +146,7 @@ access for reminders. Private offline dictation additionally requires Android
 offline voice setup action if Android needs to download that language pack.
 Open the model import action and select a compatible GGUF file separately:
 model weights are not bundled in the APK and must not be redistributed with
-the project. The debug APK is arm64-only and cannot be installed on
+the project. The release APK is arm64-only and cannot be installed on
 unsupported ABIs.
 
 ## Models

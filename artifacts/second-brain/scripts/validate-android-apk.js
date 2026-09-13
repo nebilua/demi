@@ -95,9 +95,17 @@ function findSdkCandidates() {
     path.join(process.env.HOME || '', 'Android', 'Sdk'),
   ].filter(Boolean);
 
-  for (const entry of fs.readdirSync('/nix/store', { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.includes('androidsdk')) continue;
-    candidates.push(path.join('/nix/store', entry.name, 'libexec', 'android-sdk'));
+  for (const toolName of ['sdkmanager', 'aapt', 'zipalign', 'apksigner', 'adb']) {
+    const toolPath = spawnSync('sh', ['-c', `command -v ${toolName}`], {
+      encoding: 'utf8',
+    }).stdout?.trim();
+    if (!toolPath) continue;
+
+    let toolDir = path.dirname(toolPath);
+    for (let depth = 0; depth < 5; depth += 1) {
+      candidates.push(toolDir);
+      toolDir = path.dirname(toolDir);
+    }
   }
 
   return [...new Set(candidates)];
@@ -105,7 +113,7 @@ function findSdkCandidates() {
 
 function isAndroidSdk(sdkPath) {
   return (
-    fs.existsSync(path.join(sdkPath, 'platform-tools')) ||
+    fs.existsSync(path.join(sdkPath, 'platform-tools', 'adb')) ||
     fs.existsSync(path.join(sdkPath, 'build-tools')) ||
     fs.existsSync(path.join(sdkPath, 'cmdline-tools'))
   );
