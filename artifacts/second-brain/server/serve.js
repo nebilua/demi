@@ -110,6 +110,54 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
+function checkLocalAsset(assetUrl, activeRoot) {
+  if (typeof assetUrl !== 'string' || !assetUrl) {
+    return { status: 'invalid', reason: 'Asset URL is missing' };
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(assetUrl, 'http://static-build.local');
+  } catch (error) {
+    return { status: 'invalid', reason: error.message, url: assetUrl };
+  }
+
+  let pathname = parsedUrl.pathname;
+  if (basePath && pathname.startsWith(basePath)) {
+    pathname = pathname.slice(basePath.length) || '/';
+  }
+
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(pathname);
+  } catch {
+    return { status: 'invalid', reason: 'Asset URL is not valid UTF-8', url: assetUrl };
+  }
+
+  const pathSegments = decodedPath.split(/[\\/]+/).filter(Boolean);
+  if (pathSegments.includes('..')) {
+    return { status: 'invalid', reason: 'Asset URL escapes the active release', url: assetUrl };
+  }
+
+  const filePath = path.resolve(activeRoot, ...pathSegments);
+  if (
+    filePath !== activeRoot &&
+    !filePath.startsWith(`${activeRoot}${path.sep}`)
+  ) {
+    return { status: 'invalid', reason: 'Asset URL escapes the active release', url: assetUrl };
+  }
+
+  try {
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      return { status: 'missing', url: assetUrl };
+    }
+  } catch (error) {
+    return { status: 'missing', reason: error.message, url: assetUrl };
+  }
+
+  return { status: 'ready', url: assetUrl };
+}
+
 function getManifestHealth(platform, activeRoot) {
   const manifestPath = activeRoot
     ? path.join(activeRoot, platform, 'manifest.json')
@@ -123,7 +171,41 @@ function getManifestHealth(platform, activeRoot) {
     if (!manifest.launchAsset?.url) {
       return { status: 'invalid', reason: 'launchAsset.url is missing' };
     }
-    return { status: 'ready' };
+
+    const bundle = checkLocalAsset(manifest.launchAsset.url, activeRoot);
+    if (bundle.status !== 'ready') {
+      return {
+        status: bundle.status,
+        reason: `${platform} launch bundle is ${bundle.status}: ${manifest.launchAsset.url}`,
+        bundle,
+      };
+    }
+
+    if (!Array.isArray(manifest.assets)) {
+      return {
+        status: 'invalid',
+        reason: `${platform} manifest assets must be an array`,
+        bundle,
+      };
+    }
+
+    for (const asset of manifest.assets) {
+      const checkedAsset = checkLocalAsset(asset?.url, activeRoot);
+      if (checkedAsset.status !== 'ready') {
+        return {
+          status: checkedAsset.status,
+          reason: `${platform} asset is ${checkedAsset.status}: ${asset?.url || '(missing URL)'}`,
+          bundle,
+          asset: checkedAsset,
+        };
+      }
+    }
+
+    return {
+      status: 'ready',
+      bundle,
+      assets: { status: 'ready', checked: manifest.assets.length },
+    };
   } catch (error) {
     return { status: 'invalid', reason: error.message };
   }

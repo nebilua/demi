@@ -133,6 +133,24 @@ async function runSmokeCheck() {
 
   try {
     await waitForServer(origin, child);
+    const healthResponse = await fetch(`${origin}/health`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    const health = await healthResponse.json();
+    assert.equal(healthResponse.status, 200, 'active release health HTTP status');
+    assert.equal(health.status, 'ready', 'active release health status');
+    for (const platform of platforms) {
+      assert.equal(
+        health.manifests?.[platform]?.status,
+        'ready',
+        `${platform} active release health status`,
+      );
+      assert.equal(
+        health.manifests?.[platform]?.bundle?.status,
+        'ready',
+        `${platform} launch bundle health status`,
+      );
+    }
     for (const platform of platforms) {
       await checkPlatform(platform, origin);
     }
@@ -146,7 +164,13 @@ async function runSmokeCheck() {
   }
 }
 
-async function checkHealthFixture(label, staticRoot, expectedStatus, expectedHttpStatus) {
+async function checkHealthFixture(
+  label,
+  staticRoot,
+  expectedStatus,
+  expectedHttpStatus,
+  expectedFailure,
+) {
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [serverScript], {
@@ -175,6 +199,11 @@ async function checkHealthFixture(label, staticRoot, expectedStatus, expectedHtt
       assert.equal(body.manifests.android.status, 'ready');
       assert.equal(body.manifests.ios.status, 'ready');
     }
+    if (expectedFailure) {
+      const platformHealth = body.manifests[expectedFailure.platform];
+      assert.equal(platformHealth.status, expectedFailure.status);
+      assert.match(platformHealth.reason, expectedFailure.reason);
+    }
     console.log(`${label}: /health returned ${body.status}`);
   } catch (error) {
     fail(`${label} health check failed: ${error.message}`);
@@ -194,6 +223,8 @@ async function runHealthCheck() {
   const missingRoot = path.join(fixtureRoot, 'missing');
   const incompleteRoot = path.join(fixtureRoot, 'incomplete');
   const readyRoot = path.join(fixtureRoot, 'ready');
+  const missingBundleRoot = path.join(fixtureRoot, 'missing-bundle');
+  const missingAssetRoot = path.join(fixtureRoot, 'missing-asset');
   const stagingRoot = path.join(fixtureRoot, 'staging');
 
   fs.mkdirSync(incompleteRoot, { recursive: true });
@@ -202,22 +233,34 @@ async function runHealthCheck() {
     'fixture build is incomplete\n',
   );
 
-  for (const platform of platforms) {
-    fs.mkdirSync(path.join(readyRoot, platform), { recursive: true });
-    fs.writeFileSync(
-      path.join(readyRoot, platform, 'manifest.json'),
-      JSON.stringify({ launchAsset: { url: `https://example.test/${platform}.js` } }),
-    );
+  function writePlatformFixture(root, options = {}) {
+    for (const platform of platforms) {
+      fs.mkdirSync(root, { recursive: true });
+      fs.mkdirSync(path.join(root, platform), { recursive: true });
+      const bundleUrl = `/${platform}.js`;
+      const assetUrl = `/${platform}.png`;
+      if (options.missingBundle !== platform) {
+        fs.writeFileSync(path.join(root, `${platform}.js`), 'bundle');
+      }
+      if (options.missingAsset !== platform) {
+        fs.writeFileSync(path.join(root, `${platform}.png`), 'asset');
+      }
+      fs.writeFileSync(
+        path.join(root, platform, 'manifest.json'),
+        JSON.stringify({
+          launchAsset: { url: bundleUrl },
+          assets: [{ url: assetUrl }],
+        }),
+      );
+    }
   }
 
+  writePlatformFixture(readyRoot);
+  writePlatformFixture(missingBundleRoot, { missingBundle: 'android' });
+  writePlatformFixture(missingAssetRoot, { missingAsset: 'ios' });
+
   const previousReleaseRoot = path.join(stagingRoot, 'releases', 'previous');
-  for (const platform of platforms) {
-    fs.mkdirSync(path.join(previousReleaseRoot, platform), { recursive: true });
-    fs.writeFileSync(
-      path.join(previousReleaseRoot, platform, 'manifest.json'),
-      JSON.stringify({ launchAsset: { url: `https://example.test/previous-${platform}.js` } }),
-    );
-  }
+  writePlatformFixture(previousReleaseRoot);
   fs.writeFileSync(path.join(stagingRoot, '.current'), 'previous\n');
   fs.writeFileSync(
     path.join(stagingRoot, '.build-incomplete'),
@@ -229,6 +272,20 @@ async function runHealthCheck() {
     await checkHealthFixture('missing static output', missingRoot, 'missing', 503);
     await checkHealthFixture('incomplete static output', incompleteRoot, 'incomplete', 503);
     await checkHealthFixture('ready static output', readyRoot, 'ready', 200);
+    await checkHealthFixture(
+      'missing launch bundle',
+      missingBundleRoot,
+      'missing',
+      503,
+      { platform: 'android', status: 'missing', reason: /android launch bundle/ },
+    );
+    await checkHealthFixture(
+      'missing declared asset',
+      missingAssetRoot,
+      'missing',
+      503,
+      { platform: 'ios', status: 'missing', reason: /ios asset.*ios\.png/ },
+    );
     await checkHealthFixture(
       'previous release during staging',
       stagingRoot,
