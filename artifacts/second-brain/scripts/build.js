@@ -8,6 +8,7 @@ const { createMetroConfig, getMetroUrl } = require('./build-config');
 let metroProcess = null;
 let signalShutdownPromise = null;
 let staticBuildInProgress = false;
+let buildRoot = null;
 
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -86,16 +87,24 @@ function getStaticBuildRoot() {
   return path.join(projectRoot, 'static-build');
 }
 
+function getBuildRoot() {
+  return buildRoot || getStaticBuildRoot();
+}
+
 function invalidatePartialBuild() {
-  const staticBuild = getStaticBuildRoot();
-  if (!fs.existsSync(staticBuild)) return;
+  const partialRoot = buildRoot;
+  const markerPath = path.join(getStaticBuildRoot(), '.build-incomplete');
+  buildRoot = null;
 
   try {
-    fs.rmSync(staticBuild, { recursive: true, force: true });
+    if (partialRoot && partialRoot !== getStaticBuildRoot()) {
+      fs.rmSync(partialRoot, { recursive: true, force: true });
+    }
+    fs.rmSync(markerPath, { force: true });
     console.log('Removed incomplete static build output.');
   } catch (error) {
-    const markerPath = path.join(staticBuild, '.build-incomplete');
     try {
+      fs.mkdirSync(getStaticBuildRoot(), { recursive: true });
       fs.writeFileSync(
         markerPath,
         `Build output is incomplete and must not be served.\n${error.message}\n`,
@@ -109,6 +118,32 @@ function invalidatePartialBuild() {
       );
     }
   }
+}
+
+function promoteBuild(timestamp) {
+  const publishedRoot = getStaticBuildRoot();
+  const stagedRoot = buildRoot;
+  if (!stagedRoot || stagedRoot === publishedRoot) {
+    throw new Error('Cannot promote a build without a staging directory.');
+  }
+
+  const releasesRoot = path.join(publishedRoot, 'releases');
+  const releaseRoot = path.join(releasesRoot, timestamp);
+  fs.mkdirSync(releasesRoot, { recursive: true });
+  fs.renameSync(stagedRoot, releaseRoot);
+  buildRoot = releaseRoot;
+
+  const pointerPath = path.join(publishedRoot, '.current');
+  const nextPointerPath = path.join(
+    publishedRoot,
+    `.current-${timestamp}-${process.pid}`,
+  );
+  fs.writeFileSync(nextPointerPath, `${timestamp}\n`);
+  fs.renameSync(nextPointerPath, pointerPath);
+  fs.rmSync(path.join(publishedRoot, '.build-incomplete'), { force: true });
+
+  buildRoot = null;
+  staticBuildInProgress = false;
 }
 
 function setupSignalHandlers() {
@@ -161,17 +196,20 @@ function getDeploymentDomain() {
 function prepareDirectories(timestamp) {
   console.log('Preparing build directories...');
 
-  const staticBuild = getStaticBuildRoot();
-  if (fs.existsSync(staticBuild)) {
-    fs.rmSync(staticBuild, { recursive: true });
+  const publishedRoot = getStaticBuildRoot();
+  const stagingRoot = path.join(publishedRoot, `.staging-${timestamp}`);
+  if (fs.existsSync(stagingRoot)) {
+    fs.rmSync(stagingRoot, { recursive: true, force: true });
   }
+  fs.mkdirSync(publishedRoot, { recursive: true });
+  buildRoot = stagingRoot;
   staticBuildInProgress = true;
 
   const dirs = [
-    path.join(staticBuild, timestamp, '_expo', 'static', 'js', 'ios'),
-    path.join(staticBuild, timestamp, '_expo', 'static', 'js', 'android'),
-    path.join(staticBuild, 'ios'),
-    path.join(staticBuild, 'android'),
+    path.join(stagingRoot, timestamp, '_expo', 'static', 'js', 'ios'),
+    path.join(stagingRoot, timestamp, '_expo', 'static', 'js', 'android'),
+    path.join(stagingRoot, 'ios'),
+    path.join(stagingRoot, 'android'),
   ];
 
   for (const dir of dirs) {
@@ -179,7 +217,7 @@ function prepareDirectories(timestamp) {
   }
 
   fs.writeFileSync(
-    path.join(staticBuild, '.build-incomplete'),
+    path.join(publishedRoot, '.build-incomplete'),
     `Build ${timestamp} is in progress and must not be served.\n`,
   );
 
@@ -340,7 +378,7 @@ async function downloadBundle(platform, timestamp) {
   url.searchParams.set('minify', 'true');
 
   const output = path.join(
-    'static-build',
+    getBuildRoot(),
     timestamp,
     '_expo',
     'static',
@@ -419,7 +457,7 @@ async function downloadBundlesAndManifests(timestamp) {
 }
 
 function extractAssets(timestamp) {
-  const staticBuild = getStaticBuildRoot();
+  const staticBuild = getBuildRoot();
   const bundles = {
     ios: fs.readFileSync(
       path.join(
@@ -515,7 +553,7 @@ async function downloadAssets(assets, timestamp) {
     const decodedPath = decodeURIComponent(unstablePath);
 
     const outputDir = path.join(
-      getStaticBuildRoot(),
+      getBuildRoot(),
       timestamp,
       '_expo',
       'static',
@@ -567,7 +605,7 @@ async function downloadAssets(assets, timestamp) {
 function updateBundleUrls(timestamp, baseUrl) {
   const updateForPlatform = (platform) => {
     const bundlePath = path.join(
-      getStaticBuildRoot(),
+      getBuildRoot(),
       timestamp,
       '_expo',
       'static',
@@ -647,7 +685,7 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
     }
 
     fs.writeFileSync(
-      path.join(getStaticBuildRoot(), platform, 'manifest.json'),
+      path.join(getBuildRoot(), platform, 'manifest.json'),
       JSON.stringify(manifest, null, 2),
     );
   };
@@ -714,11 +752,8 @@ async function main() {
     console.log('Updating manifests and creating landing page...');
     updateManifests(manifests, timestamp, baseUrl, assetsByHash);
 
-    fs.rmSync(path.join(getStaticBuildRoot(), '.build-incomplete'), {
-      force: true,
-    });
+    promoteBuild(timestamp);
     buildSucceeded = true;
-    staticBuildInProgress = false;
     console.log('Build complete! Deploy to:', baseUrl);
   } finally {
     await cleanupMetro();

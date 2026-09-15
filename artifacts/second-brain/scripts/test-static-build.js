@@ -75,31 +75,17 @@ async function fetchLocal(origin, remoteUrl, label) {
   return response;
 }
 
-function readManifest(platform) {
-  const manifestPath = path.join(staticRoot, platform, 'manifest.json');
-  if (!fs.existsSync(manifestPath)) {
-    fail(`${platform} manifest is missing: ${manifestPath}`);
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  } catch (error) {
-    fail(`${platform} manifest is not valid JSON: ${error.message}`);
-  }
-}
-
 async function checkPlatform(platform, origin) {
-  const manifest = readManifest(platform);
-  if (!manifest.launchAsset?.url) {
-    fail(`${platform} manifest has no launchAsset.url`);
-  }
-
   const manifestResponse = await fetch(`${origin}/manifest`, {
     headers: { 'expo-platform': platform },
     signal: AbortSignal.timeout(5_000),
   });
   if (!manifestResponse.ok) {
     fail(`${platform} manifest endpoint returned HTTP ${manifestResponse.status}`);
+  }
+  const manifest = await manifestResponse.json();
+  if (!manifest.launchAsset?.url) {
+    fail(`${platform} manifest has no launchAsset.url`);
   }
 
   const bundleResponse = await fetchLocal(
@@ -208,6 +194,7 @@ async function runHealthCheck() {
   const missingRoot = path.join(fixtureRoot, 'missing');
   const incompleteRoot = path.join(fixtureRoot, 'incomplete');
   const readyRoot = path.join(fixtureRoot, 'ready');
+  const stagingRoot = path.join(fixtureRoot, 'staging');
 
   fs.mkdirSync(incompleteRoot, { recursive: true });
   fs.writeFileSync(
@@ -223,10 +210,31 @@ async function runHealthCheck() {
     );
   }
 
+  const previousReleaseRoot = path.join(stagingRoot, 'releases', 'previous');
+  for (const platform of platforms) {
+    fs.mkdirSync(path.join(previousReleaseRoot, platform), { recursive: true });
+    fs.writeFileSync(
+      path.join(previousReleaseRoot, platform, 'manifest.json'),
+      JSON.stringify({ launchAsset: { url: `https://example.test/previous-${platform}.js` } }),
+    );
+  }
+  fs.writeFileSync(path.join(stagingRoot, '.current'), 'previous\n');
+  fs.writeFileSync(
+    path.join(stagingRoot, '.build-incomplete'),
+    'a replacement build is staging\n',
+  );
+  fs.mkdirSync(path.join(stagingRoot, '.staging-next'), { recursive: true });
+
   try {
     await checkHealthFixture('missing static output', missingRoot, 'missing', 503);
     await checkHealthFixture('incomplete static output', incompleteRoot, 'incomplete', 503);
     await checkHealthFixture('ready static output', readyRoot, 'ready', 200);
+    await checkHealthFixture(
+      'previous release during staging',
+      stagingRoot,
+      'ready',
+      200,
+    );
     console.log('Static Expo health check passed.');
   } finally {
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
@@ -253,11 +261,11 @@ function runBuildFailure(stage) {
 }
 
 async function runFailureCheck() {
-  const backupRoot = `${staticRoot}.failure-test-backup-${process.pid}`;
   const hadExistingBuild = fs.existsSync(staticRoot);
-  if (hadExistingBuild) {
-    fs.renameSync(staticRoot, backupRoot);
-  }
+  const pointerPath = path.join(staticRoot, '.current');
+  const previousPointer = fs.existsSync(pointerPath)
+    ? fs.readFileSync(pointerPath, 'utf8')
+    : null;
 
   const scenarios = [
     ['bundle', 'Failed to download ios bundle'],
@@ -278,17 +286,31 @@ async function runFailureCheck() {
           `${stage} failure did not identify the expected artifact "${expectedMessage}":\n${result.output}`,
         );
       }
-      if (fs.existsSync(staticRoot)) {
-        fail(`${stage} failure left partial static-build output at ${staticRoot}`);
+      const partialEntries = fs.existsSync(staticRoot)
+        ? fs
+            .readdirSync(staticRoot)
+            .filter((entry) => entry.startsWith('.staging-'))
+        : [];
+      if (
+        partialEntries.length > 0 ||
+        fs.existsSync(path.join(staticRoot, '.build-incomplete'))
+      ) {
+        fail(
+          `${stage} failure left partial staging output: ${partialEntries.join(', ')}`,
+        );
+      }
+      if (
+        hadExistingBuild &&
+        previousPointer !== null &&
+        fs.readFileSync(pointerPath, 'utf8') !== previousPointer
+      ) {
+        fail(`${stage} failure changed the active release pointer.`);
       }
       console.log(`${stage}: failure reported and partial output removed`);
     }
   } finally {
-    if (fs.existsSync(staticRoot)) {
+    if (!hadExistingBuild && fs.existsSync(staticRoot)) {
       fs.rmSync(staticRoot, { recursive: true, force: true });
-    }
-    if (hadExistingBuild) {
-      fs.renameSync(backupRoot, staticRoot);
     }
   }
 

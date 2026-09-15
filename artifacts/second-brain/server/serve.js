@@ -17,10 +17,6 @@ const STATIC_ROOT = path.resolve(
   process.env.STATIC_BUILD_ROOT || path.join(__dirname, '..', 'static-build'),
 );
 const TEMPLATE_PATH = path.resolve(__dirname, 'templates', 'landing-page.html');
-const MANIFEST_PATHS = {
-  android: path.join(STATIC_ROOT, 'android', 'manifest.json'),
-  ios: path.join(STATIC_ROOT, 'ios', 'manifest.json'),
-};
 const INCOMPLETE_MARKER = path.join(STATIC_ROOT, '.build-incomplete');
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
 
@@ -70,8 +66,32 @@ function toScriptString(value) {
     .replaceAll('&', '\\u0026');
 }
 
+function getActiveBuildRoot() {
+  if (!fs.existsSync(STATIC_ROOT)) return null;
+
+  const pointerPath = path.join(STATIC_ROOT, '.current');
+  if (fs.existsSync(pointerPath)) {
+    const releaseId = fs.readFileSync(pointerPath, 'utf-8').trim();
+    if (!/^[A-Za-z0-9._-]+$/.test(releaseId)) return null;
+
+    const releaseRoot = path.join(STATIC_ROOT, 'releases', releaseId);
+    return fs.existsSync(releaseRoot) && fs.statSync(releaseRoot).isDirectory()
+      ? releaseRoot
+      : null;
+  }
+
+  // Support static builds created before atomic release promotion existed.
+  return fs.existsSync(path.join(STATIC_ROOT, 'android')) ||
+    fs.existsSync(path.join(STATIC_ROOT, 'ios'))
+    ? STATIC_ROOT
+    : null;
+}
+
 function serveManifest(platform, res) {
-  const manifestPath = MANIFEST_PATHS[platform];
+  const activeRoot = getActiveBuildRoot();
+  const manifestPath = activeRoot
+    ? path.join(activeRoot, platform, 'manifest.json')
+    : null;
 
   if (!manifestPath || !fs.existsSync(manifestPath)) {
     res.writeHead(404, { 'content-type': 'application/json' });
@@ -90,9 +110,11 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
-function getManifestHealth(platform) {
-  const manifestPath = MANIFEST_PATHS[platform];
-  if (!fs.existsSync(manifestPath)) {
+function getManifestHealth(platform, activeRoot) {
+  const manifestPath = activeRoot
+    ? path.join(activeRoot, platform, 'manifest.json')
+    : null;
+  if (!manifestPath || !fs.existsSync(manifestPath)) {
     return { status: 'missing' };
   }
 
@@ -108,12 +130,13 @@ function getManifestHealth(platform) {
 }
 
 function getBuildHealth() {
+  const activeRoot = getActiveBuildRoot();
   const manifests = {
-    android: getManifestHealth('android'),
-    ios: getManifestHealth('ios'),
+    android: getManifestHealth('android', activeRoot),
+    ios: getManifestHealth('ios', activeRoot),
   };
 
-  if (fs.existsSync(INCOMPLETE_MARKER)) {
+  if (fs.existsSync(INCOMPLETE_MARKER) && !activeRoot) {
     return {
       status: 'incomplete',
       reason: 'A static build is still in progress or failed before promotion.',
@@ -121,7 +144,7 @@ function getBuildHealth() {
     };
   }
 
-  if (!fs.existsSync(STATIC_ROOT)) {
+  if (!activeRoot) {
     return {
       status: 'missing',
       reason: 'No static build output directory exists.',
@@ -173,6 +196,13 @@ function serveLandingPage(req, res, landingPageTemplate, appName) {
 }
 
 function serveStaticFile(urlPath, res) {
+  const activeRoot = getActiveBuildRoot();
+  if (!activeRoot) {
+    res.writeHead(404);
+    res.end('Not Found');
+    return;
+  }
+
   let decodedPath;
   try {
     decodedPath = decodeURIComponent(urlPath);
@@ -187,10 +217,10 @@ function serveStaticFile(urlPath, res) {
     res.end('Forbidden');
     return;
   }
-  const filePath = path.resolve(STATIC_ROOT, ...pathSegments);
+  const filePath = path.resolve(activeRoot, ...pathSegments);
   const isInsideStaticRoot =
-    filePath === STATIC_ROOT ||
-    filePath.startsWith(`${STATIC_ROOT}${path.sep}`);
+    filePath === activeRoot ||
+    filePath.startsWith(`${activeRoot}${path.sep}`);
   if (!isInsideStaticRoot) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -225,7 +255,7 @@ const server = http.createServer((req, res) => {
     return serveHealth(res);
   }
 
-  if (fs.existsSync(INCOMPLETE_MARKER)) {
+  if (fs.existsSync(INCOMPLETE_MARKER) && !getActiveBuildRoot()) {
     res.writeHead(503, { 'content-type': 'application/json' });
     res.end(
       JSON.stringify({
