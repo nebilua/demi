@@ -286,6 +286,8 @@ async function runHealthCheck() {
   const bundleAssetsRoot = path.join(fixtureRoot, 'bundle-assets');
   const emptyBundleRoot = path.join(fixtureRoot, 'empty-bundle');
   const truncatedBundleRoot = path.join(fixtureRoot, 'truncated-bundle');
+  const futureFooterRoot = path.join(fixtureRoot, 'future-footer');
+  const unsupportedFooterRoot = path.join(fixtureRoot, 'unsupported-footer');
   const developmentBundleRoot = path.join(fixtureRoot, 'development-bundle');
   const stagingRoot = path.join(fixtureRoot, 'staging');
   const mismatchRoot = path.join(fixtureRoot, 'mismatch');
@@ -358,6 +360,22 @@ async function runHealthCheck() {
   });
   writePlatformFixture(truncatedBundleRoot, {
     bundleContent: { android: 'var __DEV__=false;__r(0);' },
+  });
+  writePlatformFixture(futureFooterRoot, {
+    bundleContent: {
+      android:
+        'var __BUNDLE_START_TIME__=Date.now(),__DEV__=false;__r(0);\n' +
+        '//# debugId=fixture-future-footer\n' +
+        '//# sourceMappingURL=android.bundle.js.map',
+    },
+  });
+  writePlatformFixture(unsupportedFooterRoot, {
+    bundleContent: {
+      android:
+        'var __BUNDLE_START_TIME__=Date.now(),__DEV__=false;__r(0);\n' +
+        '//# debugId=fixture-unsupported-footer\n' +
+        '//# chunk=android',
+    },
   });
   writePlatformFixture(developmentBundleRoot, {
     bundleContent: {
@@ -475,6 +493,27 @@ async function runHealthCheck() {
         platform: 'android',
         status: 'invalid',
         reason: /android launch bundle.*\/android\.js.*truncated/,
+        field: 'bundle',
+        url: '/fixture-build/android.js',
+      },
+    );
+    await checkHealthFixture(
+      'approved future footer format',
+      futureFooterRoot,
+      'ready',
+      200,
+      undefined,
+      'fixture-build',
+    );
+    await checkHealthFixture(
+      'unsupported future footer format',
+      unsupportedFooterRoot,
+      'invalid',
+      503,
+      {
+        platform: 'android',
+        status: 'invalid',
+        reason: /unsupported production footer format.*debug-id-with-source-map/,
         field: 'bundle',
         url: '/fixture-build/android.js',
       },

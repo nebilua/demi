@@ -21,7 +21,18 @@ const INCOMPLETE_MARKER = path.join(STATIC_ROOT, '.build-incomplete');
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
 const metroUrlPattern =
   /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/i;
-const productionBundleFooterPattern = /\/\/# debugId=[A-Za-z0-9-]+\s*$/;
+const productionBundleFooterFormats = [
+  {
+    name: 'debug-id',
+    pattern: /\/\/# debugId=[A-Za-z0-9-]+\s*$/,
+  },
+  {
+    // Approved for Expo/Metro versions that keep the source-map footer.
+    name: 'debug-id-with-source-map',
+    pattern:
+      /\/\/# debugId=[A-Za-z0-9-]+\s*\/\/# sourceMappingURL=\S+\s*$/,
+  },
+];
 const bundleAssetPattern =
   /httpServerLocation:"([^"]+)"[^}]*name:"([^"]+)"[^}]*type:"([^"]+)"/g;
 
@@ -320,10 +331,20 @@ function checkLaunchBundle(assetUrl, activeRoot) {
     };
   }
 
-  if (!productionBundleFooterPattern.test(bundle)) {
+  const footerFormat = productionBundleFooterFormats.find(({ pattern }) =>
+    pattern.test(bundle),
+  );
+  if (!footerFormat) {
+    const hasDebugId = /\/\/# debugId=/.test(bundle);
     return {
       status: 'invalid',
-      reason: 'Launch bundle is truncated or missing its production footer',
+      reason: hasDebugId
+        ? `Launch bundle uses an unsupported production footer format (supported: ${productionBundleFooterFormats
+            .map(({ name }) => name)
+            .join(', ')})`
+        : `Launch bundle is truncated or missing a supported production footer (supported: ${productionBundleFooterFormats
+            .map(({ name }) => name)
+            .join(', ')})`,
       url: assetUrl,
     };
   }
