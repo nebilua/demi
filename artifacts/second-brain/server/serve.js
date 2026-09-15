@@ -69,7 +69,7 @@ function toScriptString(value) {
     .replaceAll('&', '\\u0026');
 }
 
-function getActiveBuildRoot() {
+function getActiveBuild() {
   if (!fs.existsSync(STATIC_ROOT)) return null;
 
   const pointerPath = path.join(STATIC_ROOT, '.current');
@@ -79,15 +79,19 @@ function getActiveBuildRoot() {
 
     const releaseRoot = path.join(STATIC_ROOT, 'releases', releaseId);
     return fs.existsSync(releaseRoot) && fs.statSync(releaseRoot).isDirectory()
-      ? releaseRoot
+      ? { root: releaseRoot, id: releaseId }
       : null;
   }
 
   // Support static builds created before atomic release promotion existed.
   return fs.existsSync(path.join(STATIC_ROOT, 'android')) ||
     fs.existsSync(path.join(STATIC_ROOT, 'ios'))
-    ? STATIC_ROOT
+    ? { root: STATIC_ROOT, id: null }
     : null;
+}
+
+function getActiveBuildRoot() {
+  return getActiveBuild()?.root || null;
 }
 
 function serveManifest(platform, res) {
@@ -214,7 +218,29 @@ function checkLaunchBundle(assetUrl, activeRoot) {
   return publicAssetCheck(resolved);
 }
 
-function getManifestHealth(platform, activeRoot) {
+function getManifestBuildId(manifest) {
+  const key = manifest.launchAsset?.key;
+  if (typeof key !== 'string' || !key.startsWith('bundle-')) {
+    return null;
+  }
+
+  const keyId = key.slice('bundle-'.length);
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(manifest.launchAsset.url, 'http://static-build.local');
+  } catch {
+    return null;
+  }
+
+  let pathname = parsedUrl.pathname;
+  if (basePath && pathname.startsWith(basePath)) {
+    pathname = pathname.slice(basePath.length) || '/';
+  }
+  const pathSegments = pathname.split('/').filter(Boolean);
+  return pathSegments[0] === keyId ? keyId : null;
+}
+
+function getManifestHealth(platform, activeRoot, expectedBuildId) {
   const manifestPath = activeRoot
     ? path.join(activeRoot, platform, 'manifest.json')
     : null;
@@ -228,10 +254,26 @@ function getManifestHealth(platform, activeRoot) {
       return { status: 'invalid', reason: 'launchAsset.url is missing' };
     }
 
+    const manifestBuildId = getManifestBuildId(manifest);
+    if (!manifestBuildId) {
+      return {
+        status: 'invalid',
+        reason: `${platform} manifest build identifier does not match its launch URL`,
+      };
+    }
+    if (expectedBuildId && manifestBuildId !== expectedBuildId) {
+      return {
+        status: 'invalid',
+        reason: `${platform} manifest build identifier ${manifestBuildId} does not match active build ${expectedBuildId}`,
+        buildId: manifestBuildId,
+      };
+    }
+
     const bundle = checkLaunchBundle(manifest.launchAsset.url, activeRoot);
     if (bundle.status !== 'ready') {
       return {
         status: bundle.status,
+        buildId: manifestBuildId,
         reason: `${platform} launch bundle is ${bundle.status}: ${
           manifest.launchAsset.url
         } (${bundle.reason || 'integrity check failed'})`,
@@ -242,6 +284,7 @@ function getManifestHealth(platform, activeRoot) {
     if (!Array.isArray(manifest.assets)) {
       return {
         status: 'invalid',
+        buildId: manifestBuildId,
         reason: `${platform} manifest assets must be an array`,
         bundle,
       };
@@ -252,6 +295,7 @@ function getManifestHealth(platform, activeRoot) {
       if (checkedAsset.status !== 'ready') {
         return {
           status: checkedAsset.status,
+          buildId: manifestBuildId,
           reason: `${platform} asset is ${checkedAsset.status}: ${
             asset?.url || '(missing URL)'
           } (${checkedAsset.reason || 'asset check failed'})`,
@@ -263,6 +307,7 @@ function getManifestHealth(platform, activeRoot) {
 
     return {
       status: 'ready',
+      buildId: manifestBuildId,
       bundle,
       assets: { status: 'ready', checked: manifest.assets.length },
     };
@@ -272,15 +317,18 @@ function getManifestHealth(platform, activeRoot) {
 }
 
 function getBuildHealth() {
-  const activeRoot = getActiveBuildRoot();
+  const activeBuild = getActiveBuild();
+  const activeRoot = activeBuild?.root || null;
+  const activeBuildId = activeBuild?.id || null;
   const manifests = {
-    android: getManifestHealth('android', activeRoot),
-    ios: getManifestHealth('ios', activeRoot),
+    android: getManifestHealth('android', activeRoot, activeBuildId),
+    ios: getManifestHealth('ios', activeRoot, activeBuildId),
   };
 
   if (fs.existsSync(INCOMPLETE_MARKER) && !activeRoot) {
     return {
       status: 'incomplete',
+      buildId: null,
       reason: 'A static build is still in progress or failed before promotion.',
       manifests,
     };
@@ -289,23 +337,36 @@ function getBuildHealth() {
   if (!activeRoot) {
     return {
       status: 'missing',
+      buildId: null,
       reason: 'No static build output directory exists.',
       manifests,
     };
   }
 
   const manifestStatuses = Object.values(manifests).map((manifest) => manifest.status);
-  const status = manifestStatuses.every((manifestStatus) => manifestStatus === 'ready')
+  const manifestBuildIds = Object.values(manifests)
+    .map((manifest) => manifest.buildId)
+    .filter(Boolean);
+  const manifestsShareBuildId =
+    manifestBuildIds.length === 2 &&
+    manifestBuildIds.every((buildId) => buildId === manifestBuildIds[0]);
+  const manifestsReady = manifestStatuses.every(
+    (manifestStatus) => manifestStatus === 'ready',
+  );
+  const status = manifestsReady && manifestsShareBuildId
     ? 'ready'
-    : manifestStatuses.includes('invalid')
+    : manifestStatuses.includes('invalid') || !manifestsShareBuildId
       ? 'invalid'
       : 'missing';
 
   return {
     status,
+    buildId: status === 'ready' ? manifestBuildIds[0] : null,
     reason:
       status === 'ready'
         ? 'Android and iOS static manifests are ready.'
+        : status === 'invalid' && !manifestsShareBuildId
+          ? 'Android and iOS manifests do not share one build identifier.'
         : 'One or more platform manifests are unavailable.',
     manifests,
   };

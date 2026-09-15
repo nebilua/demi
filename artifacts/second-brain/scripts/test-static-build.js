@@ -75,7 +75,7 @@ async function fetchLocal(origin, remoteUrl, label) {
   return response;
 }
 
-async function checkPlatform(platform, origin) {
+async function checkPlatform(platform, origin, expectedBuildId) {
   const manifestResponse = await fetch(`${origin}/manifest`, {
     headers: { 'expo-platform': platform },
     signal: AbortSignal.timeout(5_000),
@@ -87,6 +87,11 @@ async function checkPlatform(platform, origin) {
   if (!manifest.launchAsset?.url) {
     fail(`${platform} manifest has no launchAsset.url`);
   }
+  assert.equal(manifest.launchAsset.key, `bundle-${expectedBuildId}`);
+  assert.ok(
+    new URL(manifest.launchAsset.url).pathname.includes(`/${expectedBuildId}/`),
+    `${platform} launch URL build identifier`,
+  );
 
   const bundleResponse = await fetchLocal(
     origin,
@@ -139,6 +144,7 @@ async function runSmokeCheck() {
     const health = await healthResponse.json();
     assert.equal(healthResponse.status, 200, 'active release health HTTP status');
     assert.equal(health.status, 'ready', 'active release health status');
+    assert.ok(health.buildId, 'active release build identifier');
     for (const platform of platforms) {
       assert.equal(
         health.manifests?.[platform]?.status,
@@ -150,9 +156,14 @@ async function runSmokeCheck() {
         'ready',
         `${platform} launch bundle health status`,
       );
+      assert.equal(
+        health.manifests?.[platform]?.buildId,
+        health.buildId,
+        `${platform} manifest build identifier`,
+      );
     }
     for (const platform of platforms) {
-      await checkPlatform(platform, origin);
+      await checkPlatform(platform, origin, health.buildId);
     }
     console.log('Static Expo artifact smoke check passed.');
   } finally {
@@ -170,6 +181,7 @@ async function checkHealthFixture(
   expectedStatus,
   expectedHttpStatus,
   expectedFailure,
+  expectedBuildId,
 ) {
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
@@ -192,12 +204,19 @@ async function checkHealthFixture(
 
     assert.equal(response.status, expectedHttpStatus, `${label} HTTP status`);
     assert.equal(body.status, expectedStatus, `${label} health status`);
+    if (expectedStatus === 'ready') {
+      assert.equal(body.buildId, expectedBuildId);
+    } else {
+      assert.equal(body.buildId, null);
+    }
     assert.ok(body.manifests?.android, `${label} Android manifest status`);
     assert.ok(body.manifests?.ios, `${label} iOS manifest status`);
 
     if (expectedStatus === 'ready') {
       assert.equal(body.manifests.android.status, 'ready');
       assert.equal(body.manifests.ios.status, 'ready');
+      assert.equal(body.manifests.android.buildId, body.buildId);
+      assert.equal(body.manifests.ios.buildId, body.buildId);
     }
     if (expectedFailure) {
       const platformHealth = body.manifests[expectedFailure.platform];
@@ -233,6 +252,7 @@ async function runHealthCheck() {
   const truncatedBundleRoot = path.join(fixtureRoot, 'truncated-bundle');
   const developmentBundleRoot = path.join(fixtureRoot, 'development-bundle');
   const stagingRoot = path.join(fixtureRoot, 'staging');
+  const mismatchRoot = path.join(fixtureRoot, 'mismatch');
 
   fs.mkdirSync(incompleteRoot, { recursive: true });
   fs.writeFileSync(
@@ -246,22 +266,28 @@ async function runHealthCheck() {
       '\n//# debugId=fixture-production-bundle';
     for (const platform of platforms) {
       fs.mkdirSync(root, { recursive: true });
+      const buildId = options.buildId || 'fixture-build';
+      const buildRoot = path.join(root, buildId);
       fs.mkdirSync(path.join(root, platform), { recursive: true });
-      const bundleUrl = `/${platform}.js`;
-      const assetUrl = `/${platform}.png`;
+      fs.mkdirSync(path.join(buildRoot, platform), { recursive: true });
+      const bundleUrl = `/${buildId}/${platform}.js`;
+      const assetUrl = `/${buildId}/${platform}.png`;
       if (options.missingBundle !== platform) {
         fs.writeFileSync(
-          path.join(root, `${platform}.js`),
+          path.join(buildRoot, `${platform}.js`),
           options.bundleContent?.[platform] ?? validBundle,
         );
       }
       if (options.missingAsset !== platform) {
-        fs.writeFileSync(path.join(root, `${platform}.png`), 'asset');
+        fs.writeFileSync(path.join(buildRoot, `${platform}.png`), 'asset');
       }
       fs.writeFileSync(
         path.join(root, platform, 'manifest.json'),
         JSON.stringify({
-          launchAsset: { url: bundleUrl },
+          launchAsset: {
+            key: `bundle-${buildId}`,
+            url: bundleUrl,
+          },
           assets: [{ url: assetUrl }],
         }),
       );
@@ -284,7 +310,7 @@ async function runHealthCheck() {
   });
 
   const previousReleaseRoot = path.join(stagingRoot, 'releases', 'previous');
-  writePlatformFixture(previousReleaseRoot);
+  writePlatformFixture(previousReleaseRoot, { buildId: 'previous' });
   fs.writeFileSync(path.join(stagingRoot, '.current'), 'previous\n');
   fs.writeFileSync(
     path.join(stagingRoot, '.build-incomplete'),
@@ -292,10 +318,21 @@ async function runHealthCheck() {
   );
   fs.mkdirSync(path.join(stagingRoot, '.staging-next'), { recursive: true });
 
+  const mismatchReleaseRoot = path.join(mismatchRoot, 'releases', 'active');
+  writePlatformFixture(mismatchReleaseRoot, { buildId: 'other' });
+  fs.writeFileSync(path.join(mismatchRoot, '.current'), 'active\n');
+
   try {
     await checkHealthFixture('missing static output', missingRoot, 'missing', 503);
     await checkHealthFixture('incomplete static output', incompleteRoot, 'incomplete', 503);
-    await checkHealthFixture('ready static output', readyRoot, 'ready', 200);
+    await checkHealthFixture(
+      'ready static output',
+      readyRoot,
+      'ready',
+      200,
+      undefined,
+      'fixture-build',
+    );
     await checkHealthFixture(
       'missing launch bundle',
       missingBundleRoot,
@@ -306,7 +343,7 @@ async function runHealthCheck() {
         status: 'missing',
         reason: /android launch bundle.*\/android\.js/,
         field: 'bundle',
-        url: '/android.js',
+        url: '/fixture-build/android.js',
       },
     );
     await checkHealthFixture(
@@ -319,7 +356,7 @@ async function runHealthCheck() {
         status: 'missing',
         reason: /ios asset.*ios\.png/,
         field: 'asset',
-        url: '/ios.png',
+        url: '/fixture-build/ios.png',
       },
     );
     await checkHealthFixture(
@@ -332,7 +369,7 @@ async function runHealthCheck() {
         status: 'invalid',
         reason: /android launch bundle.*\/android\.js.*empty/,
         field: 'bundle',
-        url: '/android.js',
+        url: '/fixture-build/android.js',
       },
     );
     await checkHealthFixture(
@@ -345,7 +382,7 @@ async function runHealthCheck() {
         status: 'invalid',
         reason: /android launch bundle.*\/android\.js.*truncated/,
         field: 'bundle',
-        url: '/android.js',
+        url: '/fixture-build/android.js',
       },
     );
     await checkHealthFixture(
@@ -358,7 +395,7 @@ async function runHealthCheck() {
         status: 'invalid',
         reason: /android launch bundle.*\/android\.js.*development|Metro/,
         field: 'bundle',
-        url: '/android.js',
+        url: '/fixture-build/android.js',
       },
     );
     await checkHealthFixture(
@@ -366,6 +403,19 @@ async function runHealthCheck() {
       stagingRoot,
       'ready',
       200,
+      undefined,
+      'previous',
+    );
+    await checkHealthFixture(
+      'active pointer and manifest mismatch',
+      mismatchRoot,
+      'invalid',
+      503,
+      {
+        platform: 'android',
+        status: 'invalid',
+        reason: /does not match active build active/,
+      },
     );
     console.log('Static Expo health check passed.');
   } finally {
