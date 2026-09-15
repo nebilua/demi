@@ -203,6 +203,10 @@ async function checkHealthFixture(
       const platformHealth = body.manifests[expectedFailure.platform];
       assert.equal(platformHealth.status, expectedFailure.status);
       assert.match(platformHealth.reason, expectedFailure.reason);
+      assert.equal(
+        platformHealth[expectedFailure.field]?.url,
+        expectedFailure.url,
+      );
     }
     console.log(`${label}: /health returned ${body.status}`);
   } catch (error) {
@@ -225,6 +229,9 @@ async function runHealthCheck() {
   const readyRoot = path.join(fixtureRoot, 'ready');
   const missingBundleRoot = path.join(fixtureRoot, 'missing-bundle');
   const missingAssetRoot = path.join(fixtureRoot, 'missing-asset');
+  const emptyBundleRoot = path.join(fixtureRoot, 'empty-bundle');
+  const truncatedBundleRoot = path.join(fixtureRoot, 'truncated-bundle');
+  const developmentBundleRoot = path.join(fixtureRoot, 'development-bundle');
   const stagingRoot = path.join(fixtureRoot, 'staging');
 
   fs.mkdirSync(incompleteRoot, { recursive: true });
@@ -234,13 +241,19 @@ async function runHealthCheck() {
   );
 
   function writePlatformFixture(root, options = {}) {
+    const validBundle =
+      'var __BUNDLE_START_TIME__=Date.now(),__DEV__=false;__r(0);' +
+      '\n//# debugId=fixture-production-bundle';
     for (const platform of platforms) {
       fs.mkdirSync(root, { recursive: true });
       fs.mkdirSync(path.join(root, platform), { recursive: true });
       const bundleUrl = `/${platform}.js`;
       const assetUrl = `/${platform}.png`;
       if (options.missingBundle !== platform) {
-        fs.writeFileSync(path.join(root, `${platform}.js`), 'bundle');
+        fs.writeFileSync(
+          path.join(root, `${platform}.js`),
+          options.bundleContent?.[platform] ?? validBundle,
+        );
       }
       if (options.missingAsset !== platform) {
         fs.writeFileSync(path.join(root, `${platform}.png`), 'asset');
@@ -258,6 +271,17 @@ async function runHealthCheck() {
   writePlatformFixture(readyRoot);
   writePlatformFixture(missingBundleRoot, { missingBundle: 'android' });
   writePlatformFixture(missingAssetRoot, { missingAsset: 'ios' });
+  writePlatformFixture(emptyBundleRoot, {
+    bundleContent: { android: '' },
+  });
+  writePlatformFixture(truncatedBundleRoot, {
+    bundleContent: { android: 'var __DEV__=false;__r(0);' },
+  });
+  writePlatformFixture(developmentBundleRoot, {
+    bundleContent: {
+      android: 'var __DEV__=true;fetch("http://localhost:8081");',
+    },
+  });
 
   const previousReleaseRoot = path.join(stagingRoot, 'releases', 'previous');
   writePlatformFixture(previousReleaseRoot);
@@ -277,14 +301,65 @@ async function runHealthCheck() {
       missingBundleRoot,
       'missing',
       503,
-      { platform: 'android', status: 'missing', reason: /android launch bundle/ },
+      {
+        platform: 'android',
+        status: 'missing',
+        reason: /android launch bundle.*\/android\.js/,
+        field: 'bundle',
+        url: '/android.js',
+      },
     );
     await checkHealthFixture(
       'missing declared asset',
       missingAssetRoot,
       'missing',
       503,
-      { platform: 'ios', status: 'missing', reason: /ios asset.*ios\.png/ },
+      {
+        platform: 'ios',
+        status: 'missing',
+        reason: /ios asset.*ios\.png/,
+        field: 'asset',
+        url: '/ios.png',
+      },
+    );
+    await checkHealthFixture(
+      'empty launch bundle',
+      emptyBundleRoot,
+      'invalid',
+      503,
+      {
+        platform: 'android',
+        status: 'invalid',
+        reason: /android launch bundle.*\/android\.js.*empty/,
+        field: 'bundle',
+        url: '/android.js',
+      },
+    );
+    await checkHealthFixture(
+      'truncated launch bundle',
+      truncatedBundleRoot,
+      'invalid',
+      503,
+      {
+        platform: 'android',
+        status: 'invalid',
+        reason: /android launch bundle.*\/android\.js.*truncated/,
+        field: 'bundle',
+        url: '/android.js',
+      },
+    );
+    await checkHealthFixture(
+      'development launch bundle',
+      developmentBundleRoot,
+      'invalid',
+      503,
+      {
+        platform: 'android',
+        status: 'invalid',
+        reason: /android launch bundle.*\/android\.js.*development|Metro/,
+        field: 'bundle',
+        url: '/android.js',
+      },
     );
     await checkHealthFixture(
       'previous release during staging',

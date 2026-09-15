@@ -19,6 +19,9 @@ const STATIC_ROOT = path.resolve(
 const TEMPLATE_PATH = path.resolve(__dirname, 'templates', 'landing-page.html');
 const INCOMPLETE_MARKER = path.join(STATIC_ROOT, '.build-incomplete');
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
+const metroUrlPattern =
+  /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/i;
+const productionBundleFooterPattern = /\/\/# debugId=[A-Za-z0-9-]+\s*$/;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -110,7 +113,7 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
-function checkLocalAsset(assetUrl, activeRoot) {
+function resolveLocalAsset(assetUrl, activeRoot) {
   if (typeof assetUrl !== 'string' || !assetUrl) {
     return { status: 'invalid', reason: 'Asset URL is missing' };
   }
@@ -155,7 +158,60 @@ function checkLocalAsset(assetUrl, activeRoot) {
     return { status: 'missing', reason: error.message, url: assetUrl };
   }
 
-  return { status: 'ready', url: assetUrl };
+  return { status: 'ready', url: assetUrl, filePath };
+}
+
+function publicAssetCheck(result) {
+  const { filePath, ...publicResult } = result;
+  return publicResult;
+}
+
+function checkLocalAsset(assetUrl, activeRoot) {
+  return publicAssetCheck(resolveLocalAsset(assetUrl, activeRoot));
+}
+
+function checkLaunchBundle(assetUrl, activeRoot) {
+  const resolved = resolveLocalAsset(assetUrl, activeRoot);
+  if (resolved.status !== 'ready') {
+    return publicAssetCheck(resolved);
+  }
+
+  let bundle;
+  try {
+    bundle = fs.readFileSync(resolved.filePath, 'utf-8');
+  } catch (error) {
+    return {
+      status: 'invalid',
+      reason: error.message,
+      url: assetUrl,
+    };
+  }
+
+  if (bundle.trim().length === 0) {
+    return {
+      status: 'invalid',
+      reason: 'Launch bundle is empty',
+      url: assetUrl,
+    };
+  }
+
+  if (metroUrlPattern.test(bundle) || /\b__DEV__\s*=\s*true\b/.test(bundle)) {
+    return {
+      status: 'invalid',
+      reason: 'Launch bundle contains development or Metro configuration',
+      url: assetUrl,
+    };
+  }
+
+  if (!productionBundleFooterPattern.test(bundle)) {
+    return {
+      status: 'invalid',
+      reason: 'Launch bundle is truncated or missing its production footer',
+      url: assetUrl,
+    };
+  }
+
+  return publicAssetCheck(resolved);
 }
 
 function getManifestHealth(platform, activeRoot) {
@@ -172,11 +228,13 @@ function getManifestHealth(platform, activeRoot) {
       return { status: 'invalid', reason: 'launchAsset.url is missing' };
     }
 
-    const bundle = checkLocalAsset(manifest.launchAsset.url, activeRoot);
+    const bundle = checkLaunchBundle(manifest.launchAsset.url, activeRoot);
     if (bundle.status !== 'ready') {
       return {
         status: bundle.status,
-        reason: `${platform} launch bundle is ${bundle.status}: ${manifest.launchAsset.url}`,
+        reason: `${platform} launch bundle is ${bundle.status}: ${
+          manifest.launchAsset.url
+        } (${bundle.reason || 'integrity check failed'})`,
         bundle,
       };
     }
@@ -194,7 +252,9 @@ function getManifestHealth(platform, activeRoot) {
       if (checkedAsset.status !== 'ready') {
         return {
           status: checkedAsset.status,
-          reason: `${platform} asset is ${checkedAsset.status}: ${asset?.url || '(missing URL)'}`,
+          reason: `${platform} asset is ${checkedAsset.status}: ${
+            asset?.url || '(missing URL)'
+          } (${checkedAsset.reason || 'asset check failed'})`,
           bundle,
           asset: checkedAsset,
         };
