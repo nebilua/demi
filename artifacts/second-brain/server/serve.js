@@ -33,6 +33,7 @@ const productionBundleFooterFormats = [
       /\/\/# debugId=[A-Za-z0-9-]+\s*\/\/# sourceMappingURL=\S+\s*$/,
   },
 ];
+const bundleHealthCache = new Map();
 const bundleAssetPattern =
   /httpServerLocation:"([^"]+)"[^}]*name:"([^"]+)"[^}]*type:"([^"]+)"/g;
 
@@ -304,6 +305,28 @@ function checkLaunchBundle(assetUrl, activeRoot) {
     return publicAssetCheck(resolved);
   }
 
+  let stat;
+  try {
+    stat = fs.statSync(resolved.filePath);
+  } catch (error) {
+    return {
+      status: 'invalid',
+      reason: error.message,
+      url: assetUrl,
+    };
+  }
+  const signature = [
+    stat.dev,
+    stat.ino,
+    stat.size,
+    stat.mtimeMs,
+    stat.ctimeMs,
+  ].join(':');
+  const cached = bundleHealthCache.get(resolved.filePath);
+  if (cached?.signature === signature) {
+    return cached.result;
+  }
+
   let bundle;
   try {
     bundle = fs.readFileSync(resolved.filePath, 'utf-8');
@@ -315,49 +338,54 @@ function checkLaunchBundle(assetUrl, activeRoot) {
     };
   }
 
+  let result;
   if (bundle.trim().length === 0) {
-    return {
+    result = {
       status: 'invalid',
       reason: 'Launch bundle is empty',
       url: assetUrl,
     };
-  }
-
-  if (metroUrlPattern.test(bundle) || /\b__DEV__\s*=\s*true\b/.test(bundle)) {
-    return {
+  } else if (
+    metroUrlPattern.test(bundle) ||
+    /\b__DEV__\s*=\s*true\b/.test(bundle)
+  ) {
+    result = {
       status: 'invalid',
       reason: 'Launch bundle contains development or Metro configuration',
       url: assetUrl,
     };
+  } else {
+    const footerFormat = productionBundleFooterFormats.find(({ pattern }) =>
+      pattern.test(bundle),
+    );
+    if (!footerFormat) {
+      const hasDebugId = /\/\/# debugId=/.test(bundle);
+      result = {
+        status: 'invalid',
+        reason: hasDebugId
+          ? `Launch bundle uses an unsupported production footer format (supported: ${productionBundleFooterFormats
+              .map(({ name }) => name)
+              .join(', ')})`
+          : `Launch bundle is truncated or missing a supported production footer (supported: ${productionBundleFooterFormats
+              .map(({ name }) => name)
+              .join(', ')})`,
+        url: assetUrl,
+      };
+    } else {
+      result = {
+        ...publicAssetCheck(resolved),
+        bundleAssetUrls: extractBundleAssetUrls(bundle),
+      };
+    }
   }
 
-  const footerFormat = productionBundleFooterFormats.find(({ pattern }) =>
-    pattern.test(bundle),
-  );
-  if (!footerFormat) {
-    const hasDebugId = /\/\/# debugId=/.test(bundle);
-    return {
-      status: 'invalid',
-      reason: hasDebugId
-        ? `Launch bundle uses an unsupported production footer format (supported: ${productionBundleFooterFormats
-            .map(({ name }) => name)
-            .join(', ')})`
-        : `Launch bundle is truncated or missing a supported production footer (supported: ${productionBundleFooterFormats
-            .map(({ name }) => name)
-            .join(', ')})`,
-      url: assetUrl,
-    };
-  }
-
-  return {
-    ...publicAssetCheck(resolved),
-    bundleText: bundle,
-  };
+  bundleHealthCache.set(resolved.filePath, { signature, result });
+  return result;
 }
 
 function publicBundleCheck(result) {
   if (!result) return result;
-  const { bundleText, ...publicResult } = result;
+  const { bundleAssetUrls, ...publicResult } = result;
   return publicResult;
 }
 
@@ -458,7 +486,7 @@ function getManifestHealth(platform, activeRoot, expectedBuildId) {
       }
     }
 
-    const bundleAssetUrls = extractBundleAssetUrls(bundle.bundleText);
+    const bundleAssetUrls = bundle.bundleAssetUrls || [];
     for (const assetUrl of bundleAssetUrls) {
       const checkedAsset = checkLocalAsset(assetUrl, activeRoot);
       if (checkedAsset.status !== 'ready') {

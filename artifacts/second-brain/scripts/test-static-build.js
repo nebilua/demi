@@ -190,6 +190,7 @@ async function checkHealthFixture(
   expectedBuildId,
   expectedRecovery,
   expectedBundleReferences,
+  maxHealthMs,
 ) {
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
@@ -205,13 +206,21 @@ async function checkHealthFixture(
 
   try {
     await waitForServer(origin, child);
+    const healthStartedAt = performance.now();
     const response = await fetch(`${origin}/health`, {
       signal: AbortSignal.timeout(5_000),
     });
+    const healthElapsedMs = performance.now() - healthStartedAt;
     const body = await response.json();
 
     assert.equal(response.status, expectedHttpStatus, `${label} HTTP status`);
     assert.equal(body.status, expectedStatus, `${label} health status`);
+    if (maxHealthMs !== undefined) {
+      assert.ok(
+        healthElapsedMs < maxHealthMs,
+        `${label} first health request took ${healthElapsedMs.toFixed(1)}ms`,
+      );
+    }
     if (expectedStatus === 'ready') {
       assert.equal(body.buildId, expectedBuildId);
     } else {
@@ -244,6 +253,18 @@ async function checkHealthFixture(
         `bundle-${expectedBuildId}`,
         `${label} served release`,
       );
+      if (maxHealthMs !== undefined) {
+        const cachedHealthStartedAt = performance.now();
+        const cachedResponse = await fetch(`${origin}/health`, {
+          signal: AbortSignal.timeout(5_000),
+        });
+        const cachedHealthElapsedMs = performance.now() - cachedHealthStartedAt;
+        assert.equal(cachedResponse.status, expectedHttpStatus);
+        assert.ok(
+          cachedHealthElapsedMs < maxHealthMs,
+          `${label} cached health request took ${cachedHealthElapsedMs.toFixed(1)}ms`,
+        );
+      }
     }
     if (expectedFailure) {
       const platformHealth = body.manifests[expectedFailure.platform];
@@ -284,6 +305,7 @@ async function runHealthCheck() {
     'missing-bundle-asset',
   );
   const bundleAssetsRoot = path.join(fixtureRoot, 'bundle-assets');
+  const largeBundleRoot = path.join(fixtureRoot, 'large-bundle');
   const emptyBundleRoot = path.join(fixtureRoot, 'empty-bundle');
   const truncatedBundleRoot = path.join(fixtureRoot, 'truncated-bundle');
   const futureFooterRoot = path.join(fixtureRoot, 'future-footer');
@@ -354,6 +376,15 @@ async function runHealthCheck() {
   });
   writePlatformFixture(bundleAssetsRoot, {
     bundleAsset: { android: 'android-bundle', ios: 'ios-bundle' },
+  });
+  const largeBundle =
+    `${'x'.repeat(8 * 1024 * 1024)}\n` +
+    '//# debugId=fixture-large-bundle';
+  writePlatformFixture(largeBundleRoot, {
+    bundleContent: {
+      android: largeBundle,
+      ios: largeBundle,
+    },
   });
   writePlatformFixture(emptyBundleRoot, {
     bundleContent: { android: '' },
@@ -430,6 +461,17 @@ async function runHealthCheck() {
       'fixture-build',
       undefined,
       1,
+    );
+    await checkHealthFixture(
+      'large launch bundles',
+      largeBundleRoot,
+      'ready',
+      200,
+      undefined,
+      'fixture-build',
+      undefined,
+      undefined,
+      1_500,
     );
     await checkHealthFixture(
       'missing launch bundle',
