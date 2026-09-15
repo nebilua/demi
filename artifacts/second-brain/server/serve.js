@@ -69,25 +69,136 @@ function toScriptString(value) {
     .replaceAll('&', '\\u0026');
 }
 
-function getActiveBuild() {
+function getReleaseCandidate(releaseId) {
+  if (
+    !releaseId ||
+    releaseId === '.' ||
+    releaseId === '..' ||
+    !/^[A-Za-z0-9._-]+$/.test(releaseId)
+  ) {
+    return null;
+  }
+  const releaseRoot = path.join(STATIC_ROOT, 'releases', releaseId);
+  return fs.existsSync(releaseRoot) && fs.statSync(releaseRoot).isDirectory()
+    ? { root: releaseRoot, id: releaseId }
+    : null;
+}
+
+function getVerifiedRelease(releaseId, releaseRoot) {
+  const manifests = ['android', 'ios'].map((platform) =>
+    getManifestHealth(platform, releaseRoot, releaseId),
+  );
+  if (!manifests.every((manifest) => manifest.status === 'ready')) {
+    return null;
+  }
+
+  const manifestIds = manifests.map((manifest) => manifest.buildId);
+  if (
+    manifestIds.length !== 2 ||
+    !manifestIds[0] ||
+    manifestIds.some((manifestId) => manifestId !== manifestIds[0])
+  ) {
+    return null;
+  }
+  return {
+    root: releaseRoot,
+    id: manifestIds[0],
+  };
+}
+
+function findVerifiedRelease(excludedId) {
+  const releasesRoot = path.join(STATIC_ROOT, 'releases');
+  if (!fs.existsSync(releasesRoot)) return null;
+
+  let releaseIds;
+  try {
+    releaseIds = fs
+      .readdirSync(releasesRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left));
+  } catch {
+    return null;
+  }
+
+  for (const releaseId of releaseIds) {
+    if (releaseId === excludedId) continue;
+    const candidate = getReleaseCandidate(releaseId);
+    const verified = candidate
+      ? getVerifiedRelease(candidate.id, candidate.root)
+      : null;
+    if (verified) return verified;
+  }
+  return null;
+}
+
+function getActiveBuild({ verifyPointer = false } = {}) {
   if (!fs.existsSync(STATIC_ROOT)) return null;
 
   const pointerPath = path.join(STATIC_ROOT, '.current');
+  let pointerProblem = 'Active release pointer is missing.';
+  let pointerId = null;
+  let failedCandidate = null;
   if (fs.existsSync(pointerPath)) {
-    const releaseId = fs.readFileSync(pointerPath, 'utf-8').trim();
-    if (!/^[A-Za-z0-9._-]+$/.test(releaseId)) return null;
-
-    const releaseRoot = path.join(STATIC_ROOT, 'releases', releaseId);
-    return fs.existsSync(releaseRoot) && fs.statSync(releaseRoot).isDirectory()
-      ? { root: releaseRoot, id: releaseId }
-      : null;
+    try {
+      pointerId = fs.readFileSync(pointerPath, 'utf-8').trim();
+      const candidate = getReleaseCandidate(pointerId);
+      if (candidate && !verifyPointer) {
+        return candidate;
+      }
+      if (candidate && getVerifiedRelease(candidate.id, candidate.root)) {
+        return candidate;
+      }
+      if (candidate) failedCandidate = candidate;
+      pointerProblem = candidate
+        ? `Active release ${pointerId} failed verification.`
+        : `Active release ${pointerId || '(empty)'} is missing.`;
+    } catch (error) {
+      pointerProblem = `Active release pointer could not be read: ${error.message}`;
+    }
   }
 
   // Support static builds created before atomic release promotion existed.
-  return fs.existsSync(path.join(STATIC_ROOT, 'android')) ||
-    fs.existsSync(path.join(STATIC_ROOT, 'ios'))
-    ? { root: STATIC_ROOT, id: null }
-    : null;
+  const hasLegacyOutput =
+    fs.existsSync(path.join(STATIC_ROOT, 'android')) ||
+    fs.existsSync(path.join(STATIC_ROOT, 'ios'));
+  if (hasLegacyOutput) {
+    if (!verifyPointer) return { root: STATIC_ROOT, id: null };
+    const verifiedLegacy = getVerifiedRelease(null, STATIC_ROOT);
+    if (verifiedLegacy) return verifiedLegacy;
+    failedCandidate = { root: STATIC_ROOT, id: null };
+    pointerProblem = 'Legacy static output failed verification.';
+  }
+
+  const fallback = findVerifiedRelease(pointerId);
+  if (fallback) {
+    return {
+      ...fallback,
+      recovery: {
+        status: 'recovered',
+        reason: `${pointerProblem} Serving verified previous release ${fallback.id}.`,
+      },
+    };
+  }
+
+  if (failedCandidate) {
+    return {
+      ...failedCandidate,
+      recovery: {
+        status: 'unavailable',
+        reason: `${pointerProblem} No verified previous release is available.`,
+      },
+    };
+  }
+
+  return {
+    root: null,
+    id: null,
+    recovery: {
+      status: 'unavailable',
+      reason: `${pointerProblem} No verified previous release is available.`,
+    },
+  };
 }
 
 function getActiveBuildRoot() {
@@ -317,9 +428,10 @@ function getManifestHealth(platform, activeRoot, expectedBuildId) {
 }
 
 function getBuildHealth() {
-  const activeBuild = getActiveBuild();
+  const activeBuild = getActiveBuild({ verifyPointer: true });
   const activeRoot = activeBuild?.root || null;
   const activeBuildId = activeBuild?.id || null;
+  const recovery = activeBuild?.recovery;
   const manifests = {
     android: getManifestHealth('android', activeRoot, activeBuildId),
     ios: getManifestHealth('ios', activeRoot, activeBuildId),
@@ -329,12 +441,24 @@ function getBuildHealth() {
     return {
       status: 'incomplete',
       buildId: null,
-      reason: 'A static build is still in progress or failed before promotion.',
+      reason:
+        recovery?.reason ||
+        'A static build is still in progress or failed before promotion.',
       manifests,
+      recovery,
     };
   }
 
   if (!activeRoot) {
+    if (recovery) {
+      return {
+        status: 'invalid',
+        buildId: null,
+        reason: recovery.reason,
+        manifests,
+        recovery,
+      };
+    }
     return {
       status: 'missing',
       buildId: null,
@@ -369,6 +493,7 @@ function getBuildHealth() {
           ? 'Android and iOS manifests do not share one build identifier.'
         : 'One or more platform manifests are unavailable.',
     manifests,
+    recovery,
   };
 }
 

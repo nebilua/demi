@@ -183,6 +183,7 @@ async function checkHealthFixture(
   expectedHttpStatus,
   expectedFailure,
   expectedBuildId,
+  expectedRecovery,
 ) {
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
@@ -218,6 +219,16 @@ async function checkHealthFixture(
       assert.equal(body.manifests.ios.status, 'ready');
       assert.equal(body.manifests.android.buildId, body.buildId);
       assert.equal(body.manifests.ios.buildId, body.buildId);
+      const manifestResponse = await fetch(`${origin}/android/manifest.json`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      assert.equal(manifestResponse.status, 200, `${label} manifest status`);
+      const servedManifest = await manifestResponse.json();
+      assert.equal(
+        servedManifest.launchAsset?.key,
+        `bundle-${expectedBuildId}`,
+        `${label} served release`,
+      );
     }
     if (expectedFailure) {
       const platformHealth = body.manifests[expectedFailure.platform];
@@ -227,6 +238,10 @@ async function checkHealthFixture(
         platformHealth[expectedFailure.field]?.url,
         expectedFailure.url,
       );
+    }
+    if (expectedRecovery) {
+      assert.equal(body.recovery?.status, expectedRecovery.status);
+      assert.match(body.recovery?.reason || '', expectedRecovery.reason);
     }
     console.log(`${label}: /health returned ${body.status}`);
   } catch (error) {
@@ -254,6 +269,9 @@ async function runHealthCheck() {
   const developmentBundleRoot = path.join(fixtureRoot, 'development-bundle');
   const stagingRoot = path.join(fixtureRoot, 'staging');
   const mismatchRoot = path.join(fixtureRoot, 'mismatch');
+  const malformedPointerRoot = path.join(fixtureRoot, 'malformed-pointer');
+  const missingTargetRoot = path.join(fixtureRoot, 'missing-target');
+  const unavailablePointerRoot = path.join(fixtureRoot, 'unavailable-pointer');
 
   fs.mkdirSync(incompleteRoot, { recursive: true });
   fs.writeFileSync(
@@ -322,6 +340,20 @@ async function runHealthCheck() {
   const mismatchReleaseRoot = path.join(mismatchRoot, 'releases', 'active');
   writePlatformFixture(mismatchReleaseRoot, { buildId: 'other' });
   fs.writeFileSync(path.join(mismatchRoot, '.current'), 'active\n');
+
+  writePlatformFixture(
+    path.join(malformedPointerRoot, 'releases', 'previous'),
+    { buildId: 'previous' },
+  );
+  fs.writeFileSync(path.join(malformedPointerRoot, '.current'), '../staging\n');
+
+  writePlatformFixture(
+    path.join(missingTargetRoot, 'releases', 'previous'),
+    { buildId: 'previous' },
+  );
+  fs.writeFileSync(path.join(missingTargetRoot, '.current'), 'missing\n');
+  fs.mkdirSync(unavailablePointerRoot, { recursive: true });
+  fs.writeFileSync(path.join(unavailablePointerRoot, '.current'), 'missing\n');
 
   try {
     await checkHealthFixture('missing static output', missingRoot, 'missing', 503);
@@ -416,6 +448,47 @@ async function runHealthCheck() {
         platform: 'android',
         status: 'invalid',
         reason: /does not match active build active/,
+      },
+      undefined,
+      {
+        status: 'unavailable',
+        reason: /failed verification.*No verified previous release/,
+      },
+    );
+    await checkHealthFixture(
+      'malformed active release pointer',
+      malformedPointerRoot,
+      'ready',
+      200,
+      undefined,
+      'previous',
+      {
+        status: 'recovered',
+        reason: /malformed|does not match|missing|Serving verified previous release previous/,
+      },
+    );
+    await checkHealthFixture(
+      'missing active release target',
+      missingTargetRoot,
+      'ready',
+      200,
+      undefined,
+      'previous',
+      {
+        status: 'recovered',
+        reason: /Active release missing is missing.*Serving verified previous release previous/,
+      },
+    );
+    await checkHealthFixture(
+      'unavailable pointer recovery',
+      unavailablePointerRoot,
+      'invalid',
+      503,
+      undefined,
+      undefined,
+      {
+        status: 'unavailable',
+        reason: /No verified previous release is available/,
       },
     );
     console.log('Static Expo health check passed.');
