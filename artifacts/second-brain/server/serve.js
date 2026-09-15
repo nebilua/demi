@@ -13,7 +13,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const STATIC_ROOT = path.resolve(__dirname, '..', 'static-build');
+const STATIC_ROOT = path.resolve(
+  process.env.STATIC_BUILD_ROOT || path.join(__dirname, '..', 'static-build'),
+);
 const TEMPLATE_PATH = path.resolve(__dirname, 'templates', 'landing-page.html');
 const MANIFEST_PATHS = {
   android: path.join(STATIC_ROOT, 'android', 'manifest.json'),
@@ -88,6 +90,71 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
+function getManifestHealth(platform) {
+  const manifestPath = MANIFEST_PATHS[platform];
+  if (!fs.existsSync(manifestPath)) {
+    return { status: 'missing' };
+  }
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    if (!manifest.launchAsset?.url) {
+      return { status: 'invalid', reason: 'launchAsset.url is missing' };
+    }
+    return { status: 'ready' };
+  } catch (error) {
+    return { status: 'invalid', reason: error.message };
+  }
+}
+
+function getBuildHealth() {
+  const manifests = {
+    android: getManifestHealth('android'),
+    ios: getManifestHealth('ios'),
+  };
+
+  if (fs.existsSync(INCOMPLETE_MARKER)) {
+    return {
+      status: 'incomplete',
+      reason: 'A static build is still in progress or failed before promotion.',
+      manifests,
+    };
+  }
+
+  if (!fs.existsSync(STATIC_ROOT)) {
+    return {
+      status: 'missing',
+      reason: 'No static build output directory exists.',
+      manifests,
+    };
+  }
+
+  const manifestStatuses = Object.values(manifests).map((manifest) => manifest.status);
+  const status = manifestStatuses.every((manifestStatus) => manifestStatus === 'ready')
+    ? 'ready'
+    : manifestStatuses.includes('invalid')
+      ? 'invalid'
+      : 'missing';
+
+  return {
+    status,
+    reason:
+      status === 'ready'
+        ? 'Android and iOS static manifests are ready.'
+        : 'One or more platform manifests are unavailable.',
+    manifests,
+  };
+}
+
+function serveHealth(res) {
+  const health = getBuildHealth();
+  res.writeHead(health.status === 'ready' ? 200 : 503, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+  });
+  res.end(JSON.stringify(health));
+}
+
 function serveLandingPage(req, res, landingPageTemplate, appName) {
   const forwardedProto = req.headers['x-forwarded-proto'];
   const protocol = forwardedProto || 'https';
@@ -147,6 +214,17 @@ const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
 const appName = getAppName();
 
 const server = http.createServer((req, res) => {
+  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  let pathname = url.pathname;
+
+  if (basePath && pathname.startsWith(basePath)) {
+    pathname = pathname.slice(basePath.length) || '/';
+  }
+
+  if (pathname === '/health') {
+    return serveHealth(res);
+  }
+
   if (fs.existsSync(INCOMPLETE_MARKER)) {
     res.writeHead(503, { 'content-type': 'application/json' });
     res.end(
@@ -155,13 +233,6 @@ const server = http.createServer((req, res) => {
       }),
     );
     return;
-  }
-
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
-  let pathname = url.pathname;
-
-  if (basePath && pathname.startsWith(basePath)) {
-    pathname = pathname.slice(basePath.length) || '/';
   }
 
   if (pathname === '/' || pathname === '/manifest') {

@@ -1,3 +1,5 @@
+const assert = require('node:assert/strict');
+const os = require('node:os');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -33,7 +35,7 @@ async function waitForServer(origin, child) {
       const response = await fetch(`${origin}/`, {
         signal: AbortSignal.timeout(500),
       });
-      if (response.ok) return;
+      if (response.status > 0) return;
     } catch (error) {
       lastError = error;
     }
@@ -158,6 +160,79 @@ async function runSmokeCheck() {
   }
 }
 
+async function checkHealthFixture(label, staticRoot, expectedStatus, expectedHttpStatus) {
+  const port = await getFreePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [serverScript], {
+    cwd: projectRoot,
+    env: { ...process.env, PORT: String(port), STATIC_BUILD_ROOT: staticRoot },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitForServer(origin, child);
+    const response = await fetch(`${origin}/health`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, expectedHttpStatus, `${label} HTTP status`);
+    assert.equal(body.status, expectedStatus, `${label} health status`);
+    assert.ok(body.manifests?.android, `${label} Android manifest status`);
+    assert.ok(body.manifests?.ios, `${label} iOS manifest status`);
+
+    if (expectedStatus === 'ready') {
+      assert.equal(body.manifests.android.status, 'ready');
+      assert.equal(body.manifests.ios.status, 'ready');
+    }
+    console.log(`${label}: /health returned ${body.status}`);
+  } catch (error) {
+    fail(`${label} health check failed: ${error.message}`);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((resolve) => child.once('exit', resolve));
+    if (child.exitCode && child.exitCode !== 0 && stderr) {
+      console.error(stderr.trim());
+    }
+  }
+}
+
+async function runHealthCheck() {
+  const fixtureRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'second-brain-static-health-'),
+  );
+  const missingRoot = path.join(fixtureRoot, 'missing');
+  const incompleteRoot = path.join(fixtureRoot, 'incomplete');
+  const readyRoot = path.join(fixtureRoot, 'ready');
+
+  fs.mkdirSync(incompleteRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(incompleteRoot, '.build-incomplete'),
+    'fixture build is incomplete\n',
+  );
+
+  for (const platform of platforms) {
+    fs.mkdirSync(path.join(readyRoot, platform), { recursive: true });
+    fs.writeFileSync(
+      path.join(readyRoot, platform, 'manifest.json'),
+      JSON.stringify({ launchAsset: { url: `https://example.test/${platform}.js` } }),
+    );
+  }
+
+  try {
+    await checkHealthFixture('missing static output', missingRoot, 'missing', 503);
+    await checkHealthFixture('incomplete static output', incompleteRoot, 'incomplete', 503);
+    await checkHealthFixture('ready static output', readyRoot, 'ready', 200);
+    console.log('Static Expo health check passed.');
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 function runBuildFailure(stage) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(projectRoot, 'scripts', 'build.js')], {
@@ -222,7 +297,10 @@ async function runFailureCheck() {
 
 const run = process.argv.includes('--failure-check')
   ? runFailureCheck
-  : runSmokeCheck;
+  : async () => {
+      await runSmokeCheck();
+      await runHealthCheck();
+    };
 
 run().catch((error) => {
   console.error(error.message);
