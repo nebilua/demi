@@ -38,6 +38,21 @@ function daysUntil(reminder: DateReminder) {
   return `IN ${days} DAYS`;
 }
 
+function notificationStatusLabel(reminder: DateReminder) {
+  switch (reminder.notificationState) {
+    case 'scheduled':
+      return timingLabel(reminder.remindMinutesBefore);
+    case 'permission-denied':
+      return 'Notifications are off. Open Android settings, then retry.';
+    case 'past':
+      return 'This one-time reminder is past. Edit the date to schedule a new alert.';
+    case 'unavailable':
+      return 'Device notifications are unavailable in this preview.';
+    default:
+      return reminder.notificationError ?? 'Alert could not be scheduled. Tap Retry.';
+  }
+}
+
 export default function CalendarScreen() {
   const router = useRouter();
   const { settings } = useApp();
@@ -73,6 +88,8 @@ export default function CalendarScreen() {
     setRetryingId(id);
     try {
       await retryReminderNotification(id);
+    } catch {
+      // CalendarContext exposes the actionable failure banner.
     } finally {
       setRetryingId(null);
     }
@@ -319,11 +336,11 @@ export default function CalendarScreen() {
                     { color: colors.mutedForeground },
                   ]}
                 >
-                  {item.notificationState === 'scheduled'
-                    ? timingLabel(item.remindMinutesBefore)
-                    : item.notificationError ?? 'Device alert not scheduled'}
+                  {notificationStatusLabel(item)}
                 </Text>
-                {item.notificationState !== 'scheduled' && (
+                {item.notificationState !== 'scheduled' &&
+                  item.notificationState !== 'past' &&
+                  item.notificationState !== 'unavailable' && (
                   <Pressable
                     testID={`retry-notification-${item.id}`}
                     accessibilityRole="button"
@@ -372,8 +389,8 @@ export default function CalendarScreen() {
                       { color: colors.secondaryForeground },
                     ]}
                   >
-                    Alerts are off. Open device settings, then save the date
-                    again to schedule it.
+                    Alerts are off. Open device settings, then tap Retry on
+                    each affected date to schedule its alert.
                   </Text>
                   <Feather
                     name="external-link"

@@ -98,6 +98,7 @@ export default function SettingsScreen() {
     engineStatus,
     engineError,
     runtimeDetails,
+    voiceInputStatus,
     modelSetupStatus,
     voiceInputAvailable,
     voiceOutputAvailable,
@@ -135,6 +136,22 @@ export default function SettingsScreen() {
   const selectedVoiceIsInstalled = englishOfflineVoices.some(
     (voice) => voice.id === settings.preferredVoiceId,
   );
+  const modelStatusMessage =
+    engineStatus === 'unsupported'
+      ? 'Offline model inference is unavailable in the browser preview. Install the Android app to use a local GGUF.'
+      : engineStatus === 'no-model'
+        ? 'No local model is installed. Download the recommended model or import a compatible GGUF.'
+        : engineStatus === 'loading'
+          ? 'Loading the local model. Keep Demi open until setup finishes.'
+          : engineStatus === 'error'
+            ? 'The local model could not start. Check the device fit below, then retry or import a smaller Q4 GGUF.'
+            : 'Local replies are running on this device.';
+  const modelStatusColor =
+    engineStatus === 'ready'
+      ? colors.primary
+      : engineStatus === 'error'
+        ? colors.destructive
+        : colors.mutedForeground;
 
   async function handleClearHistory() {
     setIsClearing(true);
@@ -220,6 +237,25 @@ export default function SettingsScreen() {
               </Text>
               {localModel && <Feather name="check-circle" size={14} color={colors.primary} />}
             </View>
+              <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.diagnosticTitle, { color: modelStatusColor }]}>
+                  {engineStatus === 'ready' ? 'Ready for private replies' : 'Setup status'}
+                </Text>
+                <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
+                  {modelStatusMessage}
+                </Text>
+              </View>
+              <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary, marginTop: 8 }]}>
+                <Text style={[styles.diagnosticTitle, { color: colors.cardForeground }]}>
+                  Device fit
+                </Text>
+                <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
+                  {deviceCompatibility.architectureSupported ? 'Supported architecture' : 'Unsupported architecture'} · {deviceCompatibility.memoryLabel} · context {deviceCompatibility.contextSize}
+                </Text>
+                <Text style={[styles.readinessDesc, { color: colors.mutedForeground, marginTop: 4 }]}>
+                  {deviceCompatibility.recommendation}
+                </Text>
+              </View>
 
             {!localModel && (downloadStatus === 'idle' || downloadStatus === 'error') && (
               <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
@@ -374,7 +410,9 @@ export default function SettingsScreen() {
               </View>
             ) : englishOfflineVoices.length === 0 ? (
               <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
-                No verified English offline voice is installed. Use Spoken replies above to open Android text-to-speech settings.
+                {Platform.OS !== 'android'
+                  ? 'Verified offline voices are available in the installed Android app.'
+                  : `No verified offline ${settings.voiceLanguage} voice is installed. Use Spoken replies above to open Android text-to-speech settings.`}
               </Text>
             ) : (
               <View style={styles.voiceOptions}>
@@ -433,6 +471,11 @@ export default function SettingsScreen() {
           {(voiceError || voiceSetupMessage) && (
             <Text style={[styles.errorText, { color: colors.destructive, marginTop: 10 }]}>
               {voiceError || voiceSetupMessage}
+            </Text>
+          )}
+          {voiceInputStatus === 'needs-model' && !voiceError && !voiceSetupMessage && (
+            <Text style={[styles.errorText, { color: colors.destructive, marginTop: 10 }]}>
+              Offline {settings.voiceLanguage} speech recognition is not installed. Tap Speech input to start Android setup.
             </Text>
           )}
           <View style={[styles.voicePreferences, { borderTopColor: colors.border }]}>
@@ -557,6 +600,8 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 20, paddingTop: 12 },
   errorBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, borderRadius: 12, marginBottom: 8 },
   errorText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
+  diagnosticBox: { padding: 10, borderRadius: 10 },
+  diagnosticTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 12, marginBottom: 3 },
   sectionLabel: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 11, letterSpacing: 1, marginBottom: 8, marginTop: 24, paddingLeft: 4 },
   card: { borderWidth: 1, borderRadius: 20, padding: 16 },
   profileSummary: { flexDirection: 'row', alignItems: 'center' },

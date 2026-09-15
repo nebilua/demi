@@ -584,24 +584,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setVoiceSetupMessage(
         localeInstalled
           ? null
-          : 'Install the English offline language pack before using private voice input.',
+          : `Install the ${settingsRef.current.voiceLanguage} offline language pack before using private voice input.`,
       );
       return localeInstalled;
     } catch {
       setVoiceInputAvailable(false);
       setVoiceInputStatus('needs-model');
       setVoiceSetupMessage(
-        'Demi could not verify an installed English offline language pack.',
+        `Demi could not verify an installed ${settingsRef.current.voiceLanguage} offline language pack.`,
       );
       return false;
     }
   }
 
-  async function releaseModelContext() {
+  async function releaseModelContext(clearDetails = false) {
     const context = llamaContextRef.current;
     llamaContextRef.current = null;
     if (context) await context.release();
-    setRuntimeDetails(null);
+    if (clearDetails) setRuntimeDetails(null);
   }
 
   async function loadModel(modelOverride?: LocalModel): Promise<boolean> {
@@ -773,7 +773,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       await AsyncStorage.removeItem(MODEL_KEY);
-      await releaseModelContext();
+      await releaseModelContext(true);
       if (model) await FileSystem.deleteAsync(model.uri, { idempotent: true });
       setLocalModel(null);
       setEngineProgress(0);
@@ -973,7 +973,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!offlineLocaleInstalled) {
         setVoiceInputStatus('needs-model');
         setVoiceError(
-          'Install the English offline language pack before using private voice input.',
+          `Install the ${settings.voiceLanguage} offline language pack before using private voice input.`,
         );
         return;
       }
@@ -1052,7 +1052,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       setVoiceSetupMessage(
         result.status === 'download_success'
-          ? 'English offline recognition is installed.'
+          ? `${settings.voiceLanguage} offline recognition is installed.`
           : result.status === 'download_scheduled'
             ? 'The offline language download is scheduled. Android may wait for Wi-Fi.'
             : 'Android opened the offline language download. Return here when it finishes.',

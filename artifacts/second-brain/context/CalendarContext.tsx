@@ -194,21 +194,30 @@ export function CalendarProvider({
   async function retryReminderNotification(id: string) {
     const target = reminders.find((item) => item.id === id);
     if (!target || target.deletedAt) return;
-    if (target.notificationId) {
-      await cancelScheduledReminder(target.notificationId);
-    }
-    const schedule = await scheduleReminder(target);
-    const updated = reminders.map((item) =>
-      item.id === id
-        ? {
-            ...item,
-            ...schedule,
-            updatedAt: Date.now(),
-          }
-        : item,
-    );
-    if (!(await persist(updated))) {
-      throw new Error('The reminder notification could not be saved.');
+    try {
+      if (target.notificationId) {
+        await cancelScheduledReminder(target.notificationId);
+      }
+      const schedule = await scheduleReminder(target);
+      const updated = reminders.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              ...schedule,
+              updatedAt: Date.now(),
+            }
+          : item,
+      );
+      if (!(await persist(updated))) {
+        throw new Error('The reminder notification could not be saved.');
+      }
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'The reminder notification could not be scheduled. Try again.',
+      );
+      throw error;
     }
   }
 
