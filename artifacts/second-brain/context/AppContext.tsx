@@ -373,6 +373,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const modelImportInFlightRef = useRef(false);
   const modelLoadInFlightRef = useRef(false);
   const offlineVoiceSetupInFlightRef = useRef(false);
+  const downloadRunRef = useRef(0);
+  const clearConversationInFlightRef = useRef(false);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     let isMounted = true;
@@ -512,9 +516,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setOfflineVoices(voices);
       setVoiceOutputAvailable(
         voices.some((voice) =>
-          voiceMatchesLanguage(voice.language, settings.voiceLanguage),
+          voiceMatchesLanguage(voice.language, settingsRef.current.voiceLanguage),
         ),
       );
+    } catch {
+      setOfflineVoices([]);
+      setVoiceOutputAvailable(false);
     } finally {
       setOfflineVoicesLoading(false);
     }
@@ -562,7 +569,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const { installedLocales } = await module.getSupportedLocales({
         androidRecognitionServicePackage: onDevicePackage,
       });
-      const expectedLocale = settings.voiceLanguage.toLowerCase();
+      const expectedLocale = settingsRef.current.voiceLanguage.toLowerCase();
       const expectedLanguage = expectedLocale.split('-')[0];
       const localeInstalled = installedLocales.some((locale) => {
         const normalized = locale.toLowerCase();
@@ -645,6 +652,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setModelSetupStatus('selecting');
     setEngineError(null);
     let destination: string | null = null;
+    let loadedNewModel = false;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/octet-stream',
@@ -735,16 +743,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
          destination = null;
          return;
       }
+       loadedNewModel = true;
+       await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
+       setStorageError(null);
        setLocalModel(nextModel);
        destination = null;
-       try {
-         await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
-         setStorageError(null);
-       } catch {
-         setStorageError(
-           'The model is ready for this session, but its selection could not be saved locally.',
-         );
-       }
        if (previousModel && previousModel.uri !== nextModel.uri) {
          await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(
            () => {},
@@ -754,6 +757,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (destination) {
         await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
       }
+      if (loadedNewModel) await releaseModelContext();
       setEngineError(readableError(error));
       setEngineStatus('error');
       setModelSetupStatus('idle');
@@ -764,22 +768,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function removeModel() {
     const model = localModel;
-    await releaseModelContext();
-    if (model) await FileSystem.deleteAsync(model.uri, { idempotent: true });
-    await AsyncStorage.removeItem(MODEL_KEY);
-    setLocalModel(null);
-    setEngineProgress(0);
-    setEngineError(null);
-    setEngineStatus(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+    if (!model || modelImportInFlightRef.current || modelLoadInFlightRef.current) {
+      return;
+    }
+    try {
+      await AsyncStorage.removeItem(MODEL_KEY);
+      await releaseModelContext();
+      if (model) await FileSystem.deleteAsync(model.uri, { idempotent: true });
+      setLocalModel(null);
+      setEngineProgress(0);
+      setEngineError(null);
+      setEngineStatus(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+      setStorageError(null);
+    } catch {
+      setStorageError(
+        'The model could not be removed completely. Your saved model selection was kept.',
+      );
+    }
   }
 
   function cancelDownload() {
+    downloadRunRef.current += 1;
     if (downloadResumableRef.current) {
       downloadResumableRef.current.cancelAsync().catch(() => {});
       const dest = downloadResumableRef.current.fileUri;
       if (dest) FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
       downloadResumableRef.current = null;
     }
+    setDownloadError(null);
     setDownloadStatus('idle');
     setDownloadProgress(0);
   }
@@ -792,12 +808,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    const runId = downloadRunRef.current + 1;
+    downloadRunRef.current = runId;
     setDownloadStatus('downloading');
     setDownloadProgress(0);
     setDownloadError(null);
 
     const modelsDirectory = `${FileSystem.documentDirectory}models`;
     const destination = `${modelsDirectory}/${Date.now()}-${RECOMMENDED_MODEL.name}`;
+    let loadedNewModel = false;
 
     try {
       if (!deviceCompatibility.architectureSupported) {
@@ -840,6 +859,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const result = await downloadResumable.downloadAsync();
       downloadResumableRef.current = null;
+      if (runId !== downloadRunRef.current) {
+        await FileSystem.deleteAsync(destination, { idempotent: true });
+        return;
+      }
 
       if (!result || result.status !== 200) {
         throw new Error('Download failed.');
@@ -871,21 +894,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const previousModel = localModel;
       const loaded = await loadModel(nextModel);
+      if (runId !== downloadRunRef.current) {
+        await FileSystem.deleteAsync(destination, { idempotent: true });
+        await releaseModelContext();
+        return;
+      }
       if (!loaded) {
         await FileSystem.deleteAsync(destination, { idempotent: true });
         setDownloadStatus('idle');
         return;
       }
+      loadedNewModel = true;
 
+      await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
+      setStorageError(null);
       setLocalModel(nextModel);
-      try {
-        await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
-        setStorageError(null);
-      } catch {
-        setStorageError(
-           'The model is ready for this session, but its selection could not be saved locally.',
-        );
-      }
 
       if (previousModel && previousModel.uri !== nextModel.uri) {
         await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(() => {});
@@ -896,6 +919,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       downloadResumableRef.current = null;
       await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+      if (runId !== downloadRunRef.current) return;
+      if (loadedNewModel) await releaseModelContext();
       setDownloadError(error instanceof Error ? error.message : 'Download failed.');
       setDownloadStatus('error');
     }
@@ -1107,10 +1132,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function updateSettings(patch: Partial<AppSettings>) {
     const nextSettings = { ...settings, ...patch };
-    setSettings(nextSettings);
 
     try {
       await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(nextSettings));
+      setSettings(nextSettings);
       setStorageError(null);
     } catch {
       setStorageError('Settings could not be saved on this device.');
@@ -1124,6 +1149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setStorageError(null);
     } catch {
       setStorageError('Your local profile could not be saved on this device.');
+      throw new Error('Your local profile could not be saved on this device.');
     }
   }
 
@@ -1161,7 +1187,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         SECURE_CONVERSATION_KEY,
         JSON.stringify(nextTurns.slice(-80)),
       );
-      setSavedTurnCount(nextTurns.length);
+      setSavedTurnCount(Math.min(nextTurns.length, 80));
       setStorageError(null);
     } catch {
       setStorageError('This message is visible now, but could not be saved locally.');
@@ -1279,6 +1305,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function clearConversation() {
+    if (clearConversationInFlightRef.current) return;
+    if (isThinking) {
+      setStorageError('Wait for the current response to finish before clearing history.');
+      throw new Error('A response is still being generated.');
+    }
+    clearConversationInFlightRef.current = true;
     try {
       await removeSecureRecord(SECURE_CONVERSATION_KEY);
       setTurns([]);
@@ -1286,6 +1318,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setStorageError(null);
     } catch {
       setStorageError('Conversation history could not be cleared.');
+      throw new Error('Conversation history could not be cleared.');
+    } finally {
+      clearConversationInFlightRef.current = false;
     }
   }
 
@@ -1329,32 +1364,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const candidate = pendingMemoryCandidate;
     if (!candidate || candidate.kind !== 'memory') return;
     const content = (editedContent ?? candidate.content).trim().slice(0, 240);
-    if (
-      !content ||
-      memories.some(
-        (memory) => memoryFingerprint(memory.content) === memoryFingerprint(content),
-      )
-    ) {
+    if (!content) {
       setPendingMemoryCandidate(null);
       return;
     }
     const now = Date.now();
-    await mutateMemories((current) => [
-      {
-        id: createId(),
-        category: candidate.category,
-        content,
-        source: {
-          turnId: turns.filter((turn) => turn.role === 'user').at(-1)?.id ?? '',
-          excerpt: candidate.sourceExcerpt,
+    await mutateMemories((current) => {
+      if (
+        current.some(
+          (memory) =>
+            memoryFingerprint(memory.content) === memoryFingerprint(content),
+        )
+      ) {
+        return current;
+      }
+      return [
+        {
+          id: createId(),
+          category: candidate.category,
+          content,
+          source: {
+            turnId: turns.filter((turn) => turn.role === 'user').at(-1)?.id ?? '',
+            excerpt: candidate.sourceExcerpt,
+            createdAt: now,
+          },
           createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
         },
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null,
-      },
-      ...current,
-    ]);
+        ...current,
+      ];
+    });
     setPendingMemoryCandidate(null);
   }
 

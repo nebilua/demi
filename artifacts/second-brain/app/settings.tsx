@@ -27,6 +27,15 @@ const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
 ];
+const voiceLanguageOptions = [
+  { value: 'en-US', label: 'English (US)' },
+  { value: 'en-GB', label: 'English (UK)' },
+];
+const speechRateOptions = [
+  { value: 0.82, label: 'Slower' },
+  { value: 0.92, label: 'Natural' },
+  { value: 1.05, label: 'Faster' },
+];
 
 function SectionLabel({ children }: { children: string }) {
   const { settings } = useApp();
@@ -82,11 +91,13 @@ export default function SettingsScreen() {
     profile,
     memories,
     storageProtection,
+    storageError,
     clearConversation,
     localModel,
     deviceCompatibility,
     engineStatus,
     engineError,
+    runtimeDetails,
     modelSetupStatus,
     voiceInputAvailable,
     voiceOutputAvailable,
@@ -94,6 +105,7 @@ export default function SettingsScreen() {
     offlineVoicesLoading,
     refreshOfflineVoices,
     voiceError,
+    voiceSetupMessage,
     voiceSetupInProgress,
     importModel,
     downloadRecommendedModel,
@@ -115,8 +127,8 @@ export default function SettingsScreen() {
 
   const androidApiLevel = Platform.OS === 'android' && typeof Platform.Version === 'number' ? Platform.Version : null;
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
-  const canSetupSpeech = !voiceInputAvailable && !requiresNewerAndroid && !voiceSetupInProgress;
-  const canSetupSpokenReplies = !voiceOutputAvailable;
+  const canSetupSpeech = Platform.OS === 'android' && !voiceInputAvailable && !requiresNewerAndroid && !voiceSetupInProgress;
+  const canSetupSpokenReplies = Platform.OS === 'android' && !voiceOutputAvailable;
   const englishOfflineVoices = offlineVoices.filter(
     (voice) => voice.language.toLowerCase().split('-')[0] === 'en',
   );
@@ -126,9 +138,14 @@ export default function SettingsScreen() {
 
   async function handleClearHistory() {
     setIsClearing(true);
-    await clearConversation();
-    setIsClearing(false);
-    setShowClearConfirm(false);
+    try {
+      await clearConversation();
+      setShowClearConfirm(false);
+    } catch {
+      // Keep the confirmation open so a failed clear is not reported as success.
+    } finally {
+      setIsClearing(false);
+    }
   }
 
   if (!settingsReady) {
@@ -156,6 +173,12 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(28, insets.bottom + 28) }]} showsVerticalScrollIndicator={false}>
+        {storageError && (
+          <View style={[styles.errorBanner, { backgroundColor: colors.secondary }]}>
+            <Feather name="alert-circle" size={14} color={colors.destructive} />
+            <Text style={[styles.errorText, { color: colors.foreground }]}>{storageError}</Text>
+          </View>
+        )}
         <SectionLabel>Personal context</SectionLabel>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.profileSummary}>
@@ -241,7 +264,15 @@ export default function SettingsScreen() {
             {localModel && (
               <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
                 <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>{localModel.name}</Text>
-                <Text style={[styles.downloadMeta, { color: colors.mutedForeground }]}>{formatBytes(localModel.sizeBytes)} · Active</Text>
+              <Text style={[styles.downloadMeta, { color: colors.mutedForeground }]}>{formatBytes(localModel.sizeBytes)} · Active</Text>
+              <Text style={[styles.downloadMeta, { color: colors.mutedForeground, marginTop: 5 }]}>
+                {deviceCompatibility.deviceName} · {deviceCompatibility.memoryLabel} · context {deviceCompatibility.contextSize}
+              </Text>
+              {runtimeDetails && (
+                <Text style={[styles.downloadMeta, { color: colors.mutedForeground, marginTop: 5 }]}>
+                  Runtime: {runtimeDetails.modelDescription} · {runtimeDetails.gpuEnabled ? 'GPU enabled' : 'CPU only'}
+                </Text>
+              )}
                 <Pressable onPress={removeModel} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border, marginTop: 12 }, pressed && styles.pressed]}>
                   <Text style={[styles.secondaryButtonText, { color: colors.destructive }]}>Remove</Text>
                 </Pressable>
@@ -280,7 +311,7 @@ export default function SettingsScreen() {
               {voiceSetupInProgress && <ActivityIndicator size="small" color={colors.primary} />}
             </View>
             <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-              {voiceInputAvailable ? 'Offline dictation ready.' : requiresNewerAndroid ? 'Requires Android 13+.' : 'Install English offline language pack.'}
+              {voiceInputAvailable ? 'Offline dictation ready.' : Platform.OS !== 'android' ? 'Available in the installed Android app.' : requiresNewerAndroid ? 'Requires Android 13+.' : 'Install English offline language pack.'}
             </Text>
           </Pressable>
 
@@ -306,7 +337,7 @@ export default function SettingsScreen() {
               {canSetupSpokenReplies && <Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
             </View>
             <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-              {voiceOutputAvailable ? 'Offline TTS ready.' : 'Verify or install an offline TTS voice.'}
+              {voiceOutputAvailable ? 'Offline TTS ready.' : Platform.OS !== 'android' ? 'Available in the installed Android app.' : 'Verify or install an offline TTS voice.'}
             </Text>
           </Pressable>
 
@@ -399,6 +430,61 @@ export default function SettingsScreen() {
               </View>
             )}
           </View>
+          {(voiceError || voiceSetupMessage) && (
+            <Text style={[styles.errorText, { color: colors.destructive, marginTop: 10 }]}>
+              {voiceError || voiceSetupMessage}
+            </Text>
+          )}
+          <View style={[styles.voicePreferences, { borderTopColor: colors.border }]}>
+            <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+              Voice language
+            </Text>
+            <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+              {voiceLanguageOptions.map((option) => (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: settings.voiceLanguage === option.value }}
+                  onPress={() => void updateSettings({ voiceLanguage: option.value })}
+                  style={[
+                    styles.segment,
+                    settings.voiceLanguage === option.value && {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.segmentText, { color: settings.voiceLanguage === option.value ? colors.cardForeground : colors.mutedForeground }]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={[styles.readinessTitle, { color: colors.cardForeground, marginTop: 14 }]}>
+              Spoken reply speed
+            </Text>
+            <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+              {speechRateOptions.map((option) => (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: settings.speechRate === option.value }}
+                  onPress={() => void updateSettings({ speechRate: option.value })}
+                  style={[
+                    styles.segment,
+                    settings.speechRate === option.value && {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.segmentText, { color: settings.speechRate === option.value ? colors.cardForeground : colors.mutedForeground }]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
         </View>
 
         <SectionLabel>Preferences</SectionLabel>
@@ -469,6 +555,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 18 },
   headerSpacer: { width: 36 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 12 },
+  errorBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, borderRadius: 12, marginBottom: 8 },
+  errorText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
   sectionLabel: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 11, letterSpacing: 1, marginBottom: 8, marginTop: 24, paddingLeft: 4 },
   card: { borderWidth: 1, borderRadius: 20, padding: 16 },
   profileSummary: { flexDirection: 'row', alignItems: 'center' },
@@ -485,6 +573,7 @@ const styles = StyleSheet.create({
   readinessDesc: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 18 },
   pressedReadiness: { opacity: 0.7 },
   voicePicker: { borderTopWidth: 1, marginTop: 8, paddingTop: 16 },
+  voicePreferences: { borderTopWidth: 1, marginTop: 16, paddingTop: 16 },
   voicePickerHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   refreshButton: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   voiceLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
@@ -506,7 +595,6 @@ const styles = StyleSheet.create({
   progressBar: { height: 6, borderRadius: 3, marginTop: 12, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 3 },
   divider: { height: 1, marginVertical: 8 },
-  errorText: { fontFamily: 'Inter_400Regular', fontSize: 12 },
   settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
   segmented: { flexDirection: 'row', borderRadius: 12, padding: 4 },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: 'transparent' },

@@ -209,7 +209,8 @@ export async function scheduleReminder(
       trigger = {
         type:
           notifications.SchedulableTriggerInputTypes.YEARLY,
-        month: alertDate.getMonth(),
+        // Expo's yearly trigger uses the human calendar range 1–12.
+        month: alertDate.getMonth() + 1,
         day: alertDate.getDate(),
         hour: alertDate.getHours(),
         minute: alertDate.getMinutes(),

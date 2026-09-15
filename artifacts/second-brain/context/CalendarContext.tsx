@@ -27,6 +27,7 @@ type CalendarContextValue = {
     draft: ReminderDraft,
     existingId?: string,
   ) => Promise<DateReminder>;
+  retryReminderNotification: (id: string) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
   findReminder: (id: string) => DateReminder | undefined;
   dismissError: () => void;
@@ -179,7 +180,7 @@ export function CalendarProvider({
         failedCleanup.push(identifier);
       }
     }
-    if (failedCleanup.length !== retiredNotificationIds.length) {
+    if (failedCleanup.length > 0) {
       const cleaned = { ...completed, retiredNotificationIds: failedCleanup };
       const afterCleanup = afterScheduling.map((item) =>
         item.id === cleaned.id ? cleaned : item,
@@ -188,6 +189,27 @@ export function CalendarProvider({
       return cleaned;
     }
     return completed;
+  }
+
+  async function retryReminderNotification(id: string) {
+    const target = reminders.find((item) => item.id === id);
+    if (!target || target.deletedAt) return;
+    if (target.notificationId) {
+      await cancelScheduledReminder(target.notificationId);
+    }
+    const schedule = await scheduleReminder(target);
+    const updated = reminders.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            ...schedule,
+            updatedAt: Date.now(),
+          }
+        : item,
+    );
+    if (!(await persist(updated))) {
+      throw new Error('The reminder notification could not be saved.');
+    }
   }
 
   async function deleteReminder(id: string) {
@@ -221,10 +243,6 @@ export function CalendarProvider({
     () =>
       reminders
         .filter((item) => !item.deletedAt)
-        .filter((item) => {
-          const occurrence = nextOccurrence(item);
-          return occurrence && occurrence.getTime() >= Date.now();
-        })
         .sort(
           (a, b) =>
             (nextOccurrence(a)?.getTime() ?? Number.MAX_SAFE_INTEGER) -
@@ -240,6 +258,7 @@ export function CalendarProvider({
       isReady,
       error,
       saveReminder,
+      retryReminderNotification,
       deleteReminder,
       findReminder: (id: string) =>
         reminders.find((item) => item.id === id),

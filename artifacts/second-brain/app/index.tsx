@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -73,11 +74,16 @@ export default function DemiScreen() {
     sendMessage,
     storageError,
     voiceError,
+    pendingMemoryCandidate,
+    saveMemoryCandidate,
+    rejectMemoryCandidate,
   } = useApp();
   const colors = useColors(settings.appearance);
   const [draft, setDraft] = useState('');
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
+  const [memoryDraft, setMemoryDraft] = useState('');
+  const [isSavingMemory, setIsSavingMemory] = useState(false);
   const sendingVoiceRef = useRef(false);
 
   const isListening = voiceInputStatus === 'listening';
@@ -91,6 +97,12 @@ export default function DemiScreen() {
     setDraft(voiceTranscript);
     clearVoiceTranscript();
   }, [clearVoiceTranscript, voiceTranscript]);
+
+  useEffect(() => {
+    if (pendingMemoryCandidate?.kind === 'memory') {
+      setMemoryDraft(pendingMemoryCandidate.content);
+    }
+  }, [pendingMemoryCandidate]);
 
   async function handleSend() {
     if (!canSend) return;
@@ -135,6 +147,7 @@ export default function DemiScreen() {
       return;
     }
     setWasStopped(false);
+    setDraft('');
     void startVoiceInput();
   }
 
@@ -313,6 +326,102 @@ export default function DemiScreen() {
         visible={settingsReady && !profile.onboardingCompleted}
         mode="onboarding"
       />
+      <Modal
+        visible={pendingMemoryCandidate !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={rejectMemoryCandidate}
+      >
+        <View style={styles.candidateBackdrop}>
+          <View style={[styles.candidateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.candidateEyebrow, { color: colors.primary }]}>
+              {pendingMemoryCandidate?.kind === 'important-date'
+                ? 'IMPORTANT DATE FOUND'
+                : 'MEMORY SUGGESTION'}
+            </Text>
+            <Text style={[styles.candidateTitle, { color: colors.cardForeground }]}>
+              {pendingMemoryCandidate?.kind === 'important-date'
+                ? 'Keep this date close?'
+                : 'Save this for future replies?'}
+            </Text>
+            {pendingMemoryCandidate?.kind === 'memory' ? (
+              <>
+                <TextInput
+                  testID="memory-candidate-editor"
+                  value={memoryDraft}
+                  onChangeText={setMemoryDraft}
+                  multiline
+                  maxLength={240}
+                  style={[
+                    styles.candidateInput,
+                    { color: colors.cardForeground, backgroundColor: colors.background, borderColor: colors.border },
+                  ]}
+                />
+                <Text style={[styles.candidateMeta, { color: colors.mutedForeground }]}>
+                  {pendingMemoryCandidate.category.toUpperCase()} · From “{pendingMemoryCandidate.sourceExcerpt}”
+                </Text>
+                <View style={styles.candidateActions}>
+                  <Pressable onPress={rejectMemoryCandidate} disabled={isSavingMemory}>
+                    <Text style={[styles.candidateActionText, { color: colors.mutedForeground }]}>Not now</Text>
+                  </Pressable>
+                  <Pressable
+                    testID="save-memory-candidate"
+                    onPress={async () => {
+                      setIsSavingMemory(true);
+                      try {
+                        await saveMemoryCandidate(memoryDraft);
+                      } finally {
+                        setIsSavingMemory(false);
+                      }
+                    }}
+                    disabled={isSavingMemory || !memoryDraft.trim()}
+                  >
+                    <Text style={[styles.candidateActionText, { color: colors.primary }]}>
+                      {isSavingMemory ? 'Saving…' : 'Save memory'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : pendingMemoryCandidate?.kind === 'important-date' ? (
+              <>
+                <Text style={[styles.candidateDate, { color: colors.cardForeground }]}>
+                  {pendingMemoryCandidate.eventName} · {pendingMemoryCandidate.label}
+                </Text>
+                <Text style={[styles.candidateMeta, { color: colors.mutedForeground }]}>
+                  {pendingMemoryCandidate.date}
+                  {pendingMemoryCandidate.notes ? ` · ${pendingMemoryCandidate.notes}` : ''}
+                </Text>
+                <Text style={[styles.candidateSource, { color: colors.mutedForeground }]}>
+                  From “{pendingMemoryCandidate.sourceExcerpt}”. Nothing is saved until you confirm it in the calendar editor.
+                </Text>
+                <View style={styles.candidateActions}>
+                  <Pressable onPress={rejectMemoryCandidate}>
+                    <Text style={[styles.candidateActionText, { color: colors.mutedForeground }]}>Dismiss</Text>
+                  </Pressable>
+                  <Pressable
+                    testID="review-date-candidate"
+                    onPress={() => {
+                      const candidate = pendingMemoryCandidate;
+                      rejectMemoryCandidate();
+                      router.push({
+                        pathname: '/calendar/edit',
+                        params: {
+                          label: candidate.label,
+                          eventName: candidate.eventName,
+                          date: candidate.date,
+                          notes: candidate.notes,
+                        },
+                      });
+                    }}
+                  >
+                    <Text style={[styles.candidateActionText, { color: colors.primary }]}>Review date</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -458,4 +567,26 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.6 },
   pressed: { opacity: 0.7 },
   pressedCircle: { transform: [{ scale: 0.94 }] },
+  candidateBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 22,
+  },
+  candidateCard: {
+    width: '100%',
+    maxWidth: 440,
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 20,
+  },
+  candidateEyebrow: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 10, letterSpacing: 1.1 },
+  candidateTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 22, marginTop: 8 },
+  candidateInput: { minHeight: 72, borderWidth: 1, borderRadius: 12, padding: 11, marginTop: 16, fontFamily: 'Inter_400Regular', fontSize: 14 },
+  candidateDate: { fontFamily: 'Inter_500Medium', fontSize: 15, marginTop: 16 },
+  candidateMeta: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 9 },
+  candidateSource: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 18, marginTop: 14 },
+  candidateActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 20, marginTop: 20 },
+  candidateActionText: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 13, padding: 5 },
 });

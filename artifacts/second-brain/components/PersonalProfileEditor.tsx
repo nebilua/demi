@@ -34,36 +34,68 @@ export function PersonalProfileEditor({
   const [displayName, setDisplayName] = useState('');
   const [context, setContext] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const isOnboarding = mode === 'onboarding';
   const hasProfile = Boolean(profile.displayName || profile.context);
 
   useEffect(() => {
     if (!visible) return;
+    setError(null);
     setDisplayName(profile.displayName);
     setContext(profile.context);
   }, [visible, profile.displayName, profile.context]);
 
   async function handleSave() {
     setIsSaving(true);
-    await saveProfile({ displayName, context });
-    setIsSaving(false);
-    onClose?.();
+    setError(null);
+    try {
+      await saveProfile({ displayName, context });
+      onClose?.();
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Your profile could not be saved. Your previous profile is unchanged.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleSkip() {
     setIsSaving(true);
-    await skipProfile();
-    setIsSaving(false);
-    onClose?.();
+    setError(null);
+    try {
+      await skipProfile();
+      onClose?.();
+    } catch (skipError) {
+      setError(
+        skipError instanceof Error
+          ? skipError.message
+          : 'Your choice could not be saved. Try again.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleClear() {
     setIsSaving(true);
-    await clearProfile();
-    setDisplayName('');
-    setContext('');
-    setIsSaving(false);
-    onClose?.();
+    setError(null);
+    try {
+      await clearProfile();
+      setDisplayName('');
+      setContext('');
+      onClose?.();
+    } catch (clearError) {
+      setError(
+        clearError instanceof Error
+          ? clearError.message
+          : 'Your profile could not be cleared. Your previous profile is unchanged.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   return (
@@ -124,6 +156,12 @@ export function PersonalProfileEditor({
                 server or a cloud service.
               </Text>
             </View>
+            {error && (
+              <View style={[styles.errorNote, { backgroundColor: colors.secondary }]}>
+                <Feather name="alert-circle" size={14} color={colors.destructive} />
+                <Text style={[styles.errorText, { color: colors.foreground }]}>{error}</Text>
+              </View>
+            )}
 
             <Text style={[styles.label, { color: colors.cardForeground }]}>
               Preferred name
@@ -314,6 +352,8 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
   },
+  errorNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderRadius: 12, padding: 10, marginBottom: 14 },
+  errorText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
   label: {
     fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 12,
