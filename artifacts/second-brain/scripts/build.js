@@ -469,6 +469,19 @@ function updateBundleUrls(timestamp, baseUrl) {
       'bundle.js',
     );
     let bundle = fs.readFileSync(bundlePath, 'utf-8');
+    const staticBundleBaseUrl =
+      `${baseUrl}${basePath}/${timestamp}/_expo/static/js/${platform}/`;
+
+    // Static builds do not ship Metro source maps or a development server.
+    // Remove the generated source-map footer and replace Expo's development
+    // fallback before the bundle is served to a device.
+    bundle = bundle
+      .replace(/^\/\/# sourceMappingURL=.*$/gm, '')
+      .replace(/http:\/\/localhost:\d+\//g, staticBundleBaseUrl)
+      .replace(
+        /http:\/\/localhost:\d+(?=['"`])/g,
+        `${baseUrl}${basePath}`,
+      );
 
     bundle = bundle.replace(
       /httpServerLocation:"(\/[^"]+)"/g,
@@ -581,9 +594,7 @@ async function main() {
 
   const assetCount = await downloadAssets(assets, timestamp);
 
-  if (assetCount > 0) {
-    updateBundleUrls(timestamp, baseUrl);
-  }
+  updateBundleUrls(timestamp, baseUrl);
 
   console.log('Updating manifests and creating landing page...');
   updateManifests(manifests, timestamp, baseUrl, assetsByHash);
