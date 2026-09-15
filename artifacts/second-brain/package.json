@@ -12,6 +12,7 @@
     "test:release-cleanup": "node scripts/test-static-build.js --release-cleanup",
     "test:build-lock": "node scripts/test-static-build.js --build-lock",
     "test:feature-flows": "node --experimental-strip-types scripts/test-feature-flows.js",
+    "test:component-failures": "tsx scripts/test-component-failures.js",
     "validate:android-apk": "node scripts/validate-android-apk.js",
     "serve": "node server/serve.js",
     "test:build-failure": "node scripts/test-static-build.js --failure-check",
@@ -56,6 +57,8 @@
     "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1",
+    "react-test-renderer": "19.2.3",
+    "tsx": "4.23.1",
     "typescript": "~6.0.3",
     "zod": "catalog:",
     "zod-validation-error": "^3.4.0"

@@ -17,6 +17,7 @@
     "test:release-cleanup": "pnpm --filter @workspace/second-brain run test:release-cleanup",
     "test:build-lock": "pnpm --filter @workspace/second-brain run test:build-lock",
     "test:feature-flows": "pnpm --filter @workspace/second-brain run test:feature-flows",
+    "test:component-failures": "pnpm --filter @workspace/second-brain run test:component-failures",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

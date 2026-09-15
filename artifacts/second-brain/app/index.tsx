@@ -83,6 +83,7 @@ export default function DemiScreen() {
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [wasStopped, setWasStopped] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState('');
+  const [memorySaveError, setMemorySaveError] = useState<string | null>(null);
   const [isSavingMemory, setIsSavingMemory] = useState(false);
   const sendingVoiceRef = useRef(false);
 
@@ -101,6 +102,7 @@ export default function DemiScreen() {
   useEffect(() => {
     if (pendingMemoryCandidate?.kind === 'memory') {
       setMemoryDraft(pendingMemoryCandidate.content);
+      setMemorySaveError(null);
     }
   }, [pendingMemoryCandidate]);
 
@@ -314,6 +316,7 @@ export default function DemiScreen() {
         ) : (
           <View style={styles.bottomBar}>
              <Pressable
+              testID="keyboard-toggle"
               onPress={() => setShowKeyboard(true)}
               style={({ pressed }) => [styles.keyboardToggle, pressed && styles.pressed]}
              >
@@ -368,8 +371,15 @@ export default function DemiScreen() {
                     testID="save-memory-candidate"
                     onPress={async () => {
                       setIsSavingMemory(true);
+                      setMemorySaveError(null);
                       try {
                         await saveMemoryCandidate(memoryDraft);
+                      } catch (error) {
+                        setMemorySaveError(
+                          error instanceof Error
+                            ? error.message
+                            : 'This memory could not be saved. Try again.',
+                        );
                       } finally {
                         setIsSavingMemory(false);
                       }
@@ -381,6 +391,11 @@ export default function DemiScreen() {
                     </Text>
                   </Pressable>
                 </View>
+                {memorySaveError && (
+                  <Text style={[styles.candidateError, { color: colors.destructive }]}>
+                    {memorySaveError}
+                  </Text>
+                )}
               </>
             ) : pendingMemoryCandidate?.kind === 'important-date' ? (
               <>
@@ -586,6 +601,7 @@ const styles = StyleSheet.create({
   candidateInput: { minHeight: 72, borderWidth: 1, borderRadius: 12, padding: 11, marginTop: 16, fontFamily: 'Inter_400Regular', fontSize: 14 },
   candidateDate: { fontFamily: 'Inter_500Medium', fontSize: 15, marginTop: 16 },
   candidateMeta: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 9 },
+  candidateError: { fontFamily: 'Inter_500Medium', fontSize: 11, lineHeight: 16, marginTop: 10 },
   candidateSource: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 18, marginTop: 14 },
   candidateActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 20, marginTop: 20 },
   candidateActionText: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 13, padding: 5 },
