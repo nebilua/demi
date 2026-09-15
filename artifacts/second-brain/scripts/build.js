@@ -6,6 +6,7 @@ const { pipeline } = require('stream/promises');
 const { createMetroConfig, getMetroUrl } = require('./build-config');
 
 let metroProcess = null;
+let signalShutdownPromise = null;
 
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -29,25 +30,70 @@ const { port: metroPort, baseUrl: metroBaseUrl } = createMetroConfig(
 );
 
 function exitWithError(message) {
-  console.error(message);
-  if (metroProcess) {
-    metroProcess.kill();
+  throw new Error(message);
+}
+
+function terminateProcessTree(child, gracePeriodMs = 1500) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
   }
-  process.exit(1);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let forceTimer;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(forceTimer);
+      resolve();
+    };
+
+    child.once('exit', finish);
+    child.once('error', finish);
+
+    const sendSignal = (signal) => {
+      try {
+        if (process.platform !== 'win32' && child.pid) {
+          process.kill(-child.pid, signal);
+        } else {
+          child.kill(signal);
+        }
+      } catch (error) {
+        if (error.code !== 'ESRCH') {
+          console.error(`Failed to send ${signal} to Metro: ${error.message}`);
+        }
+        if (signal === 'SIGKILL') finish();
+      }
+    };
+
+    sendSignal('SIGTERM');
+    forceTimer = setTimeout(() => {
+      sendSignal('SIGKILL');
+      setTimeout(finish, 250);
+    }, gracePeriodMs);
+  });
+}
+
+async function cleanupMetro() {
+  const child = metroProcess;
+  metroProcess = null;
+  await terminateProcessTree(child);
 }
 
 function setupSignalHandlers() {
-  const cleanup = () => {
-    if (metroProcess) {
-      console.log('Cleaning up Metro process...');
-      metroProcess.kill();
+  const cleanup = (signal) => {
+    if (!signalShutdownPromise) {
+      console.log(`Received ${signal}; cleaning up Metro process...`);
+      signalShutdownPromise = cleanupMetro().finally(() => {
+        process.exit(signal === 'SIGINT' ? 130 : 143);
+      });
     }
-    process.exit(0);
   };
 
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-  process.on('SIGHUP', cleanup);
+  process.on('SIGINT', () => cleanup('SIGINT'));
+  process.on('SIGTERM', () => cleanup('SIGTERM'));
+  process.on('SIGHUP', () => cleanup('SIGHUP'));
 }
 
 function stripProtocol(domain) {
@@ -73,10 +119,9 @@ function getDeploymentDomain() {
     return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
   }
 
-  console.error(
-    'ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN',
+  throw new Error(
+    'No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN',
   );
-  process.exit(1);
 }
 
 function prepareDirectories(timestamp) {
@@ -167,7 +212,7 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     ],
     {
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
+      detached: process.platform !== 'win32',
       cwd: projectRoot,
       env,
     },
@@ -189,6 +234,10 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
   for (let i = 0; i < 60; i++) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
+    if (metroProcess.exitCode !== null) {
+      throw new Error('Metro exited before becoming ready.');
+    }
+
     const healthy = await checkMetroHealth();
     if (healthy) {
       console.log('Metro ready');
@@ -196,8 +245,7 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     }
   }
 
-  console.error('Metro timeout');
-  process.exit(1);
+  throw new Error('Metro timeout.');
 }
 
 async function downloadFile(url, outputPath) {
@@ -563,57 +611,59 @@ async function main() {
   prepareDirectories(timestamp);
   clearMetroCache();
 
-  await startMetro(domain, expoPublicReplId);
+  try {
+    await startMetro(domain, expoPublicReplId);
 
-  const downloadTimeout = 600000;
-  const downloadPromise = downloadBundlesAndManifests(timestamp);
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(
-        new Error(
-          `Overall download timeout after ${downloadTimeout / 1000} seconds. ` +
-            'Metro may be struggling to generate bundles. Check Metro logs above.',
-        ),
-      );
-    }, downloadTimeout);
-  });
-
-  const manifests = await Promise.race([downloadPromise, timeoutPromise]);
-
-  console.log('Processing assets...');
-  const assets = extractAssets(timestamp);
-  console.log('Found', assets.length, 'unique asset(s)');
-
-  const assetsByHash = new Map();
-  for (const asset of assets) {
-    assetsByHash.set(asset.hash, {
-      relativePath: asset.relativePath,
-      filename: asset.filename,
+    const downloadTimeout = 600000;
+    let timeoutId;
+    const downloadPromise = downloadBundlesAndManifests(timestamp);
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(
+          new Error(
+            `Overall download timeout after ${downloadTimeout / 1000} seconds. ` +
+              'Metro may be struggling to generate bundles. Check Metro logs above.',
+          ),
+        );
+      }, downloadTimeout);
     });
+
+    let manifests;
+    try {
+      manifests = await Promise.race([downloadPromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    console.log('Processing assets...');
+    const assets = extractAssets(timestamp);
+    console.log('Found', assets.length, 'unique asset(s)');
+
+    const assetsByHash = new Map();
+    for (const asset of assets) {
+      assetsByHash.set(asset.hash, {
+        relativePath: asset.relativePath,
+        filename: asset.filename,
+      });
+    }
+
+    await downloadAssets(assets, timestamp);
+
+    updateBundleUrls(timestamp, baseUrl);
+
+    console.log('Updating manifests and creating landing page...');
+    updateManifests(manifests, timestamp, baseUrl, assetsByHash);
+
+    console.log('Build complete! Deploy to:', baseUrl);
+  } finally {
+    await cleanupMetro();
   }
-
-  const assetCount = await downloadAssets(assets, timestamp);
-
-  updateBundleUrls(timestamp, baseUrl);
-
-  console.log('Updating manifests and creating landing page...');
-  updateManifests(manifests, timestamp, baseUrl, assetsByHash);
-
-  console.log('Build complete! Deploy to:', baseUrl);
-
-  if (metroProcess) {
-    metroProcess.kill();
-  }
-  process.exit(0);
 }
 
 if (require.main === module) {
   main().catch((error) => {
     console.error('Build failed:', error.message);
-    if (metroProcess) {
-      metroProcess.kill();
-    }
-    process.exit(1);
+    process.exitCode = 1;
   });
 }
 
@@ -621,4 +671,5 @@ module.exports = {
   getMetroUrl: (pathname) => getMetroUrl({ baseUrl: metroBaseUrl }, pathname),
   metroBaseUrl,
   metroPort,
+  terminateProcessTree,
 };
