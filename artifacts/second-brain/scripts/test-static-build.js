@@ -447,6 +447,82 @@ async function runReleaseCleanupCheck() {
   }
 }
 
+async function runBuildLockCheck() {
+  const fixtureRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'second-brain-build-lock-'),
+  );
+  const buildScript = path.join(projectRoot, 'scripts', 'build.js');
+  const holderScript = `
+    const { acquireBuildLock, setupSignalHandlers } = require(${JSON.stringify(buildScript)});
+    setupSignalHandlers();
+    acquireBuildLock(${JSON.stringify(fixtureRoot)});
+    console.log('LOCKED');
+    setInterval(() => {}, 1000);
+  `;
+  const holder = spawn(process.execPath, ['-e', holderScript], {
+    cwd: projectRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let holderOutput = '';
+
+  try {
+    await new Promise((resolve, reject) => {
+      holder.stdout.on('data', (chunk) => {
+        holderOutput += chunk.toString();
+        if (holderOutput.includes('LOCKED')) resolve();
+      });
+      holder.stderr.on('data', (chunk) => {
+        holderOutput += chunk.toString();
+      });
+      holder.once('error', reject);
+      holder.once('exit', (code) => {
+        reject(new Error(`Lock holder exited before acquiring lock (${code})`));
+      });
+    });
+
+    const contenderScript = `
+      const { acquireBuildLock } = require(${JSON.stringify(buildScript)});
+      try {
+        acquireBuildLock(${JSON.stringify(fixtureRoot)});
+        process.exit(0);
+      } catch (error) {
+        console.error(error.message);
+        process.exit(1);
+      }
+    `;
+    const contender = spawn(process.execPath, ['-e', contenderScript], {
+      cwd: projectRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let contenderOutput = '';
+    contender.stdout.on('data', (chunk) => {
+      contenderOutput += chunk.toString();
+    });
+    contender.stderr.on('data', (chunk) => {
+      contenderOutput += chunk.toString();
+    });
+    const contenderResult = await new Promise((resolve, reject) => {
+      contender.once('error', reject);
+      contender.once('close', (code, signal) => resolve({ code, signal }));
+    });
+    assert.equal(contenderResult.code, 1);
+    assert.match(contenderOutput, /Another static build is already running/);
+
+    holder.kill('SIGINT');
+    const holderResult = await new Promise((resolve) => {
+      holder.once('close', (code, signal) => resolve({ code, signal }));
+    });
+    assert.equal(holderResult.code, 130);
+    assert.equal(fs.existsSync(path.join(fixtureRoot, '.build.lock')), false);
+    console.log('Concurrent static build lock check passed.');
+  } finally {
+    if (holder.exitCode === null && holder.signalCode === null) {
+      holder.kill('SIGKILL');
+    }
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 function runBuildFailure(stage) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(projectRoot, 'scripts', 'build.js')], {
@@ -539,10 +615,13 @@ const run = process.argv.includes('--failure-check')
   ? runFailureCheck
   : process.argv.includes('--release-cleanup')
     ? runReleaseCleanupCheck
+    : process.argv.includes('--build-lock')
+      ? runBuildLockCheck
     : async () => {
         await runSmokeCheck();
         await runHealthCheck();
         runReleaseCleanupCheck();
+        await runBuildLockCheck();
       };
 
 run().catch((error) => {

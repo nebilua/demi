@@ -10,6 +10,7 @@
     "test:build-port": "node scripts/test-build-port.js",
     "test:static-build": "node scripts/test-static-build.js",
     "test:release-cleanup": "node scripts/test-static-build.js --release-cleanup",
+    "test:build-lock": "node scripts/test-static-build.js --build-lock",
     "validate:android-apk": "node scripts/validate-android-apk.js",
     "serve": "node server/serve.js",
     "test:build-failure": "node scripts/test-static-build.js --failure-check",

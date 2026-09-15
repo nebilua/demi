@@ -9,6 +9,8 @@ let metroProcess = null;
 let signalShutdownPromise = null;
 let staticBuildInProgress = false;
 let buildRoot = null;
+let buildLockFd = null;
+let buildLockPath = null;
 
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -85,6 +87,65 @@ async function cleanupMetro() {
 
 function getStaticBuildRoot() {
   return path.join(projectRoot, 'static-build');
+}
+
+function acquireBuildLock(publishedRoot = getStaticBuildRoot()) {
+  if (buildLockFd !== null) {
+    throw new Error('This process already owns the static build lock.');
+  }
+
+  fs.mkdirSync(publishedRoot, { recursive: true });
+  const lockPath = path.join(publishedRoot, '.build.lock');
+  let lockFd;
+  try {
+    lockFd = fs.openSync(lockPath, 'wx');
+  } catch (error) {
+    if (error.code === 'EEXIST') {
+      let holder = '';
+      try {
+        holder = fs.readFileSync(lockPath, 'utf-8').trim();
+      } catch {
+        holder = 'holder details unavailable';
+      }
+      throw new Error(
+        `Another static build is already running (${holder || 'holder details unavailable'}).`,
+      );
+    }
+    throw error;
+  }
+
+  try {
+    fs.writeFileSync(
+      lockFd,
+      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
+    );
+  } catch (error) {
+    fs.closeSync(lockFd);
+    fs.rmSync(lockPath, { force: true });
+    throw error;
+  }
+
+  buildLockFd = lockFd;
+  buildLockPath = lockPath;
+}
+
+function releaseBuildLock() {
+  const lockFd = buildLockFd;
+  const lockPath = buildLockPath;
+  buildLockFd = null;
+  buildLockPath = null;
+
+  if (lockFd === null) return;
+  try {
+    fs.closeSync(lockFd);
+  } catch (error) {
+    console.error(`Could not close static build lock: ${error.message}`);
+  }
+  try {
+    fs.rmSync(lockPath, { force: true });
+  } catch (error) {
+    console.error(`Could not remove static build lock: ${error.message}`);
+  }
 }
 
 function getBuildRoot() {
@@ -218,6 +279,7 @@ function setupSignalHandlers() {
           invalidatePartialBuild();
           staticBuildInProgress = false;
         }
+        releaseBuildLock();
         process.exit(signal === 'SIGINT' ? 130 : 143);
       });
     }
@@ -770,6 +832,7 @@ async function main() {
     const baseUrl = `https://${domain}`;
     const timestamp = `${Date.now()}-${process.pid}`;
 
+    acquireBuildLock();
     prepareDirectories(timestamp);
     clearMetroCache();
 
@@ -824,6 +887,7 @@ async function main() {
       invalidatePartialBuild();
       staticBuildInProgress = false;
     }
+    releaseBuildLock();
   }
 }
 
@@ -841,4 +905,7 @@ module.exports = {
   terminateProcessTree,
   cleanupOldReleases,
   getReleaseRetention,
+  acquireBuildLock,
+  releaseBuildLock,
+  setupSignalHandlers,
 };

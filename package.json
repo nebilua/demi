@@ -15,6 +15,7 @@
     "test:build-port": "pnpm --filter @workspace/second-brain run test:build-port",
     "test:static-build": "pnpm --filter @workspace/second-brain run test:static-build",
     "test:release-cleanup": "pnpm --filter @workspace/second-brain run test:release-cleanup",
+    "test:build-lock": "pnpm --filter @workspace/second-brain run test:build-lock",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
