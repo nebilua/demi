@@ -162,6 +162,11 @@ async function runSmokeCheck() {
         health.buildId,
         `${platform} manifest build identifier`,
       );
+      assert.equal(
+        typeof health.manifests?.[platform]?.assets?.bundleReferenced,
+        'number',
+        `${platform} bundle-referenced asset count`,
+      );
     }
     for (const platform of platforms) {
       await checkPlatform(platform, origin, health.buildId);
@@ -184,6 +189,7 @@ async function checkHealthFixture(
   expectedFailure,
   expectedBuildId,
   expectedRecovery,
+  expectedBundleReferences,
 ) {
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
@@ -219,6 +225,15 @@ async function checkHealthFixture(
       assert.equal(body.manifests.ios.status, 'ready');
       assert.equal(body.manifests.android.buildId, body.buildId);
       assert.equal(body.manifests.ios.buildId, body.buildId);
+      if (expectedBundleReferences !== undefined) {
+        for (const platform of platforms) {
+          assert.equal(
+            body.manifests[platform].assets.bundleReferenced,
+            expectedBundleReferences,
+            `${label} ${platform} bundle-referenced asset count`,
+          );
+        }
+      }
       const manifestResponse = await fetch(`${origin}/android/manifest.json`, {
         signal: AbortSignal.timeout(5_000),
       });
@@ -264,6 +279,11 @@ async function runHealthCheck() {
   const readyRoot = path.join(fixtureRoot, 'ready');
   const missingBundleRoot = path.join(fixtureRoot, 'missing-bundle');
   const missingAssetRoot = path.join(fixtureRoot, 'missing-asset');
+  const missingBundleAssetRoot = path.join(
+    fixtureRoot,
+    'missing-bundle-asset',
+  );
+  const bundleAssetsRoot = path.join(fixtureRoot, 'bundle-assets');
   const emptyBundleRoot = path.join(fixtureRoot, 'empty-bundle');
   const truncatedBundleRoot = path.join(fixtureRoot, 'truncated-bundle');
   const developmentBundleRoot = path.join(fixtureRoot, 'development-bundle');
@@ -292,13 +312,23 @@ async function runHealthCheck() {
       const bundleUrl = `/${buildId}/${platform}.js`;
       const assetUrl = `/${buildId}/${platform}.png`;
       if (options.missingBundle !== platform) {
+        const bundleAsset = options.bundleAsset?.[platform];
+        const bundleContent =
+          options.bundleContent?.[platform] ??
+          (bundleAsset
+            ? `var __BUNDLE_START_TIME__=Date.now(),__DEV__=false;__r(0);httpServerLocation:"/${buildId}",name:"${bundleAsset}",type:"png";\n//# debugId=fixture-production-bundle`
+            : validBundle);
         fs.writeFileSync(
           path.join(buildRoot, `${platform}.js`),
-          options.bundleContent?.[platform] ?? validBundle,
+          bundleContent,
         );
       }
       if (options.missingAsset !== platform) {
         fs.writeFileSync(path.join(buildRoot, `${platform}.png`), 'asset');
+      }
+      const bundleAsset = options.bundleAsset?.[platform];
+      if (bundleAsset && options.missingBundleAsset !== platform) {
+        fs.writeFileSync(path.join(buildRoot, `${bundleAsset}.png`), 'asset');
       }
       fs.writeFileSync(
         path.join(root, platform, 'manifest.json'),
@@ -316,6 +346,13 @@ async function runHealthCheck() {
   writePlatformFixture(readyRoot);
   writePlatformFixture(missingBundleRoot, { missingBundle: 'android' });
   writePlatformFixture(missingAssetRoot, { missingAsset: 'ios' });
+  writePlatformFixture(missingBundleAssetRoot, {
+    bundleAsset: { android: 'bundle-only' },
+    missingBundleAsset: 'android',
+  });
+  writePlatformFixture(bundleAssetsRoot, {
+    bundleAsset: { android: 'android-bundle', ios: 'ios-bundle' },
+  });
   writePlatformFixture(emptyBundleRoot, {
     bundleContent: { android: '' },
   });
@@ -367,6 +404,16 @@ async function runHealthCheck() {
       'fixture-build',
     );
     await checkHealthFixture(
+      'bundle-referenced assets for both platforms',
+      bundleAssetsRoot,
+      'ready',
+      200,
+      undefined,
+      'fixture-build',
+      undefined,
+      1,
+    );
+    await checkHealthFixture(
       'missing launch bundle',
       missingBundleRoot,
       'missing',
@@ -390,6 +437,20 @@ async function runHealthCheck() {
         reason: /ios asset.*ios\.png/,
         field: 'asset',
         url: '/fixture-build/ios.png',
+      },
+    );
+    await checkHealthFixture(
+      'missing bundle-referenced asset',
+      missingBundleAssetRoot,
+      'missing',
+      503,
+      {
+        platform: 'android',
+        status: 'missing',
+        reason:
+          /android bundle-referenced asset is missing.*\/fixture-build\/bundle-only\.png/,
+        field: 'asset',
+        url: '/fixture-build/bundle-only.png',
       },
     );
     await checkHealthFixture(

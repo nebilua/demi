@@ -22,6 +22,8 @@ const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
 const metroUrlPattern =
   /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/i;
 const productionBundleFooterPattern = /\/\/# debugId=[A-Za-z0-9-]+\s*$/;
+const bundleAssetPattern =
+  /httpServerLocation:"([^"]+)"[^}]*name:"([^"]+)"[^}]*type:"([^"]+)"/g;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -326,7 +328,25 @@ function checkLaunchBundle(assetUrl, activeRoot) {
     };
   }
 
-  return publicAssetCheck(resolved);
+  return {
+    ...publicAssetCheck(resolved),
+    bundleText: bundle,
+  };
+}
+
+function publicBundleCheck(result) {
+  if (!result) return result;
+  const { bundleText, ...publicResult } = result;
+  return publicResult;
+}
+
+function extractBundleAssetUrls(bundleText) {
+  const assetUrls = new Set();
+  for (const match of bundleText.matchAll(bundleAssetPattern)) {
+    const location = match[1].replace(/\/+$/, '');
+    assetUrls.add(`${location}/${match[2]}.${match[3]}`);
+  }
+  return Array.from(assetUrls);
 }
 
 function getManifestBuildId(manifest) {
@@ -388,16 +408,17 @@ function getManifestHealth(platform, activeRoot, expectedBuildId) {
         reason: `${platform} launch bundle is ${bundle.status}: ${
           manifest.launchAsset.url
         } (${bundle.reason || 'integrity check failed'})`,
-        bundle,
+        bundle: publicBundleCheck(bundle),
       };
     }
+    const publicBundle = publicBundleCheck(bundle);
 
     if (!Array.isArray(manifest.assets)) {
       return {
         status: 'invalid',
         buildId: manifestBuildId,
         reason: `${platform} manifest assets must be an array`,
-        bundle,
+        bundle: publicBundle,
       };
     }
 
@@ -410,8 +431,25 @@ function getManifestHealth(platform, activeRoot, expectedBuildId) {
           reason: `${platform} asset is ${checkedAsset.status}: ${
             asset?.url || '(missing URL)'
           } (${checkedAsset.reason || 'asset check failed'})`,
-          bundle,
+          bundle: publicBundle,
           asset: checkedAsset,
+        };
+      }
+    }
+
+    const bundleAssetUrls = extractBundleAssetUrls(bundle.bundleText);
+    for (const assetUrl of bundleAssetUrls) {
+      const checkedAsset = checkLocalAsset(assetUrl, activeRoot);
+      if (checkedAsset.status !== 'ready') {
+        return {
+          status: checkedAsset.status,
+          buildId: manifestBuildId,
+          reason: `${platform} bundle-referenced asset is ${
+            checkedAsset.status
+          }: ${assetUrl} (${checkedAsset.reason || 'asset check failed'})`,
+          bundle: publicBundle,
+          asset: checkedAsset,
+          bundleAsset: true,
         };
       }
     }
@@ -419,8 +457,12 @@ function getManifestHealth(platform, activeRoot, expectedBuildId) {
     return {
       status: 'ready',
       buildId: manifestBuildId,
-      bundle,
-      assets: { status: 'ready', checked: manifest.assets.length },
+      bundle: publicBundle,
+      assets: {
+        status: 'ready',
+        checked: manifest.assets.length,
+        bundleReferenced: bundleAssetUrls.length,
+      },
     };
   } catch (error) {
     return { status: 'invalid', reason: error.message };
