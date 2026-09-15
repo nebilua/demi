@@ -130,7 +130,7 @@ async function checkPlatform(platform, origin) {
   );
 }
 
-async function main() {
+async function runSmokeCheck() {
   const port = await getFreePort();
   const origin = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [serverScript], {
@@ -158,7 +158,73 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+function runBuildFailure(stage) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(projectRoot, 'scripts', 'build.js')], {
+      cwd: projectRoot,
+      env: { ...process.env, SECOND_BRAIN_BUILD_FAILURE: stage },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal, output }));
+  });
+}
+
+async function runFailureCheck() {
+  const backupRoot = `${staticRoot}.failure-test-backup-${process.pid}`;
+  const hadExistingBuild = fs.existsSync(staticRoot);
+  if (hadExistingBuild) {
+    fs.renameSync(staticRoot, backupRoot);
+  }
+
+  const scenarios = [
+    ['bundle', 'Failed to download ios bundle'],
+    ['manifest', 'Failed to download ios manifest'],
+    ['asset', 'Simulated asset copy failure for android and ios assets'],
+  ];
+
+  try {
+    for (const [stage, expectedMessage] of scenarios) {
+      const result = await runBuildFailure(stage);
+      if (result.code !== 1) {
+        fail(
+          `${stage} failure exited with ${result.code ?? result.signal}, output:\n${result.output}`,
+        );
+      }
+      if (!result.output.includes(expectedMessage)) {
+        fail(
+          `${stage} failure did not identify the expected artifact "${expectedMessage}":\n${result.output}`,
+        );
+      }
+      if (fs.existsSync(staticRoot)) {
+        fail(`${stage} failure left partial static-build output at ${staticRoot}`);
+      }
+      console.log(`${stage}: failure reported and partial output removed`);
+    }
+  } finally {
+    if (fs.existsSync(staticRoot)) {
+      fs.rmSync(staticRoot, { recursive: true, force: true });
+    }
+    if (hadExistingBuild) {
+      fs.renameSync(backupRoot, staticRoot);
+    }
+  }
+
+  console.log('Static Expo failure cleanup check passed.');
+}
+
+const run = process.argv.includes('--failure-check')
+  ? runFailureCheck
+  : runSmokeCheck;
+
+run().catch((error) => {
   console.error(error.message);
   process.exitCode = 1;
 });

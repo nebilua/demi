@@ -11,6 +11,7 @@
     "test:static-build": "node scripts/test-static-build.js",
     "validate:android-apk": "node scripts/validate-android-apk.js",
     "serve": "node server/serve.js",
+    "test:build-failure": "node scripts/test-static-build.js --failure-check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

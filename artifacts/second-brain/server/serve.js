@@ -19,6 +19,7 @@ const MANIFEST_PATHS = {
   android: path.join(STATIC_ROOT, 'android', 'manifest.json'),
   ios: path.join(STATIC_ROOT, 'ios', 'manifest.json'),
 };
+const INCOMPLETE_MARKER = path.join(STATIC_ROOT, '.build-incomplete');
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
 
 const MIME_TYPES = {
@@ -146,6 +147,16 @@ const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, 'utf-8');
 const appName = getAppName();
 
 const server = http.createServer((req, res) => {
+  if (fs.existsSync(INCOMPLETE_MARKER)) {
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        error: 'Static build is incomplete and unavailable.',
+      }),
+    );
+    return;
+  }
+
   const url = new URL(req.url || '/', `http://${req.headers.host}`);
   let pathname = url.pathname;
 

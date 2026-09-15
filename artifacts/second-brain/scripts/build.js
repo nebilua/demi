@@ -7,6 +7,7 @@ const { createMetroConfig, getMetroUrl } = require('./build-config');
 
 let metroProcess = null;
 let signalShutdownPromise = null;
+let staticBuildInProgress = false;
 
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -81,11 +82,44 @@ async function cleanupMetro() {
   await terminateProcessTree(child);
 }
 
+function getStaticBuildRoot() {
+  return path.join(projectRoot, 'static-build');
+}
+
+function invalidatePartialBuild() {
+  const staticBuild = getStaticBuildRoot();
+  if (!fs.existsSync(staticBuild)) return;
+
+  try {
+    fs.rmSync(staticBuild, { recursive: true, force: true });
+    console.log('Removed incomplete static build output.');
+  } catch (error) {
+    const markerPath = path.join(staticBuild, '.build-incomplete');
+    try {
+      fs.writeFileSync(
+        markerPath,
+        `Build output is incomplete and must not be served.\n${error.message}\n`,
+      );
+      console.error(
+        `Could not remove incomplete static build output; wrote ${markerPath}.`,
+      );
+    } catch (markerError) {
+      console.error(
+        `Could not remove or mark incomplete static build output: ${markerError.message}`,
+      );
+    }
+  }
+}
+
 function setupSignalHandlers() {
   const cleanup = (signal) => {
     if (!signalShutdownPromise) {
       console.log(`Received ${signal}; cleaning up Metro process...`);
       signalShutdownPromise = cleanupMetro().finally(() => {
+        if (staticBuildInProgress) {
+          invalidatePartialBuild();
+          staticBuildInProgress = false;
+        }
         process.exit(signal === 'SIGINT' ? 130 : 143);
       });
     }
@@ -127,10 +161,11 @@ function getDeploymentDomain() {
 function prepareDirectories(timestamp) {
   console.log('Preparing build directories...');
 
-  const staticBuild = path.join(projectRoot, 'static-build');
+  const staticBuild = getStaticBuildRoot();
   if (fs.existsSync(staticBuild)) {
     fs.rmSync(staticBuild, { recursive: true });
   }
+  staticBuildInProgress = true;
 
   const dirs = [
     path.join(staticBuild, timestamp, '_expo', 'static', 'js', 'ios'),
@@ -142,6 +177,11 @@ function prepareDirectories(timestamp) {
   for (const dir of dirs) {
     fs.mkdirSync(dir, { recursive: true });
   }
+
+  fs.writeFileSync(
+    path.join(staticBuild, '.build-incomplete'),
+    `Build ${timestamp} is in progress and must not be served.\n`,
+  );
 
   console.log('Build:', timestamp);
 }
@@ -310,7 +350,16 @@ async function downloadBundle(platform, timestamp) {
   );
 
   console.log(`Fetching ${platform} bundle...`);
-  await downloadFile(url.toString(), output);
+  try {
+    if (process.env.SECOND_BRAIN_BUILD_FAILURE === 'bundle') {
+      throw new Error(`Simulated ${platform} bundle failure`);
+    }
+    await downloadFile(url.toString(), output);
+  } catch (error) {
+    throw new Error(
+      `Failed to download ${platform} bundle (${url}): ${error.message}`,
+    );
+  }
   console.log(`${platform} bundle ready`);
 }
 
@@ -320,6 +369,9 @@ async function downloadManifest(platform) {
 
   try {
     console.log(`Fetching ${platform} manifest...`);
+    if (process.env.SECOND_BRAIN_BUILD_FAILURE === 'manifest') {
+      throw new Error(`Simulated ${platform} manifest failure`);
+    }
     const response = await fetch(getMetroUrl({ baseUrl: metroBaseUrl }, '/manifest'), {
       headers: { 'expo-platform': platform },
       signal: controller.signal,
@@ -338,7 +390,7 @@ async function downloadManifest(platform) {
         `Manifest download timeout after 5m for platform: ${platform}`,
       );
     }
-    throw error;
+    throw new Error(`Failed to download ${platform} manifest: ${error.message}`);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -367,7 +419,7 @@ async function downloadBundlesAndManifests(timestamp) {
 }
 
 function extractAssets(timestamp) {
-  const staticBuild = path.join(projectRoot, 'static-build');
+  const staticBuild = getStaticBuildRoot();
   const bundles = {
     ios: fs.readFileSync(
       path.join(
@@ -408,7 +460,9 @@ function extractAssets(timestamp) {
       const unstablePath = tempUrl.searchParams.get('unstable_path');
 
       if (!unstablePath) {
-        throw new Error(`Asset missing unstable_path: ${originalPath}`);
+          throw new Error(
+            `Asset missing unstable_path for ${platform}: ${originalPath}`,
+          );
       }
 
       const decodedPath = decodeURIComponent(unstablePath);
@@ -442,6 +496,9 @@ async function downloadAssets(assets, timestamp) {
   }
 
   console.log('Copying assets...');
+  if (process.env.SECOND_BRAIN_BUILD_FAILURE === 'asset') {
+    throw new Error('Simulated asset copy failure for android and ios assets');
+  }
   let successCount = 0;
   const failures = [];
 
@@ -458,8 +515,7 @@ async function downloadAssets(assets, timestamp) {
     const decodedPath = decodeURIComponent(unstablePath);
 
     const outputDir = path.join(
-      projectRoot,
-      'static-build',
+      getStaticBuildRoot(),
       timestamp,
       '_expo',
       'static',
@@ -483,6 +539,7 @@ async function downloadAssets(assets, timestamp) {
     } catch (error) {
       failures.push({
         filename: asset.filename,
+        platforms: Array.from(asset.platforms).join(', '),
         error: error.message,
         url: asset.originalPath,
       });
@@ -495,7 +552,10 @@ async function downloadAssets(assets, timestamp) {
     const errorMsg =
       `Failed to download ${failures.length} asset(s):\n` +
       failures
-        .map((f) => `  - ${f.filename}: ${f.error} (${f.url})`)
+        .map(
+          (f) =>
+            `  - ${f.platforms} asset ${f.filename}: ${f.error} (${f.url})`,
+        )
         .join('\n');
     exitWithError(errorMsg);
   }
@@ -507,8 +567,7 @@ async function downloadAssets(assets, timestamp) {
 function updateBundleUrls(timestamp, baseUrl) {
   const updateForPlatform = (platform) => {
     const bundlePath = path.join(
-      projectRoot,
-      'static-build',
+      getStaticBuildRoot(),
       timestamp,
       '_expo',
       'static',
@@ -588,7 +647,7 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
     }
 
     fs.writeFileSync(
-      path.join(projectRoot, 'static-build', platform, 'manifest.json'),
+      path.join(getStaticBuildRoot(), platform, 'manifest.json'),
       JSON.stringify(manifest, null, 2),
     );
   };
@@ -603,15 +662,16 @@ async function main() {
 
   setupSignalHandlers();
 
-  const domain = getDeploymentDomain();
-  const expoPublicReplId = getExpoPublicReplId();
-  const baseUrl = `https://${domain}`;
-  const timestamp = `${Date.now()}-${process.pid}`;
-
-  prepareDirectories(timestamp);
-  clearMetroCache();
-
+  let buildSucceeded = false;
   try {
+    const domain = getDeploymentDomain();
+    const expoPublicReplId = getExpoPublicReplId();
+    const baseUrl = `https://${domain}`;
+    const timestamp = `${Date.now()}-${process.pid}`;
+
+    prepareDirectories(timestamp);
+    clearMetroCache();
+
     await startMetro(domain, expoPublicReplId);
 
     const downloadTimeout = 600000;
@@ -654,9 +714,18 @@ async function main() {
     console.log('Updating manifests and creating landing page...');
     updateManifests(manifests, timestamp, baseUrl, assetsByHash);
 
+    fs.rmSync(path.join(getStaticBuildRoot(), '.build-incomplete'), {
+      force: true,
+    });
+    buildSucceeded = true;
+    staticBuildInProgress = false;
     console.log('Build complete! Deploy to:', baseUrl);
   } finally {
     await cleanupMetro();
+    if (!buildSucceeded && staticBuildInProgress) {
+      invalidatePartialBuild();
+      staticBuildInProgress = false;
+    }
   }
 }
 
