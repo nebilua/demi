@@ -10,6 +10,7 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"${npm_config_user_agent:-}\" in pnpm/*) ;; *) case \"${npm_execpath:-}\" in *pnpm*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "test:build-port": "pnpm --filter @workspace/second-brain run test:build-port",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

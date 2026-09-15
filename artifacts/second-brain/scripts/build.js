@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
+const { createMetroConfig, getMetroUrl } = require('./build-config');
 
 let metroProcess = null;
 
@@ -23,11 +24,9 @@ function findWorkspaceRoot(startDir) {
 
 const workspaceRoot = findWorkspaceRoot(projectRoot);
 const basePath = (process.env.BASE_PATH || '/').replace(/\/+$/, '');
-const metroPort = Number(process.env.EXPO_BUILD_PORT || 8082);
-if (!Number.isInteger(metroPort) || metroPort < 1024 || metroPort > 65535) {
-  throw new Error('EXPO_BUILD_PORT must be an integer between 1024 and 65535.');
-}
-const metroBaseUrl = `http://127.0.0.1:${metroPort}`;
+const { port: metroPort, baseUrl: metroBaseUrl } = createMetroConfig(
+  process.env.EXPO_BUILD_PORT,
+);
 
 function exitWithError(message) {
   console.error(message);
@@ -121,7 +120,7 @@ function clearMetroCache() {
 
 async function checkMetroHealth() {
   try {
-    const response = await fetch(`${metroBaseUrl}/status`, {
+    const response = await fetch(getMetroUrl({ baseUrl: metroBaseUrl }, '/status'), {
       signal: AbortSignal.timeout(5000),
     });
     return response.ok;
@@ -245,7 +244,7 @@ async function downloadBundle(platform, timestamp) {
     'entry',
   );
   const bundlePath = path.relative(workspaceRoot, entryPath);
-  const url = new URL(`${metroBaseUrl}/${bundlePath}.bundle`);
+  const url = new URL(getMetroUrl({ baseUrl: metroBaseUrl }, `${bundlePath}.bundle`));
   url.searchParams.set('platform', platform);
   url.searchParams.set('dev', 'false');
   url.searchParams.set('hot', 'false');
@@ -273,7 +272,7 @@ async function downloadManifest(platform) {
 
   try {
     console.log(`Fetching ${platform} manifest...`);
-    const response = await fetch(`${metroBaseUrl}/manifest`, {
+    const response = await fetch(getMetroUrl({ baseUrl: metroBaseUrl }, '/manifest'), {
       headers: { 'expo-platform': platform },
       signal: controller.signal,
     });
@@ -399,7 +398,9 @@ async function downloadAssets(assets, timestamp) {
   const failures = [];
 
   const downloadPromises = assets.map(async (asset) => {
-    const tempUrl = new URL(`${metroBaseUrl}${asset.originalPath}`);
+    const tempUrl = new URL(
+      getMetroUrl({ baseUrl: metroBaseUrl }, asset.originalPath),
+    );
     const unstablePath = tempUrl.searchParams.get('unstable_path');
 
     if (!unstablePath) {
@@ -595,10 +596,18 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((error) => {
-  console.error('Build failed:', error.message);
-  if (metroProcess) {
-    metroProcess.kill();
-  }
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('Build failed:', error.message);
+    if (metroProcess) {
+      metroProcess.kill();
+    }
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  getMetroUrl: (pathname) => getMetroUrl({ baseUrl: metroBaseUrl }, pathname),
+  metroBaseUrl,
+  metroPort,
+};
