@@ -120,6 +120,68 @@ function invalidatePartialBuild() {
   }
 }
 
+const DEFAULT_RELEASE_RETENTION = 2;
+
+function getReleaseRetention() {
+  const configured = process.env.STATIC_BUILD_KEEP_RELEASES;
+  if (configured === undefined || configured === '') {
+    return DEFAULT_RELEASE_RETENTION;
+  }
+
+  const normalized = configured.trim();
+  const retention = Number(normalized);
+  if (!/^[1-9]\d*$/.test(normalized) || !Number.isSafeInteger(retention)) {
+    console.warn(
+      `Invalid STATIC_BUILD_KEEP_RELEASES="${configured}"; using ${DEFAULT_RELEASE_RETENTION}.`,
+    );
+    return DEFAULT_RELEASE_RETENTION;
+  }
+  return retention;
+}
+
+function cleanupOldReleases(
+  activeId,
+  publishedRoot = getStaticBuildRoot(),
+  retention = getReleaseRetention(),
+) {
+  const releasesRoot = path.join(publishedRoot, 'releases');
+  if (!fs.existsSync(releasesRoot)) return;
+
+  let releaseIds;
+  try {
+    releaseIds = fs
+      .readdirSync(releasesRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left));
+  } catch (error) {
+    console.error(`Could not inspect old static releases: ${error.message}`);
+    return;
+  }
+
+  const retained = new Set();
+  if (releaseIds.includes(activeId)) {
+    retained.add(activeId);
+  }
+  for (const releaseId of releaseIds) {
+    if (retained.size >= retention) break;
+    retained.add(releaseId);
+  }
+
+  for (const releaseId of releaseIds) {
+    if (retained.has(releaseId)) continue;
+    try {
+      fs.rmSync(path.join(releasesRoot, releaseId), {
+        recursive: true,
+        force: true,
+      });
+      console.log(`Removed old static release: ${releaseId}`);
+    } catch (error) {
+      console.error(`Could not remove old static release ${releaseId}: ${error.message}`);
+    }
+  }
+}
+
 function promoteBuild(timestamp) {
   const publishedRoot = getStaticBuildRoot();
   const stagedRoot = buildRoot;
@@ -141,6 +203,7 @@ function promoteBuild(timestamp) {
   fs.writeFileSync(nextPointerPath, `${timestamp}\n`);
   fs.renameSync(nextPointerPath, pointerPath);
   fs.rmSync(path.join(publishedRoot, '.build-incomplete'), { force: true });
+  cleanupOldReleases(timestamp, publishedRoot);
 
   buildRoot = null;
   staticBuildInProgress = false;
@@ -776,4 +839,6 @@ module.exports = {
   metroBaseUrl,
   metroPort,
   terminateProcessTree,
+  cleanupOldReleases,
+  getReleaseRetention,
 };

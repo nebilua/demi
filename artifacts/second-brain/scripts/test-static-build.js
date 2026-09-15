@@ -4,6 +4,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const { cleanupOldReleases } = require('./build');
 
 const projectRoot = path.resolve(__dirname, '..');
 const staticRoot = path.join(projectRoot, 'static-build');
@@ -423,6 +424,29 @@ async function runHealthCheck() {
   }
 }
 
+async function runReleaseCleanupCheck() {
+  const fixtureRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'second-brain-release-cleanup-'),
+  );
+  const releasesRoot = path.join(fixtureRoot, 'releases');
+  const releaseIds = ['100-active', '200-old', '300-previous', '400-newest'];
+
+  try {
+    for (const releaseId of releaseIds) {
+      fs.mkdirSync(path.join(releasesRoot, releaseId), { recursive: true });
+    }
+
+    cleanupOldReleases('100-active', fixtureRoot, 2);
+    assert.deepEqual(fs.readdirSync(releasesRoot).sort(), [
+      '100-active',
+      '400-newest',
+    ]);
+    console.log('Static release retention check passed.');
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+}
+
 function runBuildFailure(stage) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(projectRoot, 'scripts', 'build.js')], {
@@ -447,6 +471,10 @@ async function runFailureCheck() {
   const pointerPath = path.join(staticRoot, '.current');
   const previousPointer = fs.existsSync(pointerPath)
     ? fs.readFileSync(pointerPath, 'utf8')
+    : null;
+  const releasesPath = path.join(staticRoot, 'releases');
+  const previousReleases = fs.existsSync(releasesPath)
+    ? fs.readdirSync(releasesPath).sort()
     : null;
 
   const scenarios = [
@@ -488,6 +516,14 @@ async function runFailureCheck() {
       ) {
         fail(`${stage} failure changed the active release pointer.`);
       }
+      if (
+        hadExistingBuild &&
+        previousReleases &&
+        JSON.stringify(fs.readdirSync(releasesPath).sort()) !==
+          JSON.stringify(previousReleases)
+      ) {
+        fail(`${stage} failure changed the retained release set.`);
+      }
       console.log(`${stage}: failure reported and partial output removed`);
     }
   } finally {
@@ -501,10 +537,13 @@ async function runFailureCheck() {
 
 const run = process.argv.includes('--failure-check')
   ? runFailureCheck
-  : async () => {
-      await runSmokeCheck();
-      await runHealthCheck();
-    };
+  : process.argv.includes('--release-cleanup')
+    ? runReleaseCleanupCheck
+    : async () => {
+        await runSmokeCheck();
+        await runHealthCheck();
+        runReleaseCleanupCheck();
+      };
 
 run().catch((error) => {
   console.error(error.message);
