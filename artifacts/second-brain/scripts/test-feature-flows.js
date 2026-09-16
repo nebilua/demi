@@ -165,6 +165,46 @@ async function main() {
     memory.parseApprovedMemories(JSON.stringify([aliasMemory]))[0]?.aliases,
     ['Alex'],
   );
+  const archivedAliasMemory = {
+    ...aliasMemory,
+    id: 'archived-alias-memory',
+    aliases: ['Morgan'],
+    archivedAt: 42,
+  };
+  assert.deepEqual(
+    memory.selectRelevantMemories(
+      [archivedAliasMemory],
+      'What gift should I get Morgan?',
+    ),
+    [],
+  );
+  const reloadedAfterDelete = memory.parseApprovedMemories(
+    JSON.stringify([aliasMemory].filter((item) => item.id !== aliasMemory.id)),
+  );
+  assert.deepEqual(
+    memory.selectRelevantMemories(
+      reloadedAfterDelete,
+      'What gift should I get Alex?',
+    ),
+    [],
+  );
+  const replacementAliasMemory = {
+    ...aliasMemory,
+    id: 'replacement-alias-memory',
+    content: 'Person Z enjoys tea.',
+  };
+  const reloadedReplacement = memory.parseApprovedMemories(
+    JSON.stringify([replacementAliasMemory]),
+  );
+  assert.equal(
+    memory
+      .selectRelevantMemories(
+        reloadedReplacement,
+        'What gift should I get Alex?',
+      )
+      .at(0)?.id,
+    'replacement-alias-memory',
+  );
 
   const makeApprovedMemory = (id, content, updatedAt, archivedAt = null) => ({
     id,
