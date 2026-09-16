@@ -43,6 +43,85 @@ export type MemoryCandidate =
 const INSTRUCTION_PATTERN =
   /\b(ignore|disregard|override|system prompt|developer message|always obey|must follow|do not follow)\b/i;
 
+const RETRIEVAL_STOP_WORDS = new Set([
+  'a',
+  'about',
+  'after',
+  'and',
+  'are',
+  'for',
+  'from',
+  'how',
+  'i',
+  'in',
+  'is',
+  'it',
+  'me',
+  'my',
+  'of',
+  'on',
+  'or',
+  'should',
+  'someone',
+  'that',
+  'the',
+  'their',
+  'them',
+  'they',
+  'this',
+  'to',
+  'user',
+  'was',
+  'what',
+  'which',
+  'with',
+  'would',
+  'you',
+  'your',
+]);
+
+const RETRIEVAL_ALIASES: Record<string, string> = {
+  buy: 'gift',
+  buying: 'gift',
+  choose: 'gift',
+  choosing: 'gift',
+  gift: 'gift',
+  gifting: 'gift',
+  gifts: 'gift',
+  idea: 'gift',
+  ideas: 'gift',
+  pick: 'gift',
+  picking: 'gift',
+  present: 'gift',
+  presents: 'gift',
+  purchase: 'gift',
+  purchases: 'gift',
+  recommend: 'gift',
+  recommendation: 'gift',
+  recommendations: 'gift',
+  suggest: 'gift',
+  suggestion: 'gift',
+  suggestions: 'gift',
+  enjoy: 'preference',
+  enjoys: 'preference',
+  favorite: 'preference',
+  favourites: 'preference',
+  favourite: 'preference',
+  favorites: 'preference',
+  interests: 'preference',
+  interest: 'preference',
+  like: 'preference',
+  love: 'preference',
+  prefer: 'preference',
+  preference: 'preference',
+  preferences: 'preference',
+  taste: 'preference',
+  tastes: 'preference',
+};
+
+const CONTEXT_BRIDGE_PATTERN =
+  /\b(buy|choose|gift|idea|present|recommend|suggest|that|their|them|they|those|it)\b/i;
+
 const NUMBER_WORDS: Record<string, number> = {
   a: 1,
   an: 1,
@@ -194,6 +273,31 @@ function parseDuration(value: string, unit: string) {
   return null;
 }
 
+type RetrievalTerm = {
+  raw: string;
+  canonical: string;
+};
+
+function retrievalTerms(value: string): RetrievalTerm[] {
+  return value
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((term) => {
+      if (term.length > 4 && term.endsWith('ies')) {
+        return `${term.slice(0, -3)}y`;
+      }
+      if (term.length > 4 && term.endsWith('s') && !term.endsWith('ss')) {
+        return term.slice(0, -1);
+      }
+      return term;
+    })
+    .filter((term) => term.length > 0 && !RETRIEVAL_STOP_WORDS.has(term))
+    .map((term) => ({
+      raw: term,
+      canonical: RETRIEVAL_ALIASES[term] ?? term,
+    }));
+}
+
 function parseClockTime(sourceText: string) {
   const match =
     /\bat\s+(\d{1,2}(?::\d{2})?)\s*(a\.?m\.?|p\.?m\.?)?\b/i.exec(sourceText);
@@ -322,13 +426,16 @@ export function selectRelevantMemories(
   limit = 6,
   conversationContext = '',
 ) {
-  const terms = new Set(
-    `${query}\n${conversationContext}`
-      .toLocaleLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((term) => term.length > 2),
+  const queryTerms = retrievalTerms(query);
+  const queryRawTerms = new Set(queryTerms.map(({ raw }) => raw));
+  const queryCanonicalTerms = new Set(queryTerms.map(({ canonical }) => canonical));
+  const contextTerms = retrievalTerms(conversationContext);
+  const contextRawTerms = new Set(contextTerms.map(({ raw }) => raw));
+  const contextCanonicalTerms = new Set(
+    contextTerms.map(({ canonical }) => canonical),
   );
-  return memories
+  const allowContextBridge = CONTEXT_BRIDGE_PATTERN.test(query);
+  const activeMemories = memories
     .filter((memory) => !memory.archivedAt)
     .filter(
       (memory, index, all) =>
@@ -338,15 +445,39 @@ export function selectRelevantMemories(
             memoryFingerprint(memory.content),
         ) === index,
     )
-    .map((memory) => ({
+    .map((memory) => ({ memory, terms: retrievalTerms(memory.content) }));
+  const documentFrequency = new Map<string, number>();
+  for (const { terms } of activeMemories) {
+    for (const term of terms) {
+      documentFrequency.set(
+        term.canonical,
+        (documentFrequency.get(term.canonical) ?? 0) + 1,
+      );
+    }
+  }
+
+  return activeMemories
+    .map(({ memory, terms }) => ({
       memory,
-      score: memory.content
-        .toLocaleLowerCase()
-        .split(/[^\p{L}\p{N}]+/u)
-        .reduce((score, term) => score + (terms.has(term) ? 1 : 0), 0),
+      score: terms.reduce((score, term) => {
+        if (queryRawTerms.has(term.raw)) {
+          const isRare = documentFrequency.get(term.canonical) === 1;
+          return score + (term.raw.length <= 2 || isRare ? 1.5 : 0.9);
+        }
+        if (queryCanonicalTerms.has(term.canonical)) {
+          return score + 0.3;
+        }
+        if (allowContextBridge && contextRawTerms.has(term.raw)) {
+          return score + 0.45;
+        }
+        if (allowContextBridge && contextCanonicalTerms.has(term.canonical)) {
+          return score + 0.15;
+        }
+        return score;
+      }, 0),
     }))
     .sort((a, b) => b.score - a.score || b.memory.updatedAt - a.memory.updatedAt)
-    .filter(({ score }) => score > 0)
+    .filter(({ score }) => score >= 1.25)
     .slice(0, limit)
     .map(({ memory }) => memory);
 }

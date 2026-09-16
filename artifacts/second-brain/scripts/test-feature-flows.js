@@ -79,6 +79,35 @@ async function main() {
     updatedAt: 1,
     archivedAt: null,
   };
+  const secondApprovedMemory = {
+    ...approvedMemory,
+    id: 'sock-memory',
+    content: 'Person Y loves colorful socks.',
+    updatedAt: 2,
+  };
+  assert.equal(
+    memory
+      .selectRelevantMemories(
+        [approvedMemory, secondApprovedMemory],
+        'What would be a good present for Person X?',
+        6,
+      )
+      .at(0)?.id,
+    'pickle-memory',
+  );
+  assert.equal(
+    memory
+      .selectRelevantMemories(
+        [approvedMemory, secondApprovedMemory],
+        "What's Person X's favorite snack?",
+      )
+      .at(0)?.id,
+    'pickle-memory',
+  );
+  assert.deepEqual(
+    memory.selectRelevantMemories([approvedMemory], 'What should I gift them?'),
+    [],
+  );
   assert.equal(
     memory
       .selectRelevantMemories(
@@ -91,7 +120,21 @@ async function main() {
     'pickle-memory',
   );
   assert.deepEqual(
-    memory.selectRelevantMemories([approvedMemory], 'What is the capital of France?'),
+    memory.selectRelevantMemories(
+      [approvedMemory],
+      'What is my favorite color?',
+      6,
+      'user: Person X likes pickles.',
+    ),
+    [],
+  );
+  assert.deepEqual(
+    memory.selectRelevantMemories(
+      [approvedMemory],
+      'What is the capital of France?',
+      6,
+      'user: Person X likes pickles.',
+    ),
     [],
   );
 
