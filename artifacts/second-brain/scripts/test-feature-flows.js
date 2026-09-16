@@ -138,6 +138,107 @@ async function main() {
     [],
   );
 
+  const makeApprovedMemory = (id, content, updatedAt, archivedAt = null) => ({
+    id,
+    category: 'person',
+    content,
+    source: {
+      turnId: `turn-${id}`,
+      excerpt: content,
+      createdAt: updatedAt,
+    },
+    createdAt: updatedAt,
+    updatedAt,
+    archivedAt,
+  });
+  const targetMemory = makeApprovedMemory(
+    'large-target-x',
+    'Person X likes hiking gifts and olive green gear.',
+    1000,
+  );
+  const duplicateTarget = {
+    ...targetMemory,
+    id: 'large-target-duplicate',
+    updatedAt: 2000,
+  };
+  const archivedTarget = makeApprovedMemory(
+    'large-target-archived',
+    'Person X likes hiking gifts and red gear.',
+    3000,
+    4000,
+  );
+  const similarPersonY = makeApprovedMemory(
+    'large-similar-y',
+    'Person Y likes hiking gifts and blue gear.',
+    4000,
+  );
+  const largeMemoryLibrary = [
+    targetMemory,
+    duplicateTarget,
+    archivedTarget,
+    similarPersonY,
+    ...Array.from({ length: 116 }, (_, index) =>
+      makeApprovedMemory(
+        `large-distractor-${index}`,
+        `Person ${index + 10} likes hiking gifts and color ${index}.`,
+        index + 10,
+      ),
+    ),
+  ];
+  const largeLibraryResults = memory.selectRelevantMemories(
+    largeMemoryLibrary,
+    'What hiking gift should I choose for Person X?',
+    6,
+  );
+  assert.equal(largeLibraryResults[0]?.id, 'large-target-x');
+  assert.ok(
+    largeLibraryResults.findIndex((item) => item.id === 'large-target-x') <
+      largeLibraryResults.findIndex((item) => item.id === 'large-similar-y'),
+  );
+  assert.equal(
+    largeLibraryResults.filter((item) => item.id === 'large-target-duplicate').length,
+    0,
+  );
+  assert.equal(
+    largeLibraryResults.filter((item) => item.id === 'large-target-archived').length,
+    0,
+  );
+  assert.equal(
+    memory.selectRelevantMemories(
+      largeMemoryLibrary,
+      'Which hiking gifts should I choose?',
+      6,
+    ).length,
+    6,
+  );
+  assert.deepEqual(
+    memory.selectRelevantMemories(
+      largeMemoryLibrary,
+      'What is the capital of France?',
+      6,
+    ),
+    [],
+  );
+  const parsedLargeLibrary = memory.parseApprovedMemories(
+    JSON.stringify([
+      ...largeMemoryLibrary,
+      ...Array.from({ length: 12 }, (_, index) =>
+        makeApprovedMemory(
+          `parsed-tail-${index}`,
+          `A separate durable fact number ${index}.`,
+          5000 + index,
+        ),
+      ),
+    ]),
+  );
+  assert.equal(parsedLargeLibrary.length, 100);
+  assert.equal(
+    parsedLargeLibrary.filter(
+      (item) => item.content === targetMemory.content,
+    ).length,
+    1,
+  );
+
   const duplicate = memory.parseMemoryCandidate(
     JSON.stringify({
       kind: 'memory',
@@ -180,9 +281,14 @@ async function main() {
     path.resolve(__dirname, '../app/index.tsx'),
     'utf8',
   );
+  const offlineLlm = fs.readFileSync(
+    path.resolve(__dirname, '../lib/offlineLlm.ts'),
+    'utf8',
+  );
   assert.match(appContext, /pendingMemoryCandidate/);
   assert.match(appContext, /parseConversationalReminder/);
   assert.match(appContext, /slice\(-6\)/);
+  assert.match(offlineLlm, /profile\?\.memories \?\? \[\]\)\.slice\(0, 6\)/);
   assert.match(calendarContext, /scheduleReminder\(base\)/);
   assert.match(appContext, /memoryFingerprint\(memory\.content\).*memoryFingerprint\(content\)/s);
   assert.match(homeScreen, /save-memory-candidate/);
