@@ -389,6 +389,43 @@ async function testCalendarRetryKeepsDateWhenPersistenceFails() {
   secureStorageValue = null;
 }
 
+async function testReminderCandidateRoutesWithExactTime() {
+  routerCalls = [];
+  appValue = baseAppValue({
+    pendingMemoryCandidate: {
+      kind: 'important-date',
+      label: 'Reminder',
+      eventName: 'buy pickles',
+      date: '2026-09-17',
+      time: '14:37',
+      notes: '',
+      sourceExcerpt: 'Remind me to buy pickles in one day',
+      explicit: true,
+    },
+  });
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'review-date-candidate').props.onPress();
+  });
+  assert.deepEqual(routerCalls[0], {
+    pathname: '/calendar/edit',
+    params: {
+      label: 'Reminder',
+      eventName: 'buy pickles',
+      date: '2026-09-17',
+      time: '14:37',
+      notes: '',
+    },
+  });
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
 function testDownloadCancellationGuardRunsBeforeCommit() {
   const source = fs.readFileSync(
     path.join(__dirname, '../context/AppContext.tsx'),
@@ -414,6 +451,7 @@ async function main() {
   await testMemoryApprovalFailureKeepsModalOpen();
   await testVoiceStartClearsDraftBeforeRecognition();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
+  await testReminderCandidateRoutesWithExactTime();
   testDownloadCancellationGuardRunsBeforeCommit();
   console.log('Component failure-injection checks passed.');
 }

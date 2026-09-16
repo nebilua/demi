@@ -39,6 +39,7 @@ export default function ReminderEditorScreen() {
     label?: string;
     eventName?: string;
     date?: string;
+    time?: string;
     notes?: string;
   }>();
   const { id } = params;
@@ -63,7 +64,13 @@ function ReminderForm({
   proposal,
 }: {
   initial?: DateReminder;
-  proposal?: { label?: string; eventName?: string; date?: string; notes?: string };
+  proposal?: {
+    label?: string;
+    eventName?: string;
+    date?: string;
+    time?: string;
+    notes?: string;
+  };
 }) {
   const router = useRouter();
   const { settings } = useApp();
@@ -74,14 +81,18 @@ function ReminderForm({
     initial?.eventName ?? proposal?.eventName ?? '',
   );
   const [date, setDate] = useState(initial?.date ?? proposal?.date ?? tomorrowDate());
-  const [hasTime, setHasTime] = useState(initial?.time !== null);
-  const [time, setTime] = useState(initial?.time ?? '09:00');
+  const [hasTime, setHasTime] = useState(
+    initial ? initial.time !== null : Boolean(proposal?.time),
+  );
+  const [time, setTime] = useState(initial?.time ?? proposal?.time ?? '09:00');
   const [notes, setNotes] = useState(initial?.notes ?? proposal?.notes ?? '');
   const [repeatsAnnually, setRepeatsAnnually] = useState(
     initial?.repeatsAnnually ?? false,
   );
   const [remindMinutesBefore, setRemindMinutesBefore] =
-    useState<ReminderTiming>(initial?.remindMinutesBefore ?? 1440);
+    useState<ReminderTiming>(
+      initial?.remindMinutesBefore ?? (proposal?.time ? 0 : 1440),
+    );
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 

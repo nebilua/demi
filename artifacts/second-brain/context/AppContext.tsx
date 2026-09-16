@@ -37,6 +37,7 @@ import {
 } from '@/lib/offlineVoice';
 import {
   memoryFingerprint,
+  parseConversationalReminder,
   parseApprovedMemories,
   parseMemoryCandidate,
   selectRelevantMemories,
@@ -1252,7 +1253,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         {
           displayName: profile.displayName,
           context: profile.context,
-          memories: selectRelevantMemories(memories, trimmedContent),
+          memories: selectRelevantMemories(
+            memories,
+            trimmedContent,
+            6,
+            withUserTurn
+              .slice(-6)
+              .map((turn) => `${turn.role}: ${turn.content}`)
+              .join('\n'),
+          ),
         },
       );
       const completedTurns = withAssistantTurn.map((turn) =>
@@ -1273,18 +1282,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (settings.spokenRepliesEnabled && completedResponse) {
         await speakText(completedResponse);
       }
+      const conversationalReminder = parseConversationalReminder(trimmedContent);
+      if (conversationalReminder) {
+        setPendingMemoryCandidate(conversationalReminder);
+      }
       try {
-        const rawCandidate = await proposeMemoryCandidate(
-          llamaContextRef.current,
-          trimmedContent,
-          completedResponse,
-        );
-        const candidate = parseMemoryCandidate(
-          rawCandidate,
-          memories,
-          trimmedContent,
-        );
-        if (candidate) setPendingMemoryCandidate(candidate);
+        if (!conversationalReminder) {
+          const rawCandidate = await proposeMemoryCandidate(
+            llamaContextRef.current,
+            trimmedContent,
+            completedResponse,
+          );
+          const candidate = parseMemoryCandidate(
+            rawCandidate,
+            memories,
+            trimmedContent,
+          );
+          if (candidate) setPendingMemoryCandidate(candidate);
+        }
       } catch {
         // Suggestions are optional and must never interrupt the conversation.
       }

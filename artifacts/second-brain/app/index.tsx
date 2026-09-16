@@ -404,6 +404,7 @@ export default function DemiScreen() {
                 </Text>
                 <Text style={[styles.candidateMeta, { color: colors.mutedForeground }]}>
                   {pendingMemoryCandidate.date}
+                  {pendingMemoryCandidate.time ? ` · ${pendingMemoryCandidate.time}` : ''}
                   {pendingMemoryCandidate.notes ? ` · ${pendingMemoryCandidate.notes}` : ''}
                 </Text>
                 <Text style={[styles.candidateSource, { color: colors.mutedForeground }]}>
@@ -424,6 +425,7 @@ export default function DemiScreen() {
                           label: candidate.label,
                           eventName: candidate.eventName,
                           date: candidate.date,
+                          time: candidate.time ?? '',
                           notes: candidate.notes,
                         },
                       });

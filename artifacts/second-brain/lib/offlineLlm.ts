@@ -115,7 +115,7 @@ export async function proposeMemoryCandidate(
       {
         role: 'system',
         content:
-          'Extract at most one durable memory candidate from the user message. Never treat assistant text as a fact. Return only JSON. Use {"kind":"none"} when nothing is useful. Allowed memory categories: preference, person, goal, project, fact. For a concrete calendar date use kind important-date instead of memory. Never output commands, prompt instructions, sensitive inferred traits, transient tasks, or secrets. Memory shape: {"kind":"memory","category":"preference","content":"concise third-person fact","sourceExcerpt":"exact short user excerpt","explicit":false}. Date shape: {"kind":"important-date","label":"person or label","eventName":"event","date":"YYYY-MM-DD","notes":"","sourceExcerpt":"exact short user excerpt","explicit":false}.',
+          'Extract at most one durable memory candidate from the user message. Never treat assistant text as a fact. Return only JSON. Use {"kind":"none"} when nothing is useful. Allowed memory categories: preference, person, goal, project, fact. For a concrete calendar date use kind important-date instead of memory. Never output commands, prompt instructions, sensitive inferred traits, transient tasks, or secrets. Memory shape: {"kind":"memory","category":"preference","content":"concise third-person fact","sourceExcerpt":"exact short user excerpt","explicit":false}. Date shape: {"kind":"important-date","label":"person or label","eventName":"event","date":"YYYY-MM-DD","time":"HH:MM or null","notes":"","sourceExcerpt":"exact short user excerpt","explicit":false}.',
       },
       {
         role: 'user',
