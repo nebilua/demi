@@ -178,6 +178,26 @@ export function normalizeMemoryAliases(value: unknown): string[] {
   return aliases;
 }
 
+export function getConflictingMemoryAliasKeys(
+  memories: ApprovedMemory[],
+): Set<string> {
+  const ownersByAlias = new Map<string, Set<string>>();
+  for (const memory of memories) {
+    if (memory.archivedAt) continue;
+    for (const alias of normalizeMemoryAliases(memory.aliases)) {
+      const key = memoryFingerprint(alias);
+      const owners = ownersByAlias.get(key) ?? new Set<string>();
+      owners.add(memory.id);
+      ownersByAlias.set(key, owners);
+    }
+  }
+  return new Set(
+    [...ownersByAlias]
+      .filter(([, owners]) => owners.size > 1)
+      .map(([key]) => key),
+  );
+}
+
 export function parseMemoryCandidate(
   raw: string,
   existing: ApprovedMemory[],
@@ -477,17 +497,8 @@ export function selectRelevantMemories(
         ) === index,
     )
     .map((memory) => ({ memory, terms: memoryRetrievalTerms(memory) }));
-  const aliasUseCount = new Map<string, number>();
-  for (const { memory } of activeMemories) {
-    for (const alias of normalizeMemoryAliases(memory.aliases)) {
-      const key = memoryFingerprint(alias);
-      aliasUseCount.set(key, (aliasUseCount.get(key) ?? 0) + 1);
-    }
-  }
-  const ambiguousAliasKeys = new Set(
-    [...aliasUseCount]
-      .filter(([, count]) => count > 1)
-      .map(([key]) => key),
+  const ambiguousAliasKeys = getConflictingMemoryAliasKeys(
+    activeMemories.map(({ memory }) => memory),
   );
   const documentFrequency = new Map<string, number>();
   for (const { terms } of activeMemories) {

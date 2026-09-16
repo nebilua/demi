@@ -321,6 +321,16 @@ async function testMemoryAliasesUseSharedMutation() {
         updatedAt: 1,
         archivedAt: null,
       },
+      {
+        id: 'memory-2',
+        category: 'person',
+        content: 'Person Y likes socks.',
+        aliases: ['Alex'],
+        source: { turnId: 'turn-2', excerpt: 'Person Y likes socks.', createdAt: 2 },
+        createdAt: 2,
+        updatedAt: 2,
+        archivedAt: null,
+      },
     ],
     updateMemoryAliases: async (id, aliases) => {
       updates.push({ id, aliases });
@@ -331,6 +341,10 @@ async function testMemoryAliasesUseSharedMutation() {
   await TestRenderer.act(async () => {
     renderer = TestRenderer.create(React.createElement(MemoriesScreen));
   });
+  assert.match(
+    textContent(renderer),
+    /shared with another active memory.*not use it until you remove or change the duplicate/,
+  );
   await TestRenderer.act(async () => {
     findByTestId(renderer, 'alias-input-memory-1').props.onChangeText('Al');
   });

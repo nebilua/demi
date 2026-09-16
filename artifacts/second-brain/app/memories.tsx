@@ -15,6 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
+import {
+  getConflictingMemoryAliasKeys,
+  memoryFingerprint,
+} from '@/lib/memory';
 
 export default function MemoriesScreen() {
   const router = useRouter();
@@ -35,6 +39,10 @@ export default function MemoriesScreen() {
   const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isMutating, setIsMutating] = useState(false);
+  const conflictingAliasKeys = useMemo(
+    () => getConflictingMemoryAliasKeys(memories),
+    [memories],
+  );
 
   async function runMutation(operation: () => Promise<void>, onSuccess: () => void) {
     if (isMutating) return;
@@ -258,6 +266,22 @@ export default function MemoriesScreen() {
                 <Text style={[styles.aliasLabel, { color: colors.mutedForeground }]}>
                   Known as
                 </Text>
+                {((memory.aliases ?? []).some((alias) =>
+                  conflictingAliasKeys.has(memoryFingerprint(alias)),
+                )) && (
+                  <View
+                    style={[
+                      styles.aliasWarning,
+                      { backgroundColor: colors.secondary },
+                    ]}
+                  >
+                    <Feather name="alert-circle" size={13} color={colors.destructive} />
+                    <Text style={[styles.aliasWarningText, { color: colors.foreground }]}>
+                      A name below is shared with another active memory, so Demi will
+                      not use it until you remove or change the duplicate.
+                    </Text>
+                  </View>
+                )}
                 {(memory.aliases ?? []).length > 0 && (
                   <View style={styles.aliasList}>
                     {(memory.aliases ?? []).map((alias) => (
@@ -445,6 +469,19 @@ const styles = StyleSheet.create({
   },
   aliasSection: { marginTop: 12, gap: 7 },
   aliasLabel: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 10 },
+  aliasWarning: {
+    padding: 9,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+  },
+  aliasWarningText: {
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    lineHeight: 15,
+  },
   aliasList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   aliasChip: {
     minHeight: 26,
