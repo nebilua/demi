@@ -13,6 +13,7 @@
     "test:build-lock": "node scripts/test-static-build.js --build-lock",
     "test:feature-flows": "node --experimental-strip-types scripts/test-feature-flows.js",
     "test:component-failures": "tsx scripts/test-component-failures.js",
+    "test:android-reminders": "tsx scripts/test-android-reminders.js",
     "validate:android-apk": "node scripts/validate-android-apk.js",
     "serve": "node server/serve.js",
     "test:build-failure": "node scripts/test-static-build.js --failure-check",

@@ -53,6 +53,11 @@ let appValue;
 let routerCalls = [];
 let secureStorageValue = null;
 let secureWriteFailure = false;
+let reminderScheduleResult = {
+  notificationId: 'retry-notification',
+  notificationState: 'scheduled',
+  notificationError: null,
+};
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
   if (request === 'react-native') return fakeReactNative;
@@ -121,11 +126,7 @@ Module._load = function load(request, parent, isMain) {
       initializeNotifications: async () => {},
       cancelScheduledReminder: async () => true,
       nextOccurrence: (reminder) => new Date(`${reminder.date}T09:00:00`),
-      scheduleReminder: async () => ({
-        notificationId: 'retry-notification',
-        notificationState: 'scheduled',
-        notificationError: null,
-      }),
+      scheduleReminder: async () => reminderScheduleResult,
     };
   }
   return originalLoad.call(this, request, parent, isMain);
@@ -389,6 +390,91 @@ async function testCalendarRetryKeepsDateWhenPersistenceFails() {
   secureStorageValue = null;
 }
 
+async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
+  secureStorageValue = null;
+  secureWriteFailure = false;
+  reminderScheduleResult = {
+    notificationId: 'android-notification-1',
+    notificationState: 'scheduled',
+    notificationError: null,
+  };
+  const { CalendarProvider, useCalendar } = require('../context/CalendarContext.tsx');
+  let calendarValue;
+  function Probe() {
+    calendarValue = useCalendar();
+    return null;
+  }
+  const mountCalendar = async () => {
+    let renderer;
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(CalendarProvider, null, React.createElement(Probe)),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return renderer;
+  };
+
+  let renderer = await mountCalendar();
+  const saved = await TestRenderer.act(async () =>
+    calendarValue.saveReminder({
+      label: 'Maya',
+      eventName: 'Buy pickles',
+      date: '2099-05-10',
+      time: '09:00',
+      notes: '',
+      repeatsAnnually: false,
+      remindMinutesBefore: 0,
+    }),
+  );
+  assert.equal(saved.notificationState, 'scheduled');
+  assert.equal(calendarValue.upcomingReminders[0].eventName, 'Buy pickles');
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  renderer = await mountCalendar();
+  assert.equal(calendarValue.upcomingReminders[0].notificationId, 'android-notification-1');
+  assert.equal(calendarValue.upcomingReminders[0].notificationState, 'scheduled');
+
+  reminderScheduleResult = {
+    notificationId: null,
+    notificationState: 'permission-denied',
+    notificationError: 'Notifications are off. The date is saved.',
+  };
+  const updated = await TestRenderer.act(async () =>
+    calendarValue.saveReminder(
+      {
+        label: 'Maya',
+        eventName: 'Buy pickles',
+        date: '2099-05-10',
+        time: '09:00',
+        notes: '',
+        repeatsAnnually: false,
+        remindMinutesBefore: 0,
+      },
+      calendarValue.upcomingReminders[0].id,
+    ),
+  );
+  assert.equal(updated.notificationState, 'permission-denied');
+  assert.equal(calendarValue.upcomingReminders[0].eventName, 'Buy pickles');
+  assert.match(
+    JSON.parse(secureStorageValue).find((item) => item.eventName === 'Buy pickles')
+      .notificationError,
+    /date is saved/,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  reminderScheduleResult = {
+    notificationId: 'retry-notification',
+    notificationState: 'scheduled',
+    notificationError: null,
+  };
+  secureStorageValue = null;
+}
+
 async function testReminderCandidateRoutesWithExactTime() {
   routerCalls = [];
   appValue = baseAppValue({
@@ -451,6 +537,7 @@ async function main() {
   await testMemoryApprovalFailureKeepsModalOpen();
   await testVoiceStartClearsDraftBeforeRecognition();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
+  await testCalendarReminderSurvivesRestartAndSchedulingFailure();
   await testReminderCandidateRoutesWithExactTime();
   testDownloadCancellationGuardRunsBeforeCommit();
   console.log('Component failure-injection checks passed.');
