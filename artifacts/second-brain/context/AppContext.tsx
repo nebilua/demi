@@ -37,6 +37,7 @@ import {
 } from '@/lib/offlineVoice';
 import {
   memoryFingerprint,
+  hasConversationalReminderIntent,
   parseConversationalReminder,
   parseApprovedMemories,
   parseMemoryCandidate,
@@ -1283,11 +1284,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await speakText(completedResponse);
       }
       const conversationalReminder = parseConversationalReminder(trimmedContent);
+      const hasReminderIntent = hasConversationalReminderIntent(trimmedContent);
       if (conversationalReminder) {
         setPendingMemoryCandidate(conversationalReminder);
       }
       try {
-        if (!conversationalReminder) {
+        if (!conversationalReminder && !hasReminderIntent) {
           const rawCandidate = await proposeMemoryCandidate(
             llamaContextRef.current,
             trimmedContent,

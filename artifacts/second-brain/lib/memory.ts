@@ -194,6 +194,43 @@ function parseDuration(value: string, unit: string) {
   return null;
 }
 
+function parseClockTime(sourceText: string) {
+  const match =
+    /\bat\s+(\d{1,2}(?::\d{2})?)\s*(a\.?m\.?|p\.?m\.?)?\b/i.exec(sourceText);
+  if (!match) return null;
+
+  const [hourText, minuteText = '00'] = match[1].split(':');
+  const rawHour = Number(hourText);
+  const minute = Number(minuteText);
+  const meridiem = match[2]?.replace(/\./g, '').toLowerCase();
+  if (!Number.isInteger(rawHour) || !Number.isInteger(minute) || minute > 59) {
+    return { invalid: true as const };
+  }
+
+  let hour = rawHour;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return { invalid: true as const };
+    if (meridiem === 'pm' && hour !== 12) hour += 12;
+    if (meridiem === 'am' && hour === 12) hour = 0;
+  } else if (!match[1].includes(':') || hour > 23) {
+    return { invalid: true as const };
+  }
+
+  const trailingMeridiem = /^\s*(?:a\.?m\.?|p\.?m\.?)\b/i.test(
+    sourceText.slice(match.index + match[0].length),
+  );
+  if (trailingMeridiem) return { invalid: true as const };
+
+  return {
+    match,
+    minutes: hour * 60 + minute,
+  };
+}
+
+export function hasConversationalReminderIntent(sourceText: string) {
+  return /\bremind\s+me\b/i.test(sourceText);
+}
+
 /**
  * Converts an explicit conversational reminder into the same approved-date
  * surface used by the calendar. It intentionally handles only unambiguous
@@ -221,17 +258,16 @@ export function parseConversationalReminder(
     body,
   );
   const isoDate = /\bon\s+(\d{4}-\d{2}-\d{2})\b/i.exec(body);
-  const timingMatch = relative ?? tomorrow ?? weekday ?? isoDate;
-  if (!timingMatch) return null;
+  const clockTime = parseClockTime(body);
+  if (clockTime?.invalid) return null;
+  if (!relative && !tomorrow && !weekday && !isoDate) return null;
 
   let target = new Date(now);
-  let includeTime = true;
   if (relative) {
     const minutes = parseDuration(relative[1], relative[2]);
     if (!minutes) return null;
     target.setSeconds(0, 0);
     target.setMinutes(target.getMinutes() + minutes);
-    includeTime = true;
   } else if (tomorrow) {
     target.setDate(target.getDate() + 1);
   } else if (weekday) {
@@ -249,9 +285,20 @@ export function parseConversationalReminder(
       return null;
     }
   }
+  if (clockTime) {
+    target.setHours(
+      Math.floor(clockTime.minutes / 60),
+      clockTime.minutes % 60,
+      0,
+      0,
+    );
+  }
 
-  const eventName = body
-    .replace(timingMatch[0], ' ')
+  const timingMatches = [relative, tomorrow, weekday, isoDate, clockTime?.match].filter(
+    (match): match is RegExpExecArray => Boolean(match),
+  );
+  const eventName = timingMatches
+    .reduce((value, match) => value.replace(match[0], ' '), body)
     .replace(/^\s*(to|about|of)\s+/i, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -262,7 +309,7 @@ export function parseConversationalReminder(
     label: 'Reminder',
     eventName: eventName.slice(0, 100),
     date: formatLocalDate(target),
-    time: includeTime ? formatLocalTime(target) : null,
+    time: formatLocalTime(target),
     notes: '',
     sourceExcerpt: sourceText.trim().slice(0, 160),
     explicit: true,

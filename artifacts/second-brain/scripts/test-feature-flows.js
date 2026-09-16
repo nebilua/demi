@@ -29,6 +29,38 @@ async function main() {
   assert.equal(conversationalReminder?.date, '2026-09-17');
   assert.equal(conversationalReminder?.time, '14:37');
   assert.equal(conversationalReminder?.eventName, 'buy pickles');
+  const twelveHourReminder = memory.parseConversationalReminder(
+    'Remind me to call Mom tomorrow at 9 AM.',
+    new Date(2026, 8, 16, 14, 37, 0, 0),
+  );
+  assert.equal(twelveHourReminder?.date, '2026-09-17');
+  assert.equal(twelveHourReminder?.time, '09:00');
+  assert.equal(twelveHourReminder?.eventName, 'call Mom');
+  const twentyFourHourReminder = memory.parseConversationalReminder(
+    'Remind me to check the oven in two hours at 14:30.',
+    new Date(2026, 8, 16, 10, 0, 0, 0),
+  );
+  assert.equal(twentyFourHourReminder?.date, '2026-09-16');
+  assert.equal(twentyFourHourReminder?.time, '14:30');
+  assert.equal(twentyFourHourReminder?.eventName, 'check the oven');
+  assert.equal(
+    memory.parseConversationalReminder(
+      'Remind me to call Mom tomorrow at 9.',
+      new Date(2026, 8, 16, 14, 37, 0, 0),
+    ),
+    null,
+  );
+  assert.equal(
+    memory.parseConversationalReminder(
+      'Remind me to call Mom tomorrow at 25:00.',
+      new Date(2026, 8, 16, 14, 37, 0, 0),
+    ),
+    null,
+  );
+  assert.equal(
+    memory.hasConversationalReminderIntent('Remind me to call Mom tomorrow at 9.'),
+    true,
+  );
   assert.equal(
     memory.parseConversationalReminder('Remind me to buy pickles.'),
     null,
