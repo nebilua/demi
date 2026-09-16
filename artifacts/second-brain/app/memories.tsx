@@ -23,6 +23,7 @@ export default function MemoriesScreen() {
     memories,
     storageProtection,
     updateMemory,
+    updateMemoryAliases,
     archiveMemory,
     deleteMemory,
     storageError,
@@ -31,6 +32,7 @@ export default function MemoriesScreen() {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [aliasDrafts, setAliasDrafts] = useState<Record<string, string>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isMutating, setIsMutating] = useState(false);
 
@@ -53,6 +55,9 @@ export default function MemoriesScreen() {
     return memories.filter(
       (memory) =>
         memory.content.toLocaleLowerCase().includes(normalized) ||
+        (memory.aliases ?? []).some((alias) =>
+          alias.toLocaleLowerCase().includes(normalized),
+        ) ||
         memory.category.includes(normalized) ||
         memory.source.excerpt.toLocaleLowerCase().includes(normalized),
     );
@@ -61,6 +66,30 @@ export default function MemoriesScreen() {
   function beginEdit(id: string, content: string) {
     setEditingId(id);
     setEditingText(content);
+  }
+
+  function setAliasDraft(id: string, value: string) {
+    setAliasDrafts((current) => ({ ...current, [id]: value }));
+  }
+
+  function addAlias(memory: (typeof memories)[number]) {
+    const draft = aliasDrafts[memory.id]?.trim();
+    if (!draft) return;
+    void runMutation(
+      () => updateMemoryAliases(memory.id, [...(memory.aliases ?? []), draft]),
+      () => setAliasDrafts((current) => ({ ...current, [memory.id]: '' })),
+    );
+  }
+
+  function removeAlias(memory: (typeof memories)[number], alias: string) {
+    void runMutation(
+      () =>
+        updateMemoryAliases(
+          memory.id,
+          (memory.aliases ?? []).filter((item) => item !== alias),
+        ),
+      () => undefined,
+    );
   }
 
   return (
@@ -225,6 +254,63 @@ export default function MemoriesScreen() {
                   {memory.content}
                 </Text>
               )}
+              <View style={styles.aliasSection}>
+                <Text style={[styles.aliasLabel, { color: colors.mutedForeground }]}>
+                  Known as
+                </Text>
+                {(memory.aliases ?? []).length > 0 && (
+                  <View style={styles.aliasList}>
+                    {(memory.aliases ?? []).map((alias) => (
+                      <View
+                        key={alias}
+                        style={[styles.aliasChip, { backgroundColor: colors.secondary }]}
+                      >
+                        <Text style={[styles.aliasText, { color: colors.foreground }]}>
+                          {alias}
+                        </Text>
+                        <Pressable
+                          testID={`remove-memory-alias-${memory.id}-${alias}`}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove alias ${alias}`}
+                          onPress={() => removeAlias(memory, alias)}
+                          disabled={isMutating}
+                        >
+                          <Feather name="x" size={12} color={colors.mutedForeground} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <View style={styles.aliasInputRow}>
+                  <TextInput
+                    testID={`alias-input-${memory.id}`}
+                    value={aliasDrafts[memory.id] ?? ''}
+                    onChangeText={(value) => setAliasDraft(memory.id, value)}
+                    placeholder="Add a name or shorthand"
+                    placeholderTextColor={colors.mutedForeground}
+                    maxLength={48}
+                    style={[
+                      styles.aliasInput,
+                      {
+                        color: colors.cardForeground,
+                        borderColor: colors.border,
+                        backgroundColor: colors.background,
+                      },
+                    ]}
+                  />
+                  <Pressable
+                    testID={`add-memory-alias-${memory.id}`}
+                    accessibilityRole="button"
+                    onPress={() => addAlias(memory)}
+                    disabled={isMutating || !(aliasDrafts[memory.id] ?? '').trim()}
+                    style={[styles.aliasAddButton, { backgroundColor: colors.secondary }]}
+                  >
+                    <Text style={[styles.aliasAddText, { color: colors.primary }]}>
+                      Add
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
               <Text style={[styles.source, { color: colors.mutedForeground }]}>
                 From: “{memory.source.excerpt}”
               </Text>
@@ -357,6 +443,37 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     marginTop: 9,
   },
+  aliasSection: { marginTop: 12, gap: 7 },
+  aliasLabel: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 10 },
+  aliasList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  aliasChip: {
+    minHeight: 26,
+    borderRadius: 9,
+    paddingLeft: 9,
+    paddingRight: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  aliasText: { fontFamily: 'Inter_400Regular', fontSize: 11 },
+  aliasInputRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  aliasInput: {
+    flex: 1,
+    minHeight: 36,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+  },
+  aliasAddButton: {
+    minHeight: 36,
+    borderRadius: 10,
+    paddingHorizontal: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aliasAddText: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 11 },
   editInput: {
     minHeight: 62,
     borderWidth: 1,

@@ -245,6 +245,7 @@ function baseAppValue(overrides = {}) {
     pendingMemoryCandidate: null,
     saveMemoryCandidate: async () => {},
     rejectMemoryCandidate: () => {},
+    updateMemoryAliases: async () => {},
     ...overrides,
   };
 }
@@ -304,6 +305,46 @@ async function testMemoryApprovalFailureKeepsModalOpen() {
   });
   assert.ok(findByTestId(renderer, 'save-memory-candidate'));
   assert.match(textContent(renderer), /Keep answers concise/);
+}
+
+async function testMemoryAliasesUseSharedMutation() {
+  const updates = [];
+  appValue = baseAppValue({
+    memories: [
+      {
+        id: 'memory-1',
+        category: 'person',
+        content: 'Person X likes pickles.',
+        aliases: ['Alex'],
+        source: { turnId: 'turn-1', excerpt: 'Person X likes pickles.', createdAt: 1 },
+        createdAt: 1,
+        updatedAt: 1,
+        archivedAt: null,
+      },
+    ],
+    updateMemoryAliases: async (id, aliases) => {
+      updates.push({ id, aliases });
+    },
+  });
+  const { default: MemoriesScreen } = require('../app/memories.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(MemoriesScreen));
+  });
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'alias-input-memory-1').props.onChangeText('Al');
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'add-memory-alias-memory-1').props.onPress();
+  });
+  assert.deepEqual(updates[0], { id: 'memory-1', aliases: ['Alex', 'Al'] });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'remove-memory-alias-memory-1-Alex').props.onPress();
+  });
+  assert.deepEqual(updates[1], { id: 'memory-1', aliases: [] });
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
 }
 
 async function testVoiceStartClearsDraftBeforeRecognition() {
@@ -535,6 +576,7 @@ async function main() {
   await testProfileSaveFailureKeepsEditorOpen();
   await testSettingsFailureKeepsControlledValue();
   await testMemoryApprovalFailureKeepsModalOpen();
+  await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
   await testCalendarReminderSurvivesRestartAndSchedulingFailure();

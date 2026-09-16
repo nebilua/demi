@@ -137,6 +137,34 @@ async function main() {
     ),
     [],
   );
+  assert.deepEqual(memory.normalizeMemoryAliases([' Alex ', 'alex', '']), ['Alex']);
+  const aliasMemory = {
+    ...approvedMemory,
+    id: 'alias-memory',
+    aliases: ['Alex'],
+  };
+  assert.equal(
+    memory
+      .selectRelevantMemories([aliasMemory], 'What gift should I get Alex?')
+      .at(0)?.id,
+    'alias-memory',
+  );
+  const ambiguousAliasMemory = {
+    ...secondApprovedMemory,
+    id: 'ambiguous-alias-memory',
+    aliases: ['Alex'],
+  };
+  assert.deepEqual(
+    memory.selectRelevantMemories(
+      [aliasMemory, ambiguousAliasMemory],
+      'What gift should I get Alex?',
+    ),
+    [],
+  );
+  assert.deepEqual(
+    memory.parseApprovedMemories(JSON.stringify([aliasMemory]))[0]?.aliases,
+    ['Alex'],
+  );
 
   const makeApprovedMemory = (id, content, updatedAt, archivedAt = null) => ({
     id,
@@ -288,12 +316,20 @@ async function main() {
   assert.match(appContext, /pendingMemoryCandidate/);
   assert.match(appContext, /parseConversationalReminder/);
   assert.match(appContext, /slice\(-6\)/);
+  assert.match(appContext, /updateMemoryAliases/);
   assert.match(offlineLlm, /profile\?\.memories \?\? \[\]\)\.slice\(0, 6\)/);
   assert.match(calendarContext, /scheduleReminder\(base\)/);
   assert.match(appContext, /memoryFingerprint\(memory\.content\).*memoryFingerprint\(content\)/s);
   assert.match(homeScreen, /save-memory-candidate/);
   assert.match(homeScreen, /review-date-candidate/);
   assert.match(homeScreen, /pathname: '\/calendar\/edit'/);
+  const memoriesScreen = fs.readFileSync(
+    path.resolve(__dirname, '../app/memories.tsx'),
+    'utf8',
+  );
+  assert.match(memoriesScreen, /alias-input-/);
+  assert.match(memoriesScreen, /remove-memory-alias-/);
+  assert.match(memoriesScreen, /updateMemoryAliases/);
 
   console.log('Second Brain feature-flow regression checks passed.');
 }

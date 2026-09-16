@@ -16,6 +16,7 @@ export type ApprovedMemory = {
   id: string;
   category: MemoryCategory;
   content: string;
+  aliases?: string[];
   source: MemorySource;
   createdAt: number;
   updatedAt: number;
@@ -119,6 +120,9 @@ const RETRIEVAL_ALIASES: Record<string, string> = {
   tastes: 'preference',
 };
 
+export const MAX_MEMORY_ALIASES = 8;
+export const MAX_MEMORY_ALIAS_CHARS = 48;
+
 const CONTEXT_BRIDGE_PATTERN =
   /\b(buy|choose|gift|idea|present|recommend|suggest|that|their|them|they|those|it)\b/i;
 
@@ -156,6 +160,22 @@ export function memoryFingerprint(value: string) {
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+}
+
+export function normalizeMemoryAliases(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const aliases: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const alias = item.trim().replace(/\s+/g, ' ').slice(0, MAX_MEMORY_ALIAS_CHARS);
+    const fingerprint = memoryFingerprint(alias);
+    if (!fingerprint || seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    aliases.push(alias);
+    if (aliases.length >= MAX_MEMORY_ALIASES) break;
+  }
+  return aliases;
 }
 
 export function parseMemoryCandidate(
@@ -276,9 +296,10 @@ function parseDuration(value: string, unit: string) {
 type RetrievalTerm = {
   raw: string;
   canonical: string;
+  aliasKey?: string;
 };
 
-function retrievalTerms(value: string): RetrievalTerm[] {
+function retrievalTerms(value: string, aliasKey?: string): RetrievalTerm[] {
   return value
     .toLocaleLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -295,7 +316,17 @@ function retrievalTerms(value: string): RetrievalTerm[] {
     .map((term) => ({
       raw: term,
       canonical: RETRIEVAL_ALIASES[term] ?? term,
+      aliasKey,
     }));
+}
+
+function memoryRetrievalTerms(memory: ApprovedMemory): RetrievalTerm[] {
+  return [
+    ...retrievalTerms(memory.content),
+    ...normalizeMemoryAliases(memory.aliases).flatMap((alias) =>
+      retrievalTerms(alias, memoryFingerprint(alias)),
+    ),
+  ];
 }
 
 function parseClockTime(sourceText: string) {
@@ -445,7 +476,19 @@ export function selectRelevantMemories(
             memoryFingerprint(memory.content),
         ) === index,
     )
-    .map((memory) => ({ memory, terms: retrievalTerms(memory.content) }));
+    .map((memory) => ({ memory, terms: memoryRetrievalTerms(memory) }));
+  const aliasUseCount = new Map<string, number>();
+  for (const { memory } of activeMemories) {
+    for (const alias of normalizeMemoryAliases(memory.aliases)) {
+      const key = memoryFingerprint(alias);
+      aliasUseCount.set(key, (aliasUseCount.get(key) ?? 0) + 1);
+    }
+  }
+  const ambiguousAliasKeys = new Set(
+    [...aliasUseCount]
+      .filter(([, count]) => count > 1)
+      .map(([key]) => key),
+  );
   const documentFrequency = new Map<string, number>();
   for (const { terms } of activeMemories) {
     for (const term of terms) {
@@ -460,6 +503,12 @@ export function selectRelevantMemories(
     .map(({ memory, terms }) => ({
       memory,
       score: terms.reduce((score, term) => {
+        if (term.aliasKey) {
+          if (ambiguousAliasKeys.has(term.aliasKey)) return score;
+          if (queryRawTerms.has(term.raw)) return score + 1.5;
+          if (allowContextBridge && contextRawTerms.has(term.raw)) return score + 0.45;
+          return score;
+        }
         if (queryRawTerms.has(term.raw)) {
           const isRare = documentFrequency.get(term.canonical) === 1;
           return score + (term.raw.length <= 2 || isRare ? 1.5 : 0.9);
@@ -495,6 +544,7 @@ export function parseApprovedMemories(value: string | null): ApprovedMemory[] {
         typeof item.id !== 'string' ||
         !MEMORY_CATEGORIES.includes(item.category as MemoryCategory) ||
         typeof item.content !== 'string' ||
+        (item.aliases !== undefined && !Array.isArray(item.aliases)) ||
         typeof item.createdAt !== 'number' ||
         typeof item.updatedAt !== 'number' ||
         !(item.archivedAt === null || typeof item.archivedAt === 'number') ||
@@ -510,5 +560,9 @@ export function parseApprovedMemories(value: string | null): ApprovedMemory[] {
       seen.add(fingerprint);
       return true;
     })
+    .map((memory) => ({
+      ...memory,
+      aliases: normalizeMemoryAliases(memory.aliases),
+    }))
     .slice(0, 100);
 }

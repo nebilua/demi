@@ -38,6 +38,7 @@ import {
 import {
   memoryFingerprint,
   hasConversationalReminderIntent,
+  normalizeMemoryAliases,
   parseConversationalReminder,
   parseApprovedMemories,
   parseMemoryCandidate,
@@ -108,6 +109,7 @@ type AppContextValue = {
   saveMemoryCandidate: (content?: string) => Promise<void>;
   rejectMemoryCandidate: () => void;
   updateMemory: (id: string, content: string) => Promise<void>;
+  updateMemoryAliases: (id: string, aliases: string[]) => Promise<void>;
   archiveMemory: (id: string, archived: boolean) => Promise<void>;
   deleteMemory: (id: string) => Promise<void>;
   savedTurnCount: number;
@@ -1351,6 +1353,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           seen.add(fingerprint);
           return true;
         })
+        .map((memory) => ({
+          ...memory,
+          aliases: normalizeMemoryAliases(memory.aliases),
+        }))
         .slice(0, MAX_MEMORIES);
       await writeSecureRecord(
         SECURE_MEMORIES_KEY,
@@ -1436,6 +1442,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
+  async function updateMemoryAliases(id: string, aliases: string[]) {
+    const normalizedAliases = normalizeMemoryAliases(aliases);
+    await mutateMemories((current) =>
+      current.map((memory) =>
+        memory.id === id
+          ? { ...memory, aliases: normalizedAliases, updatedAt: Date.now() }
+          : memory,
+      ),
+    );
+  }
+
   async function archiveMemory(id: string, archived: boolean) {
     await mutateMemories((current) =>
       current.map((memory) =>
@@ -1471,6 +1488,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveMemoryCandidate,
       rejectMemoryCandidate: () => setPendingMemoryCandidate(null),
       updateMemory,
+      updateMemoryAliases,
       archiveMemory,
       deleteMemory,
       savedTurnCount,
