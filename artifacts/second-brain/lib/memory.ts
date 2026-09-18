@@ -200,6 +200,27 @@ export function getConflictingMemoryAliasKeys(
   );
 }
 
+export function getConflictingMemoryOwners(
+  memories: ApprovedMemory[],
+  memoryId: string,
+  alias: string,
+): ApprovedMemory[] {
+  const aliasKey = memoryFingerprint(alias);
+  if (!aliasKey) return [];
+
+  const owner = memories.find((memory) => memory.id === memoryId);
+  if (!owner || owner.archivedAt) return [];
+
+  return memories.filter(
+    (memory) =>
+      memory.id !== memoryId &&
+      !memory.archivedAt &&
+      normalizeMemoryAliases(memory.aliases).some(
+        (candidate) => memoryFingerprint(candidate) === aliasKey,
+      ),
+  );
+}
+
 export function parseMemoryCandidate(
   raw: string,
   existing: ApprovedMemory[],

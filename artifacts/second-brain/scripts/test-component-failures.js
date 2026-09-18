@@ -407,6 +407,11 @@ async function testMemoryAliasesUseSharedMutation() {
     textContent(renderer),
     /shared with another active memory.*not use it until you remove or change the duplicate/,
   );
+  assert.match(textContent(renderer), /Person Y likes socks\./);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'conflicting-memory-memory-1-memory-2').props.onPress();
+  });
+  assert.equal(findByTestId(renderer, 'edit-memory-content').props.value, 'Person Y likes socks.');
   await TestRenderer.act(async () => {
     findByTestId(renderer, 'alias-input-memory-1').props.onChangeText('Al');
   });
@@ -418,6 +423,64 @@ async function testMemoryAliasesUseSharedMutation() {
     await findByTestId(renderer, 'remove-memory-alias-memory-1-Alex').props.onPress();
   });
   assert.deepEqual(updates[1], { id: 'memory-1', aliases: [] });
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  appValue = baseAppValue({
+    memories: [
+      {
+        id: 'memory-1',
+        category: 'person',
+        content: 'Person X likes pickles.',
+        aliases: ['Alex'],
+        source: { turnId: 'turn-1', excerpt: 'Person X likes pickles.', createdAt: 1 },
+        createdAt: 1,
+        updatedAt: 1,
+        archivedAt: null,
+      },
+      {
+        id: 'memory-2',
+        category: 'person',
+        content: 'Person Y likes socks.',
+        aliases: ['Alex'],
+        source: { turnId: 'turn-2', excerpt: 'Person Y likes socks.', createdAt: 2 },
+        createdAt: 2,
+        updatedAt: 2,
+        archivedAt: 3,
+      },
+    ],
+  });
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(MemoriesScreen));
+  });
+  assert.doesNotMatch(textContent(renderer), /shared with another active memory/);
+  assert.throws(
+    () => findByTestId(renderer, 'conflicting-memory-memory-1-memory-2'),
+    /No instances found/,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  appValue = baseAppValue({
+    memories: [
+      {
+        id: 'memory-1',
+        category: 'person',
+        content: 'Person X likes pickles.',
+        aliases: ['Alex'],
+        source: { turnId: 'turn-1', excerpt: 'Person X likes pickles.', createdAt: 1 },
+        createdAt: 1,
+        updatedAt: 1,
+        archivedAt: null,
+      },
+    ],
+  });
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(MemoriesScreen));
+  });
+  assert.doesNotMatch(textContent(renderer), /shared with another active memory/);
   await TestRenderer.act(async () => {
     renderer.unmount();
   });

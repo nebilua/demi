@@ -412,6 +412,8 @@ async function main() {
   );
   assert.match(memoriesScreen, /alias-input-/);
   assert.match(memoriesScreen, /remove-memory-alias-/);
+  assert.match(memoriesScreen, /getConflictingMemoryOwners/);
+  assert.match(memoriesScreen, /conflicting-memory-/);
   assert.match(memoriesScreen, /updateMemoryAliases/);
 
   console.log('Second Brain feature-flow regression checks passed.');

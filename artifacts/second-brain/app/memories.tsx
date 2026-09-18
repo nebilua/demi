@@ -17,6 +17,7 @@ import { useApp } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import {
   getConflictingMemoryAliasKeys,
+  getConflictingMemoryOwners,
   memoryFingerprint,
 } from '@/lib/memory';
 
@@ -267,7 +268,8 @@ export default function MemoriesScreen() {
                   Known as
                 </Text>
                 {((memory.aliases ?? []).some((alias) =>
-                  conflictingAliasKeys.has(memoryFingerprint(alias)),
+                  conflictingAliasKeys.has(memoryFingerprint(alias)) &&
+                  getConflictingMemoryOwners(memories, memory.id, alias).length > 0,
                 )) && (
                   <View
                     style={[
@@ -282,6 +284,53 @@ export default function MemoriesScreen() {
                     </Text>
                   </View>
                 )}
+                {(memory.aliases ?? []).map((alias) => {
+                  const conflictingOwners = getConflictingMemoryOwners(
+                    memories,
+                    memory.id,
+                    alias,
+                  );
+                  if (conflictingOwners.length === 0) return null;
+
+                  return (
+                    <View key={`conflict-${alias}`} style={styles.aliasConflictGroup}>
+                      <Text style={[styles.aliasConflictLabel, { color: colors.mutedForeground }]}>
+                        “{alias}” is also used by
+                      </Text>
+                      <View style={styles.aliasConflictList}>
+                        {conflictingOwners.map((owner) => (
+                          <Pressable
+                            key={owner.id}
+                            testID={`conflicting-memory-${memory.id}-${owner.id}`}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Edit memory ${owner.content}`}
+                            onPress={() => beginEdit(owner.id, owner.content)}
+                            style={[
+                              styles.aliasConflictCard,
+                              {
+                                backgroundColor: colors.secondary,
+                                borderColor: colors.border,
+                              },
+                            ]}
+                          >
+                            <View style={styles.aliasConflictCopy}>
+                              <Text style={[styles.aliasConflictCategory, { color: colors.primary }]}>
+                                {owner.category.toUpperCase()}
+                              </Text>
+                              <Text
+                                numberOfLines={2}
+                                style={[styles.aliasConflictText, { color: colors.foreground }]}
+                              >
+                                {owner.content}
+                              </Text>
+                            </View>
+                            <Feather name="edit-2" size={14} color={colors.mutedForeground} />
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  );
+                })}
                 {(memory.aliases ?? []).length > 0 && (
                   <View style={styles.aliasList}>
                     {(memory.aliases ?? []).map((alias) => (
@@ -478,6 +527,34 @@ const styles = StyleSheet.create({
   },
   aliasWarningText: {
     flex: 1,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  aliasConflictGroup: { gap: 5 },
+  aliasConflictLabel: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  aliasConflictList: { gap: 6 },
+  aliasConflictCard: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aliasConflictCopy: { flex: 1, gap: 2 },
+  aliasConflictCategory: {
+    fontFamily: 'SpaceGrotesk_700Bold',
+    fontSize: 8,
+    letterSpacing: 0.8,
+  },
+  aliasConflictText: {
     fontFamily: 'Inter_400Regular',
     fontSize: 11,
     lineHeight: 15,
