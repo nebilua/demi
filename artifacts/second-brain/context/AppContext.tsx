@@ -99,6 +99,13 @@ export type ModelSetupStatus =
   | 'validating'
   | 'loading';
 
+export type ModelCleanupResult = {
+  status: 'completed' | 'unavailable';
+  deletedFiles: number;
+  deletedBytes: number;
+  failedFiles: number;
+};
+
 type AppContextValue = {
   settings: AppSettings;
   settingsReady: boolean;
@@ -162,6 +169,7 @@ type AppContextValue = {
   clearConversation: () => Promise<void>;
   storageUsage: LocalStorageUsage | null;
   refreshStorageUsage: () => void;
+  reclaimUnusedModelFiles: () => Promise<ModelCleanupResult>;
 };
 
 const SETTINGS_KEY = '@second-brain/settings-v1';
@@ -329,25 +337,74 @@ async function validateGgufHeader(uri: string) {
   }
 }
 
-async function cleanupUnusedModelFiles(activeModelUri: string | null) {
-  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
+async function cleanupUnusedModelFiles(
+  activeModelUri: string | null,
+): Promise<ModelCleanupResult> {
+  const result: ModelCleanupResult = {
+    status: 'completed',
+    deletedFiles: 0,
+    deletedBytes: 0,
+    failedFiles: 0,
+  };
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return result;
 
   const modelsDirectory = `${FileSystem.documentDirectory}models`;
-  try {
-    const entries = await FileSystem.readDirectoryAsync(modelsDirectory);
-    await Promise.all(
-      entries.map(async (entry) => {
-        const candidateUri = `${modelsDirectory}/${entry}`;
-        if (candidateUri === activeModelUri) return;
-        const info = await FileSystem.getInfoAsync(candidateUri);
-        if (!info.exists || info.isDirectory) return;
+  const normalizedActiveUri = activeModelUri?.replace(/\/$/, '');
+
+  async function removeInactiveFiles(directoryUri: string): Promise<boolean> {
+    let entries: string[];
+    try {
+      entries = await FileSystem.readDirectoryAsync(directoryUri);
+    } catch {
+      result.status = 'unavailable';
+      return false;
+    }
+
+    for (const entry of entries) {
+      const candidateUri = `${directoryUri.replace(/\/$/, '')}/${entry}`;
+      if (candidateUri.replace(/\/$/, '') === normalizedActiveUri) continue;
+
+      let info;
+      try {
+        info = await FileSystem.getInfoAsync(candidateUri);
+      } catch {
+        result.failedFiles += 1;
+        continue;
+      }
+      if (!info.exists) continue;
+      if (info.isDirectory) {
+        await removeInactiveFiles(candidateUri);
+        continue;
+      }
+
+      try {
         await FileSystem.deleteAsync(candidateUri, { idempotent: true });
-      }),
-    );
-  } catch {
-    // The models directory may not exist yet or may be temporarily unavailable.
-    // Cleanup must never prevent the active model from loading.
+        const remaining = await FileSystem.getInfoAsync(candidateUri);
+        if (remaining.exists) {
+          result.failedFiles += 1;
+        } else {
+          result.deletedFiles += 1;
+          result.deletedBytes += info.size ?? 0;
+        }
+      } catch {
+        result.failedFiles += 1;
+      }
+    }
+    return true;
   }
+
+  try {
+    const directoryInfo = await FileSystem.getInfoAsync(modelsDirectory);
+    if (!directoryInfo.exists) return result;
+    if (!directoryInfo.isDirectory) {
+      result.status = 'unavailable';
+      return result;
+    }
+    await removeInactiveFiles(modelsDirectory);
+  } catch {
+    result.status = 'unavailable';
+  }
+  return result;
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -411,6 +468,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function refreshStorageUsage() {
     setStorageUsageRefreshToken((current) => current + 1);
+  }
+
+  async function reclaimUnusedModelFiles() {
+    if (
+      modelImportInFlightRef.current ||
+      modelLoadInFlightRef.current ||
+      modelSetupStatus !== 'idle' ||
+      (downloadStatus !== 'idle' && downloadStatus !== 'error')
+    ) {
+      return {
+        status: 'unavailable',
+        deletedFiles: 0,
+        deletedBytes: 0,
+        failedFiles: 0,
+      } satisfies ModelCleanupResult;
+    }
+    return cleanupUnusedModelFiles(localModel?.uri ?? null);
   }
 
   useEffect(() => {
@@ -1600,6 +1674,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       clearConversation,
       storageUsage,
       refreshStorageUsage,
+      reclaimUnusedModelFiles,
     }),
     [
       settings,

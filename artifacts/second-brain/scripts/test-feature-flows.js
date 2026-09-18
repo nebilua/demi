@@ -356,6 +356,9 @@ async function main() {
     'utf8',
   );
   assert.match(appContext, /cleanupUnusedModelFiles/);
+  assert.match(appContext, /reclaimUnusedModelFiles/);
+  assert.match(appContext, /failedFiles/);
+  assert.match(appContext, /remaining\.exists/);
   assert.match(appContext, /MODEL_STORAGE_SAFETY_MARGIN_BYTES/);
   assert.match(appContext, /requiresOnDeviceRecognition: true/);
   assert.match(offlineVoice, /voiceMatchesLanguage/);
@@ -365,6 +368,8 @@ async function main() {
   assert.match(localStorageUsage, /reclaimableModels/);
   assert.match(localStorageUsage, /cacheDirectory/);
   assert.match(settingsScreen, /Refresh local storage usage/);
+  assert.match(settingsScreen, /reclaim-model-files/);
+  assert.match(settingsScreen, /confirm-reclaim-model-files/);
   assert.match(settingsScreen, /Active model is never included/);
   assert.match(settingsScreen, /never deletes active models or saved memories/);
 

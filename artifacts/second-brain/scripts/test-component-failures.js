@@ -197,6 +197,14 @@ function baseAppValue(overrides = {}) {
     memories: [],
     storageProtection: 'secure',
     storageError: null,
+    storageUsage: null,
+    refreshStorageUsage: () => {},
+    reclaimUnusedModelFiles: async () => ({
+      status: 'completed',
+      deletedFiles: 0,
+      deletedBytes: 0,
+      failedFiles: 0,
+    }),
     clearConversation: async () => {},
     localModel: null,
     deviceCompatibility: {
@@ -280,6 +288,60 @@ async function testSettingsFailureKeepsControlledValue() {
     findByTestId(renderer, 'voice-option-voice-1').props.accessibilityState.selected,
     false,
   );
+}
+
+async function testModelReclaimFailureKeepsConfirmationOpen() {
+  let reclaimCalls = 0;
+  let refreshCalls = 0;
+  appValue = baseAppValue({
+    storageUsage: {
+      total: { bytes: 64, status: 'estimated' },
+      activeModel: { bytes: 32, status: 'measured' },
+      reclaimableModels: { bytes: 32, status: 'measured', fileCount: 2 },
+      conversations: { bytes: 0, status: 'estimated' },
+      memories: { bytes: 0, status: 'estimated' },
+      settingsAndProfile: { bytes: 0, status: 'estimated' },
+      appFiles: { bytes: 0, status: 'measured' },
+      temporaryFiles: { bytes: 0, status: 'measured' },
+      freeDevice: { bytes: 1000, status: 'measured' },
+    },
+    refreshStorageUsage: () => {
+      refreshCalls += 1;
+    },
+    reclaimUnusedModelFiles: async () => {
+      reclaimCalls += 1;
+      return {
+        status: 'completed',
+        deletedFiles: 1,
+        deletedBytes: 16,
+        failedFiles: 1,
+      };
+    },
+  });
+  const previousPlatform = { ...fakeReactNative.Platform };
+  fakeReactNative.Platform.OS = 'android';
+  fakeReactNative.Platform.Version = 34;
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(SettingsScreen));
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'reclaim-model-files').props.onPress();
+  });
+  assert.ok(findByTestId(renderer, 'confirm-reclaim-model-files'));
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'confirm-reclaim-model-files').props.onPress();
+  });
+  assert.equal(reclaimCalls, 1);
+  assert.equal(refreshCalls, 1);
+  assert.ok(findByTestId(renderer, 'confirm-reclaim-model-files'));
+  assert.match(textContent(renderer), /could not be removed/);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+  fakeReactNative.Platform.OS = previousPlatform.OS;
+  fakeReactNative.Platform.Version = previousPlatform.Version;
 }
 
 async function testMemoryApprovalFailureKeepsModalOpen() {
@@ -625,6 +687,7 @@ function testDownloadCancellationGuardRunsBeforeCommit() {
 async function main() {
   await testProfileSaveFailureKeepsEditorOpen();
   await testSettingsFailureKeepsControlledValue();
+  await testModelReclaimFailureKeepsConfirmationOpen();
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();

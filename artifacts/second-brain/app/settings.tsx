@@ -132,11 +132,25 @@ function StorageUsageCard({
   usage,
   colors,
   onRefresh,
+  onReclaim,
+  isReclaiming,
+  reclaimMessage,
+  modelOperationInProgress,
 }: {
   usage: LocalStorageUsage | null;
   colors: ReturnType<typeof useColors>;
   onRefresh: () => void;
+  onReclaim: () => void;
+  isReclaiming: boolean;
+  reclaimMessage: string | null;
+  modelOperationInProgress: boolean;
 }) {
+  const canReclaim =
+    Platform.OS !== 'web' &&
+    !modelOperationInProgress &&
+    usage?.reclaimableModels.bytes !== null &&
+    (usage?.reclaimableModels.fileCount ?? 0) > 0;
+
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <View style={styles.storageHeader}>
@@ -184,6 +198,35 @@ function StorageUsageCard({
             metric={usage.reclaimableModels}
             colors={colors}
           />
+          {canReclaim && usage && (
+            <Pressable
+              testID="reclaim-model-files"
+              accessibilityRole="button"
+              accessibilityLabel="Reclaim inactive model files"
+              disabled={isReclaiming}
+              onPress={onReclaim}
+              style={({ pressed }) => [
+                styles.storageAction,
+                { borderColor: colors.border },
+                pressed && styles.pressed,
+              ]}
+            >
+              {isReclaiming ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Feather name="trash-2" size={14} color={colors.primary} />
+              )}
+              <View style={styles.rowCopy}>
+                <Text style={[styles.storageActionTitle, { color: colors.primary }]}>
+                  Reclaim inactive model files
+                </Text>
+                <Text style={[styles.storageRowDetail, { color: colors.mutedForeground }]}>
+                  Remove about {formatStorageBytes(usage.reclaimableModels.bytes ?? 0)} while keeping the active model and memories
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+            </Pressable>
+          )}
           <StorageUsageRow
             label="Conversations"
             detail="Encrypted local record"
@@ -227,6 +270,11 @@ function StorageUsageCard({
       <Text style={[styles.storageNote, { color: colors.mutedForeground }]}>
         Secure-store values are estimates because Android encrypts them internally. Inactive model files are identified only; this screen never deletes active models or saved memories.
       </Text>
+      {reclaimMessage && (
+        <Text style={[styles.storageNote, { color: reclaimMessage.includes('could not') ? colors.destructive : colors.primary }]}>
+          {reclaimMessage}
+        </Text>
+      )}
     </View>
   );
 }
@@ -269,6 +317,7 @@ export default function SettingsScreen() {
     dismissVoiceError,
     storageUsage,
     refreshStorageUsage,
+    reclaimUnusedModelFiles,
   } = useApp();
   const colors = useColors(settings.appearance);
   const insets = useSafeAreaInsets();
@@ -276,6 +325,9 @@ export default function SettingsScreen() {
   const [isClearing, setIsClearing] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [showReclaimConfirm, setShowReclaimConfirm] = useState(false);
+  const [isReclaimingModels, setIsReclaimingModels] = useState(false);
+  const [modelReclaimMessage, setModelReclaimMessage] = useState<string | null>(null);
 
   const androidApiLevel = Platform.OS === 'android' && typeof Platform.Version === 'number' ? Platform.Version : null;
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
@@ -313,6 +365,47 @@ export default function SettingsScreen() {
       // Keep the confirmation open so a failed clear is not reported as success.
     } finally {
       setIsClearing(false);
+    }
+  }
+
+  async function handleReclaimModels() {
+    if (
+      !storageUsage ||
+      storageUsage.reclaimableModels.bytes === null ||
+      storageUsage.reclaimableModels.fileCount === 0
+    ) {
+      return;
+    }
+
+    setIsReclaimingModels(true);
+    setModelReclaimMessage(null);
+    try {
+      const result = await reclaimUnusedModelFiles();
+      refreshStorageUsage();
+      if (result.status === 'unavailable') {
+        setModelReclaimMessage(
+          result.deletedFiles > 0
+            ? `Removed ${result.deletedFiles} file${result.deletedFiles === 1 ? '' : 's'} before the model folder became unavailable. Remaining files were not confirmed; try again later.`
+            : 'Demi could not inspect the model folder. No files were confirmed as removed; try again later.',
+        );
+        return;
+      }
+      if (result.failedFiles > 0) {
+        setModelReclaimMessage(
+          `Removed ${result.deletedFiles} file${result.deletedFiles === 1 ? '' : 's'}; ${result.failedFiles} could not be removed. Try again.`,
+        );
+        return;
+      }
+      setShowReclaimConfirm(false);
+      setModelReclaimMessage(
+        `Removed ${result.deletedFiles} inactive model file${result.deletedFiles === 1 ? '' : 's'}. The active model and memories were kept.`,
+      );
+    } catch {
+      setModelReclaimMessage(
+        'Inactive model files could not be reclaimed. Nothing else was changed; try again.',
+      );
+    } finally {
+      setIsReclaimingModels(false);
     }
   }
 
@@ -383,6 +476,13 @@ export default function SettingsScreen() {
           usage={storageUsage}
           colors={colors}
           onRefresh={refreshStorageUsage}
+          onReclaim={() => setShowReclaimConfirm(true)}
+          isReclaiming={isReclaimingModels}
+          reclaimMessage={modelReclaimMessage}
+          modelOperationInProgress={
+            modelSetupStatus !== 'idle' ||
+            (downloadStatus !== 'idle' && downloadStatus !== 'error')
+          }
         />
 
         <SectionLabel>Offline setup</SectionLabel>
@@ -743,6 +843,51 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={showReclaimConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isReclaimingModels) setShowReclaimConfirm(false);
+        }}
+      >
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.5)' }]}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>Reclaim inactive models?</Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              Remove {storageUsage?.reclaimableModels.fileCount ?? 0} inactive model file{storageUsage?.reclaimableModels.fileCount === 1 ? '' : 's'} (about {formatStorageBytes(storageUsage?.reclaimableModels.bytes ?? 0)}). The active model and encrypted memories will be kept.
+            </Text>
+            {modelReclaimMessage && (
+              <Text style={[styles.modalBody, { color: colors.destructive }]}>
+                {modelReclaimMessage}
+              </Text>
+            )}
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="cancel-reclaim-model-files"
+                disabled={isReclaimingModels}
+                onPress={() => setShowReclaimConfirm(false)}
+                style={styles.modalButton}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-reclaim-model-files"
+                disabled={isReclaimingModels}
+                onPress={() => void handleReclaimModels()}
+                style={styles.modalButton}
+              >
+                {isReclaimingModels ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Text style={[styles.modalButtonText, { color: colors.primary }]}>Reclaim</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <PersonalProfileEditor visible={showProfileEditor} mode="settings" onClose={() => setShowProfileEditor(false)} />
     </SafeAreaView>
   );
@@ -778,6 +923,8 @@ const styles = StyleSheet.create({
   storageRowValue: { fontFamily: 'Inter_500Medium', fontSize: 12, textAlign: 'right' },
   storageDivider: { height: 1, marginVertical: 2 },
   storageNote: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 16 },
+  storageAction: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
+  storageActionTitle: { fontFamily: 'Inter_500Medium', fontSize: 13, marginBottom: 2 },
   readinessItem: { paddingVertical: 8 },
   readinessHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   readinessTitle: { fontFamily: 'Inter_500Medium', fontSize: 15 },
