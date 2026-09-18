@@ -30,6 +30,7 @@ import {
   stopLocalSpeech,
   openLocalVoiceSettings,
   voiceErrorMessage,
+  voiceMatchesLanguage,
   type ExpoSpeechRecognitionResultEvent,
   type OfflineVoice,
   type RecognitionModule,
@@ -55,6 +56,11 @@ import {
   writeSecureRecord,
   type SecureStorageProtection,
 } from '@/lib/secureLocalStorage';
+import {
+  MAX_CONVERSATION_TURNS,
+  MAX_MEMORIES,
+  MODEL_STORAGE_SAFETY_MARGIN_BYTES,
+} from '@/lib/localLimits';
 
 export type Appearance = 'system' | 'light' | 'dark';
 
@@ -159,7 +165,6 @@ const PROFILE_KEY = '@second-brain/personal-profile-v1';
 const SECURE_PROFILE_KEY = 'profile';
 const SECURE_CONVERSATION_KEY = 'conversation';
 const SECURE_MEMORIES_KEY = 'approved-memories';
-const MAX_MEMORIES = 100;
 
 const DEFAULT_SETTINGS: AppSettings = {
   appearance: 'system',
@@ -182,15 +187,6 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 function createId() {
   return `${Date.now().toString()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function voiceMatchesLanguage(voiceLanguage: string, targetLanguage: string) {
-  const voiceLocale = voiceLanguage.toLowerCase().replace('_', '-');
-  const targetLocale = targetLanguage.toLowerCase().replace('_', '-');
-  return (
-    voiceLocale === targetLocale ||
-    voiceLocale.split('-')[0] === targetLocale.split('-')[0]
-  );
 }
 
 function parseSettings(value: string | null): AppSettings {
@@ -327,6 +323,27 @@ async function validateGgufHeader(uri: string) {
   }
 }
 
+async function cleanupUnusedModelFiles(activeModelUri: string | null) {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
+
+  const modelsDirectory = `${FileSystem.documentDirectory}models`;
+  try {
+    const entries = await FileSystem.readDirectoryAsync(modelsDirectory);
+    await Promise.all(
+      entries.map(async (entry) => {
+        const candidateUri = `${modelsDirectory}/${entry}`;
+        if (candidateUri === activeModelUri) return;
+        const info = await FileSystem.getInfoAsync(candidateUri);
+        if (!info.exists || info.isDirectory) return;
+        await FileSystem.deleteAsync(candidateUri, { idempotent: true });
+      }),
+    );
+  } catch {
+    // The models directory may not exist yet or may be temporarily unavailable.
+    // Cleanup must never prevent the active model from loading.
+  }
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -413,15 +430,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         memoriesRef.current = savedMemories;
         setSavedTurnCount(savedTurns.length);
         setTurns(nextSettings.saveConversations ? savedTurns : []);
+          let activeModelUri: string | null = null;
         if (savedModel && Platform.OS !== 'web') {
           const file = await FileSystem.getInfoAsync(savedModel.uri);
           if (file.exists) {
             setLocalModel(savedModel);
+              activeModelUri = savedModel.uri;
             setEngineStatus('no-model');
           } else {
             await AsyncStorage.removeItem(MODEL_KEY);
           }
         }
+          await cleanupUnusedModelFiles(activeModelUri);
         setSettingsReady(true);
         setIsConversationReady(true);
         },
@@ -695,11 +715,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
            'Demi could not check free storage before copying this model. Try again after closing other apps.',
          );
        }
-       const storageSafetyMargin = 128 * 1024 * 1024;
-       if (freeStorageBytes < sizeBytes + storageSafetyMargin) {
+        if (
+          freeStorageBytes <
+          sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES
+        ) {
          throw new Error(
-           `There is not enough free storage to copy this ${formatBytes(sizeBytes)} model. Free at least ${formatBytes(
-             sizeBytes + storageSafetyMargin,
+            `There is not enough free storage to copy this ${formatBytes(sizeBytes)} model. Free at least ${formatBytes(
+              sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES,
            )} and try again.`,
          );
        }
@@ -757,6 +779,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
            () => {},
          );
        }
+        await cleanupUnusedModelFiles(nextModel.uri);
     } catch (error) {
       if (destination) {
         await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
@@ -844,9 +867,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch {
         throw new Error('Could not check free storage.');
       }
-      const storageSafetyMargin = 128 * 1024 * 1024;
-      if (freeStorageBytes < RECOMMENDED_MODEL.sizeBytes + storageSafetyMargin) {
-        throw new Error(`Not enough free storage. Need ${formatBytes(RECOMMENDED_MODEL.sizeBytes + storageSafetyMargin)}.`);
+      if (
+        freeStorageBytes <
+        RECOMMENDED_MODEL.sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES
+      ) {
+        throw new Error(
+          `Not enough free storage. Need ${formatBytes(
+            RECOMMENDED_MODEL.sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES,
+          )}.`,
+        );
       }
       await FileSystem.makeDirectoryAsync(modelsDirectory, { intermediates: true });
 
@@ -917,6 +946,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (previousModel && previousModel.uri !== nextModel.uri) {
         await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(() => {});
       }
+      await cleanupUnusedModelFiles(nextModel.uri);
 
       setDownloadStatus('idle');
 
@@ -1189,9 +1219,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await writeSecureRecord(
         SECURE_CONVERSATION_KEY,
-        JSON.stringify(nextTurns.slice(-80)),
+        JSON.stringify(nextTurns.slice(-MAX_CONVERSATION_TURNS)),
       );
-      setSavedTurnCount(Math.min(nextTurns.length, 80));
+      setSavedTurnCount(Math.min(nextTurns.length, MAX_CONVERSATION_TURNS));
       setStorageError(null);
     } catch {
       setStorageError('This message is visible now, but could not be saved locally.');

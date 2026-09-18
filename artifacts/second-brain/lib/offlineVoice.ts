@@ -25,6 +25,18 @@ export type OfflineTtsModule =
 let recognitionModule: RecognitionModule | null | undefined;
 let offlineTtsModule: OfflineTtsModule | null | undefined;
 
+export function voiceMatchesLanguage(
+  voiceLanguage: string,
+  targetLanguage: string,
+) {
+  const voiceLocale = voiceLanguage.toLowerCase().replace(/_/g, '-');
+  const targetLocale = targetLanguage.toLowerCase().replace(/_/g, '-');
+  return (
+    voiceLocale === targetLocale ||
+    voiceLocale.split('-')[0] === targetLocale.split('-')[0]
+  );
+}
+
 export function getRecognitionModule(): RecognitionModule | null {
   if (recognitionModule !== undefined) return recognitionModule;
   if (Platform.OS === 'web') {

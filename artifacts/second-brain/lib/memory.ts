@@ -1,3 +1,5 @@
+import { MAX_MEMORIES } from './localLimits';
+
 export const MEMORY_CATEGORIES = [
   'preference',
   'person',
@@ -575,5 +577,5 @@ export function parseApprovedMemories(value: string | null): ApprovedMemory[] {
       ...memory,
       aliases: normalizeMemoryAliases(memory.aliases),
     }))
-    .slice(0, 100);
+    .slice(0, MAX_MEMORIES);
 }

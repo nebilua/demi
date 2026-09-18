@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import { MAX_SECURE_RECORD_CHUNKS } from './localLimits';
 
 const PREFIX = 'second-brain.secure.v1.';
 const CHUNK_SIZE = 1800;
@@ -72,7 +73,7 @@ export async function readSecureRecord(key: string): Promise<string | null> {
     typeof manifest.generation !== 'string' ||
     !Number.isInteger(manifest.chunks) ||
     manifest.chunks < 1 ||
-    manifest.chunks > 500
+    manifest.chunks > MAX_SECURE_RECORD_CHUNKS
   ) {
     throw new Error('SECURE_RECORD_CORRUPT');
   }

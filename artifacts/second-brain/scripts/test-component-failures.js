@@ -392,6 +392,42 @@ async function testVoiceStartClearsDraftBeforeRecognition() {
   assert.equal(findByTestId(renderer, 'chat-input').props.value, '');
 }
 
+async function testBrowserVoiceControlsExplainNativeRequirement() {
+  routerCalls = [];
+  appValue = baseAppValue();
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let settingsRenderer;
+  await TestRenderer.act(async () => {
+    settingsRenderer = TestRenderer.create(React.createElement(SettingsScreen));
+  });
+  assert.equal(findByTestId(settingsRenderer, 'offline-speech-setup').props.disabled, true);
+  assert.equal(findByTestId(settingsRenderer, 'offline-tts-setup').props.disabled, true);
+  assert.match(textContent(settingsRenderer), /installed Android app/);
+  await TestRenderer.act(async () => {
+    settingsRenderer.unmount();
+  });
+
+  appValue = baseAppValue({
+    voiceInputStatus: 'unavailable',
+  });
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let homeRenderer;
+  await TestRenderer.act(async () => {
+    homeRenderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  assert.equal(
+    findByTestId(homeRenderer, 'demi-voice-circle').props.accessibilityLabel,
+    'Open settings for setup',
+  );
+  await TestRenderer.act(async () => {
+    await findByTestId(homeRenderer, 'demi-voice-circle').props.onPress();
+  });
+  assert.equal(routerCalls[0], '/settings');
+  await TestRenderer.act(async () => {
+    homeRenderer.unmount();
+  });
+}
+
 async function testCalendarRetryKeepsDateWhenPersistenceFails() {
   secureStorageValue = JSON.stringify([
     {
@@ -592,6 +628,7 @@ async function main() {
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
+  await testBrowserVoiceControlsExplainNativeRequirement();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
   await testCalendarReminderSurvivesRestartAndSchedulingFailure();
   await testReminderCandidateRoutesWithExactTime();

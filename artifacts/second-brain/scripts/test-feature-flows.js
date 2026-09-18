@@ -7,6 +7,9 @@ async function main() {
   const memory = await import(
     pathToFileURL(path.resolve(__dirname, '../lib/memory.ts')).href
   );
+  const limits = await import(
+    pathToFileURL(path.resolve(__dirname, '../lib/localLimits.ts')).href
+  );
   const candidate = memory.parseMemoryCandidate(
     JSON.stringify({
       kind: 'memory',
@@ -20,6 +23,9 @@ async function main() {
   );
   assert.equal(candidate?.kind, 'memory');
   assert.equal(candidate?.explicit, true);
+  assert.equal(limits.MAX_CONVERSATION_TURNS, 80);
+  assert.equal(limits.MAX_MEMORIES, 100);
+  assert.equal(limits.MAX_MEMORIES_IN_PROMPT, 6);
 
   const conversationalReminder = memory.parseConversationalReminder(
     'Remind me to buy pickles in one day.',
@@ -329,6 +335,25 @@ async function main() {
   );
   assert.equal(duplicate, null);
 
+  const appContext = fs.readFileSync(
+    path.resolve(__dirname, '../context/AppContext.tsx'),
+    'utf8',
+  );
+  const offlineVoice = fs.readFileSync(
+    path.resolve(__dirname, '../lib/offlineVoice.ts'),
+    'utf8',
+  );
+  const offlineTts = fs.readFileSync(
+    path.resolve(__dirname, '../modules/offline-tts/android/src/main/java/com/secondbrain/offlinetts/SecondBrainOfflineTtsModule.kt'),
+    'utf8',
+  );
+  assert.match(appContext, /cleanupUnusedModelFiles/);
+  assert.match(appContext, /MODEL_STORAGE_SAFETY_MARGIN_BYTES/);
+  assert.match(appContext, /requiresOnDeviceRecognition: true/);
+  assert.match(offlineVoice, /voiceMatchesLanguage/);
+  assert.match(offlineTts, /isNetworkConnectionRequired/);
+  assert.match(offlineTts, /preferredVoiceId/);
+
   const reminders = fs.readFileSync(
     path.resolve(__dirname, '../lib/reminders.ts'),
     'utf8',
@@ -337,10 +362,6 @@ async function main() {
   assert.match(reminders, /if \(!draft\.repeatsAnnually && triggerDate\.getTime\(\) <= Date\.now\(\)\)/);
   assert.match(reminders, /scheduleNotificationAsync/);
 
-  const appContext = fs.readFileSync(
-    path.resolve(__dirname, '../context/AppContext.tsx'),
-    'utf8',
-  );
   const calendarContext = fs.readFileSync(
     path.resolve(__dirname, '../context/CalendarContext.tsx'),
     'utf8',
@@ -357,7 +378,10 @@ async function main() {
   assert.match(appContext, /parseConversationalReminder/);
   assert.match(appContext, /slice\(-6\)/);
   assert.match(appContext, /updateMemoryAliases/);
-  assert.match(offlineLlm, /profile\?\.memories \?\? \[\]\)\.slice\(0, 6\)/);
+  assert.match(
+    offlineLlm,
+    /profile\?\.memories \?\? \[\]\)\.slice\(0, MAX_MEMORIES_IN_PROMPT\)/,
+  );
   assert.match(calendarContext, /scheduleReminder\(base\)/);
   assert.match(appContext, /memoryFingerprint\(memory\.content\).*memoryFingerprint\(content\)/s);
   assert.match(homeScreen, /save-memory-candidate/);

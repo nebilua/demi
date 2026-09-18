@@ -1,0 +1,5 @@
+export const MAX_CONVERSATION_TURNS = 80;
+export const MAX_MEMORIES = 100;
+export const MAX_MEMORIES_IN_PROMPT = 6;
+export const MAX_SECURE_RECORD_CHUNKS = 500;
+export const MODEL_STORAGE_SAFETY_MARGIN_BYTES = 128 * 1024 * 1024;

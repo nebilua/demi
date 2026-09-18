@@ -21,6 +21,7 @@ import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type Appearance } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import { formatBytes, RECOMMENDED_MODEL } from '@/lib/offlineLlm';
+import { voiceMatchesLanguage } from '@/lib/offlineVoice';
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -130,10 +131,10 @@ export default function SettingsScreen() {
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
   const canSetupSpeech = Platform.OS === 'android' && !voiceInputAvailable && !requiresNewerAndroid && !voiceSetupInProgress;
   const canSetupSpokenReplies = Platform.OS === 'android' && !voiceOutputAvailable;
-  const englishOfflineVoices = offlineVoices.filter(
-    (voice) => voice.language.toLowerCase().split('-')[0] === 'en',
+  const matchingOfflineVoices = offlineVoices.filter(
+    (voice) => voiceMatchesLanguage(voice.language, settings.voiceLanguage),
   );
-  const selectedVoiceIsInstalled = englishOfflineVoices.some(
+  const selectedVoiceIsInstalled = matchingOfflineVoices.some(
     (voice) => voice.id === settings.preferredVoiceId,
   );
   const modelStatusMessage =
@@ -408,7 +409,7 @@ export default function SettingsScreen() {
                   Checking installed offline voices...
                 </Text>
               </View>
-            ) : englishOfflineVoices.length === 0 ? (
+            ) : matchingOfflineVoices.length === 0 ? (
               <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
                 {Platform.OS !== 'android'
                   ? 'Verified offline voices are available in the installed Android app.'
@@ -438,7 +439,7 @@ export default function SettingsScreen() {
                   {!selectedVoiceIsInstalled && <Feather name="check-circle" size={17} color={colors.primary} />}
                 </Pressable>
 
-                {englishOfflineVoices.map((voice) => {
+                {matchingOfflineVoices.map((voice) => {
                   const selected = settings.preferredVoiceId === voice.id;
                   return (
                     <Pressable
