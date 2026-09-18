@@ -1,7 +1,7 @@
-import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -12,31 +12,31 @@ import {
   Switch,
   Text,
   View,
-} from 'react-native';
+} from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
-} from 'react-native-safe-area-context';
-import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
-import { useApp, type Appearance } from '@/context/AppContext';
-import { useColors } from '@/hooks/useColors';
-import { formatBytes, RECOMMENDED_MODEL } from '@/lib/offlineLlm';
-import type { LocalStorageUsage, StorageMetric } from '@/lib/localStorageUsage';
-import { voiceMatchesLanguage } from '@/lib/offlineVoice';
+} from "react-native-safe-area-context";
+import { PersonalProfileEditor } from "@/components/PersonalProfileEditor";
+import { useApp, type Appearance } from "@/context/AppContext";
+import { useColors } from "@/hooks/useColors";
+import { formatBytes, RECOMMENDED_MODEL } from "@/lib/offlineLlm";
+import type { LocalStorageUsage, StorageMetric } from "@/lib/localStorageUsage";
+import { voiceMatchesLanguage } from "@/lib/offlineVoice";
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
 const voiceLanguageOptions = [
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
 ];
 const speechRateOptions = [
-  { value: 0.82, label: 'Slower' },
-  { value: 0.92, label: 'Natural' },
-  { value: 1.05, label: 'Faster' },
+  { value: 0.82, label: "Slower" },
+  { value: 0.92, label: "Natural" },
+  { value: 1.05, label: "Faster" },
 ];
 
 function SectionLabel({ children }: { children: string }) {
@@ -67,7 +67,12 @@ function SettingRow({
   const colors = useColors(settings.appearance);
 
   return (
-    <View style={[styles.settingRow, !noBorder && { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
+    <View
+      style={[
+        styles.settingRow,
+        !noBorder && { borderBottomColor: colors.border, borderBottomWidth: 1 },
+      ]}
+    >
       <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
         <Feather name={icon} size={17} color={colors.primary} />
       </View>
@@ -75,7 +80,9 @@ function SettingRow({
         <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
           {title}
         </Text>
-        <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+        <Text
+          style={[styles.rowDescription, { color: colors.mutedForeground }]}
+        >
           {description}
         </Text>
       </View>
@@ -94,8 +101,8 @@ function formatStorageBytes(bytes: number) {
 }
 
 function storageMetricText(metric: StorageMetric | null | undefined) {
-  if (!metric || metric.bytes === null) return 'Unavailable';
-  return `${formatStorageBytes(metric.bytes)}${metric.status === 'estimated' ? ' estimated' : ''}`;
+  if (!metric || metric.bytes === null) return "Unavailable";
+  return `${formatStorageBytes(metric.bytes)}${metric.status === "estimated" ? " estimated" : ""}`;
 }
 
 function StorageUsageRow({
@@ -112,11 +119,15 @@ function StorageUsageRow({
   return (
     <View style={styles.storageRow}>
       <View style={styles.rowCopy}>
-        <Text style={[styles.storageRowLabel, { color: colors.cardForeground }]}>
+        <Text
+          style={[styles.storageRowLabel, { color: colors.cardForeground }]}
+        >
           {label}
         </Text>
         {detail && (
-          <Text style={[styles.storageRowDetail, { color: colors.mutedForeground }]}>
+          <Text
+            style={[styles.storageRowDetail, { color: colors.mutedForeground }]}
+          >
             {detail}
           </Text>
         )}
@@ -146,27 +157,38 @@ function StorageUsageCard({
   modelOperationInProgress: boolean;
 }) {
   const canReclaim =
-    Platform.OS !== 'web' &&
+    Platform.OS !== "web" &&
     !modelOperationInProgress &&
     usage?.reclaimableModels.bytes !== null &&
     (usage?.reclaimableModels.fileCount ?? 0) > 0;
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}
+    >
       <View style={styles.storageHeader}>
         <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
-          <Feather name="hard-drive" size={17} color={colors.accentForeground} />
+          <Feather
+            name="hard-drive"
+            size={17}
+            color={colors.accentForeground}
+          />
         </View>
         <View style={styles.rowCopy}>
           <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
             Local storage
           </Text>
-          <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+          <Text
+            style={[styles.rowDescription, { color: colors.mutedForeground }]}
+          >
             {usage
               ? usage.total.bytes === null
-                ? 'Some local data could not be measured.'
-                : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === 'estimated' ? ' · some values estimated' : ''}`
-              : 'Checking app-managed storage...'}
+                ? "Some local data could not be measured."
+                : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
+              : "Checking app-managed storage..."}
           </Text>
         </View>
         <Pressable
@@ -185,15 +207,19 @@ function StorageUsageCard({
 
       {usage && (
         <View style={styles.storageRows}>
-          <StorageUsageRow label="Active model" metric={usage.activeModel} colors={colors} />
+          <StorageUsageRow
+            label="Active model"
+            metric={usage.activeModel}
+            colors={colors}
+          />
           <StorageUsageRow
             label="Reclaimable model files"
             detail={
               usage.reclaimableModels.bytes === null
-                ? 'Active model is never included'
+                ? "Active model is never included"
                 : usage.reclaimableModels.fileCount === 0
-                  ? 'No inactive model files found'
-                  : `${usage.reclaimableModels.fileCount} inactive file${usage.reclaimableModels.fileCount === 1 ? '' : 's'} · active model excluded`
+                  ? "No inactive model files found"
+                  : `${usage.reclaimableModels.fileCount} inactive file${usage.reclaimableModels.fileCount === 1 ? "" : "s"} · active model excluded`
             }
             metric={usage.reclaimableModels}
             colors={colors}
@@ -217,14 +243,27 @@ function StorageUsageCard({
                 <Feather name="trash-2" size={14} color={colors.primary} />
               )}
               <View style={styles.rowCopy}>
-                <Text style={[styles.storageActionTitle, { color: colors.primary }]}>
+                <Text
+                  style={[styles.storageActionTitle, { color: colors.primary }]}
+                >
                   Reclaim inactive model files
                 </Text>
-                <Text style={[styles.storageRowDetail, { color: colors.mutedForeground }]}>
-                  Remove about {formatStorageBytes(usage.reclaimableModels.bytes ?? 0)} while keeping the active model and memories
+                <Text
+                  style={[
+                    styles.storageRowDetail,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Remove about{" "}
+                  {formatStorageBytes(usage.reclaimableModels.bytes ?? 0)} while
+                  keeping the active model and memories
                 </Text>
               </View>
-              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+              <Feather
+                name="chevron-right"
+                size={16}
+                color={colors.mutedForeground}
+              />
             </Pressable>
           )}
           <StorageUsageRow
@@ -257,10 +296,16 @@ function StorageUsageCard({
             metric={usage.temporaryFiles}
             colors={colors}
           />
-          <View style={[styles.storageDivider, { backgroundColor: colors.border }]} />
+          <View
+            style={[styles.storageDivider, { backgroundColor: colors.border }]}
+          />
           <StorageUsageRow
             label="Free device storage"
-            detail={usage.freeDevice.bytes === null ? 'Unavailable in browser preview' : 'Reported by the device'}
+            detail={
+              usage.freeDevice.bytes === null
+                ? "Unavailable in browser preview"
+                : "Reported by the device"
+            }
             metric={usage.freeDevice}
             colors={colors}
           />
@@ -268,10 +313,21 @@ function StorageUsageCard({
       )}
 
       <Text style={[styles.storageNote, { color: colors.mutedForeground }]}>
-        Secure-store values are estimates because Android encrypts them internally. Inactive model files are identified only; this screen never deletes active models or saved memories.
+        Secure-store values are estimates because Android encrypts them
+        internally. Inactive model files are identified only; this screen never
+        deletes active models or saved memories.
       </Text>
       {reclaimMessage && (
-        <Text style={[styles.storageNote, { color: reclaimMessage.includes('could not') ? colors.destructive : colors.primary }]}>
+        <Text
+          style={[
+            styles.storageNote,
+            {
+              color: reclaimMessage.includes("could not")
+                ? colors.destructive
+                : colors.primary,
+            },
+          ]}
+        >
           {reclaimMessage}
         </Text>
       )}
@@ -305,6 +361,13 @@ export default function SettingsScreen() {
     voiceError,
     voiceSetupMessage,
     voiceSetupInProgress,
+    voiceSelfTestResult,
+    voiceSelfTestRunning,
+    voiceSelfTestSpeechStatus,
+    runVoiceSelfTest,
+    cancelVoiceSelfTest,
+    playVoiceSelfTestSample,
+    stopVoiceSelfTestSample,
     importModel,
     downloadRecommendedModel,
     cancelDownload,
@@ -327,32 +390,42 @@ export default function SettingsScreen() {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showReclaimConfirm, setShowReclaimConfirm] = useState(false);
   const [isReclaimingModels, setIsReclaimingModels] = useState(false);
-  const [modelReclaimMessage, setModelReclaimMessage] = useState<string | null>(null);
+  const [modelReclaimMessage, setModelReclaimMessage] = useState<string | null>(
+    null,
+  );
 
-  const androidApiLevel = Platform.OS === 'android' && typeof Platform.Version === 'number' ? Platform.Version : null;
+  const androidApiLevel =
+    Platform.OS === "android" && typeof Platform.Version === "number"
+      ? Platform.Version
+      : null;
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
-  const canSetupSpeech = Platform.OS === 'android' && !voiceInputAvailable && !requiresNewerAndroid && !voiceSetupInProgress;
-  const canSetupSpokenReplies = Platform.OS === 'android' && !voiceOutputAvailable;
-  const matchingOfflineVoices = offlineVoices.filter(
-    (voice) => voiceMatchesLanguage(voice.language, settings.voiceLanguage),
+  const canSetupSpeech =
+    Platform.OS === "android" &&
+    !voiceInputAvailable &&
+    !requiresNewerAndroid &&
+    !voiceSetupInProgress;
+  const canSetupSpokenReplies =
+    Platform.OS === "android" && !voiceOutputAvailable;
+  const matchingOfflineVoices = offlineVoices.filter((voice) =>
+    voiceMatchesLanguage(voice.language, settings.voiceLanguage),
   );
   const selectedVoiceIsInstalled = matchingOfflineVoices.some(
     (voice) => voice.id === settings.preferredVoiceId,
   );
   const modelStatusMessage =
-    engineStatus === 'unsupported'
-      ? 'Offline model inference is unavailable in the browser preview. Install the Android app to use a local GGUF.'
-      : engineStatus === 'no-model'
-        ? 'No local model is installed. Download the recommended model or import a compatible GGUF.'
-        : engineStatus === 'loading'
-          ? 'Loading the local model. Keep Demi open until setup finishes.'
-          : engineStatus === 'error'
-            ? 'The local model could not start. Check the device fit below, then retry or import a smaller Q4 GGUF.'
-            : 'Local replies are running on this device.';
+    engineStatus === "unsupported"
+      ? "Offline model inference is unavailable in the browser preview. Install the Android app to use a local GGUF."
+      : engineStatus === "no-model"
+        ? "No local model is installed. Download the recommended model or import a compatible GGUF."
+        : engineStatus === "loading"
+          ? "Loading the local model. Keep Demi open until setup finishes."
+          : engineStatus === "error"
+            ? "The local model could not start. Check the device fit below, then retry or import a smaller Q4 GGUF."
+            : "Local replies are running on this device.";
   const modelStatusColor =
-    engineStatus === 'ready'
+    engineStatus === "ready"
       ? colors.primary
-      : engineStatus === 'error'
+      : engineStatus === "error"
         ? colors.destructive
         : colors.mutedForeground;
 
@@ -382,27 +455,27 @@ export default function SettingsScreen() {
     try {
       const result = await reclaimUnusedModelFiles();
       refreshStorageUsage();
-      if (result.status === 'unavailable') {
+      if (result.status === "unavailable") {
         setModelReclaimMessage(
           result.deletedFiles > 0
-            ? `Removed ${result.deletedFiles} file${result.deletedFiles === 1 ? '' : 's'} before the model folder became unavailable. Remaining files were not confirmed; try again later.`
-            : 'Demi could not inspect the model folder. No files were confirmed as removed; try again later.',
+            ? `Removed ${result.deletedFiles} file${result.deletedFiles === 1 ? "" : "s"} before the model folder became unavailable. Remaining files were not confirmed; try again later.`
+            : "Demi could not inspect the model folder. No files were confirmed as removed; try again later.",
         );
         return;
       }
       if (result.failedFiles > 0) {
         setModelReclaimMessage(
-          `Removed ${result.deletedFiles} file${result.deletedFiles === 1 ? '' : 's'}; ${result.failedFiles} could not be removed. Try again.`,
+          `Removed ${result.deletedFiles} file${result.deletedFiles === 1 ? "" : "s"}; ${result.failedFiles} could not be removed. Try again.`,
         );
         return;
       }
       setShowReclaimConfirm(false);
       setModelReclaimMessage(
-        `Removed ${result.deletedFiles} inactive model file${result.deletedFiles === 1 ? '' : 's'}. The active model and memories were kept.`,
+        `Removed ${result.deletedFiles} inactive model file${result.deletedFiles === 1 ? "" : "s"}. The active model and memories were kept.`,
       );
     } catch {
       setModelReclaimMessage(
-        'Inactive model files could not be reclaimed. Nothing else was changed; try again.',
+        "Inactive model files could not be reclaimed. Nothing else was changed; try again.",
       );
     } finally {
       setIsReclaimingModels(false);
@@ -411,64 +484,130 @@ export default function SettingsScreen() {
 
   if (!settingsReady) {
     return (
-      <View style={[styles.loadingScreen, { backgroundColor: colors.background }]}>
-        <StatusBar style={colors.isDark ? 'light' : 'dark'} />
+      <View
+        style={[styles.loadingScreen, { backgroundColor: colors.background }]}
+      >
+        <StatusBar style={colors.isDark ? "light" : "dark"} />
         <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.screen, { backgroundColor: colors.background }]}>
-      <StatusBar style={colors.isDark ? 'light' : 'dark'} />
+    <SafeAreaView
+      edges={["top", "bottom"]}
+      style={[styles.screen, { backgroundColor: colors.background }]}
+    >
+      <StatusBar style={colors.isDark ? "light" : "dark"} />
       <View style={styles.header}>
         <Pressable
           accessibilityRole="button"
           onPress={() => router.back()}
-          style={({ pressed }) => [styles.backButton, { backgroundColor: colors.secondary }, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.backButton,
+            { backgroundColor: colors.secondary },
+            pressed && styles.pressed,
+          ]}
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>Settings</Text>
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>
+          Settings
+        </Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(28, insets.bottom + 28) }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(28, insets.bottom + 28) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {storageError && (
-          <View style={[styles.errorBanner, { backgroundColor: colors.secondary }]}>
+          <View
+            style={[styles.errorBanner, { backgroundColor: colors.secondary }]}
+          >
             <Feather name="alert-circle" size={14} color={colors.destructive} />
-            <Text style={[styles.errorText, { color: colors.foreground }]}>{storageError}</Text>
+            <Text style={[styles.errorText, { color: colors.foreground }]}>
+              {storageError}
+            </Text>
           </View>
         )}
         <SectionLabel>Personal context</SectionLabel>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <View style={styles.profileSummary}>
             <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
               <Feather name="user" size={17} color={colors.primary} />
             </View>
             <View style={styles.rowCopy}>
               <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                {profile.displayName ? profile.displayName : 'No profile'}
+                {profile.displayName ? profile.displayName : "No profile"}
               </Text>
-              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+              <Text
+                style={[
+                  styles.rowDescription,
+                  { color: colors.mutedForeground },
+                ]}
+              >
                 Personal context for offline replies
               </Text>
             </View>
-            <Pressable onPress={() => setShowProfileEditor(true)} style={({ pressed }) => [styles.smallButton, { backgroundColor: colors.secondary }, pressed && styles.pressed]}>
-              <Text style={[styles.smallButtonText, { color: colors.secondaryForeground }]}>Edit</Text>
+            <Pressable
+              onPress={() => setShowProfileEditor(true)}
+              style={({ pressed }) => [
+                styles.smallButton,
+                { backgroundColor: colors.secondary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.smallButtonText,
+                  { color: colors.secondaryForeground },
+                ]}
+              >
+                Edit
+              </Text>
             </Pressable>
           </View>
         </View>
 
-        <Pressable onPress={() => router.push('/memories' as any)} style={({ pressed }) => [styles.linkCard, { backgroundColor: colors.card, borderColor: colors.border }, pressed && styles.pressed]}>
+        <Pressable
+          onPress={() => router.push("/memories" as any)}
+          style={({ pressed }) => [
+            styles.linkCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            pressed && styles.pressed,
+          ]}
+        >
           <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
-            <Feather name="bookmark" size={17} color={colors.accentForeground} />
+            <Feather
+              name="bookmark"
+              size={17}
+              color={colors.accentForeground}
+            />
           </View>
           <View style={styles.rowCopy}>
-            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>Memory vault</Text>
-            <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>{memories.length} saved</Text>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              Memory vault
+            </Text>
+            <Text
+              style={[styles.rowDescription, { color: colors.mutedForeground }]}
+            >
+              {memories.length} saved
+            </Text>
           </View>
-          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+          <Feather
+            name="chevron-right"
+            size={18}
+            color={colors.mutedForeground}
+          />
         </Pressable>
 
         <SectionLabel>Device footprint</SectionLabel>
@@ -480,101 +619,317 @@ export default function SettingsScreen() {
           isReclaiming={isReclaimingModels}
           reclaimMessage={modelReclaimMessage}
           modelOperationInProgress={
-            modelSetupStatus !== 'idle' ||
-            (downloadStatus !== 'idle' && downloadStatus !== 'error')
+            modelSetupStatus !== "idle" ||
+            (downloadStatus !== "idle" && downloadStatus !== "error")
           }
         />
 
         <SectionLabel>Offline setup</SectionLabel>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <View style={styles.readinessItem}>
             <View style={styles.readinessHeader}>
-              <Feather name="cpu" size={16} color={localModel ? colors.primary : colors.mutedForeground} />
-              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+              <Feather
+                name="cpu"
+                size={16}
+                color={localModel ? colors.primary : colors.mutedForeground}
+              />
+              <Text
+                style={[
+                  styles.readinessTitle,
+                  { color: colors.cardForeground },
+                ]}
+              >
                 1. Local model
               </Text>
-              {localModel && <Feather name="check-circle" size={14} color={colors.primary} />}
+              {localModel && (
+                <Feather name="check-circle" size={14} color={colors.primary} />
+              )}
             </View>
-              <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.diagnosticTitle, { color: modelStatusColor }]}>
-                  {engineStatus === 'ready' ? 'Ready for private replies' : 'Setup status'}
-                </Text>
-                <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-                  {modelStatusMessage}
-                </Text>
-              </View>
-              <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary, marginTop: 8 }]}>
-                <Text style={[styles.diagnosticTitle, { color: colors.cardForeground }]}>
-                  Device fit
-                </Text>
-                <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-                  {deviceCompatibility.architectureSupported ? 'Supported architecture' : 'Unsupported architecture'} · {deviceCompatibility.memoryLabel} · context {deviceCompatibility.contextSize}
-                </Text>
-                <Text style={[styles.readinessDesc, { color: colors.mutedForeground, marginTop: 4 }]}>
-                  {deviceCompatibility.recommendation}
-                </Text>
-              </View>
+            <View
+              style={[
+                styles.diagnosticBox,
+                { backgroundColor: colors.secondary },
+              ]}
+            >
+              <Text
+                style={[styles.diagnosticTitle, { color: modelStatusColor }]}
+              >
+                {engineStatus === "ready"
+                  ? "Ready for private replies"
+                  : "Setup status"}
+              </Text>
+              <Text
+                style={[
+                  styles.readinessDesc,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                {modelStatusMessage}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.diagnosticBox,
+                { backgroundColor: colors.secondary, marginTop: 8 },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.diagnosticTitle,
+                  { color: colors.cardForeground },
+                ]}
+              >
+                Device fit
+              </Text>
+              <Text
+                style={[
+                  styles.readinessDesc,
+                  { color: colors.mutedForeground },
+                ]}
+              >
+                {deviceCompatibility.architectureSupported
+                  ? "Supported architecture"
+                  : "Unsupported architecture"}{" "}
+                · {deviceCompatibility.memoryLabel} · context{" "}
+                {deviceCompatibility.contextSize}
+              </Text>
+              <Text
+                style={[
+                  styles.readinessDesc,
+                  { color: colors.mutedForeground, marginTop: 4 },
+                ]}
+              >
+                {deviceCompatibility.recommendation}
+              </Text>
+            </View>
 
-            {!localModel && (downloadStatus === 'idle' || downloadStatus === 'error') && (
-              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>{RECOMMENDED_MODEL.name}</Text>
-                <Text style={[styles.downloadMeta, { color: colors.mutedForeground }]}>
-                  {formatBytes(RECOMMENDED_MODEL.sizeBytes)} · {RECOMMENDED_MODEL.license} · {RECOMMENDED_MODEL.source}
-                </Text>
-                <View style={styles.downloadActions}>
-                  <Pressable testID="download-recommended" accessibilityRole="button" onPress={downloadRecommendedModel} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.primary }, pressed && styles.pressed]}>
-                    <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>
-                      {downloadStatus === 'error' ? 'Retry download' : 'Download model'}
-                    </Text>
-                  </Pressable>
-                  <Pressable testID="import-model-manual" accessibilityRole="button" onPress={importModel} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border }, pressed && styles.pressed]}>
-                    <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>Import GGUF</Text>
-                  </Pressable>
+            {!localModel &&
+              (downloadStatus === "idle" || downloadStatus === "error") && (
+                <View
+                  style={[
+                    styles.downloadBox,
+                    { backgroundColor: colors.secondary },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.downloadTitle,
+                      { color: colors.cardForeground },
+                    ]}
+                  >
+                    {RECOMMENDED_MODEL.name}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.downloadMeta,
+                      { color: colors.mutedForeground },
+                    ]}
+                  >
+                    {formatBytes(RECOMMENDED_MODEL.sizeBytes)} ·{" "}
+                    {RECOMMENDED_MODEL.license} · {RECOMMENDED_MODEL.source}
+                  </Text>
+                  <View style={styles.downloadActions}>
+                    <Pressable
+                      testID="download-recommended"
+                      accessibilityRole="button"
+                      onPress={downloadRecommendedModel}
+                      style={({ pressed }) => [
+                        styles.primaryButton,
+                        { backgroundColor: colors.primary },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.primaryButtonText,
+                          { color: colors.primaryForeground },
+                        ]}
+                      >
+                        {downloadStatus === "error"
+                          ? "Retry download"
+                          : "Download model"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      testID="import-model-manual"
+                      accessibilityRole="button"
+                      onPress={importModel}
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        { borderColor: colors.border },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.secondaryButtonText,
+                          { color: colors.foreground },
+                        ]}
+                      >
+                        Import GGUF
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
-              </View>
-            )}
+              )}
 
-            {downloadStatus === 'downloading' && (
-              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>Downloading...</Text>
-                <View style={[styles.progressBar, { backgroundColor: colors.secondary }]}>
-                  <View style={[styles.progressFill, { backgroundColor: colors.primary, width: `${downloadProgress}%` }]} />
+            {downloadStatus === "downloading" && (
+              <View
+                style={[
+                  styles.downloadBox,
+                  { backgroundColor: colors.secondary },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.downloadTitle,
+                    { color: colors.cardForeground },
+                  ]}
+                >
+                  Downloading...
+                </Text>
+                <View
+                  style={[
+                    styles.progressBar,
+                    { backgroundColor: colors.secondary },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        backgroundColor: colors.primary,
+                        width: `${downloadProgress}%`,
+                      },
+                    ]}
+                  />
                 </View>
-                <Pressable testID="cancel-download" accessibilityRole="button" onPress={cancelDownload} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border, marginTop: 12 }, pressed && styles.pressed]}>
-                  <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>Cancel</Text>
+                <Pressable
+                  testID="cancel-download"
+                  accessibilityRole="button"
+                  onPress={cancelDownload}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    { borderColor: colors.border, marginTop: 12 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      { color: colors.foreground },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
                 </Pressable>
               </View>
             )}
 
-            {(downloadStatus === 'validating' || downloadStatus === 'loading' || modelSetupStatus === 'copying' || modelSetupStatus === 'loading' || modelSetupStatus === 'validating') && (
-              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
-                <ActivityIndicator color={colors.primary} style={{ alignSelf: 'flex-start' }} />
-                <Text style={[styles.downloadMeta, { color: colors.mutedForeground, marginTop: 8 }]}>
-                  {downloadStatus === 'validating' ? 'Validating checksum...' : 'Loading local model...'}
+            {(downloadStatus === "validating" ||
+              downloadStatus === "loading" ||
+              modelSetupStatus === "copying" ||
+              modelSetupStatus === "loading" ||
+              modelSetupStatus === "validating") && (
+              <View
+                style={[
+                  styles.downloadBox,
+                  { backgroundColor: colors.secondary },
+                ]}
+              >
+                <ActivityIndicator
+                  color={colors.primary}
+                  style={{ alignSelf: "flex-start" }}
+                />
+                <Text
+                  style={[
+                    styles.downloadMeta,
+                    { color: colors.mutedForeground, marginTop: 8 },
+                  ]}
+                >
+                  {downloadStatus === "validating"
+                    ? "Validating checksum..."
+                    : "Loading local model..."}
                 </Text>
               </View>
             )}
 
             {localModel && (
-              <View style={[styles.downloadBox, { backgroundColor: colors.secondary }]}>
-                <Text style={[styles.downloadTitle, { color: colors.cardForeground }]}>{localModel.name}</Text>
-              <Text style={[styles.downloadMeta, { color: colors.mutedForeground }]}>{formatBytes(localModel.sizeBytes)} · Active</Text>
-              <Text style={[styles.downloadMeta, { color: colors.mutedForeground, marginTop: 5 }]}>
-                {deviceCompatibility.deviceName} · {deviceCompatibility.memoryLabel} · context {deviceCompatibility.contextSize}
-              </Text>
-              {runtimeDetails && (
-                <Text style={[styles.downloadMeta, { color: colors.mutedForeground, marginTop: 5 }]}>
-                  Runtime: {runtimeDetails.modelDescription} · {runtimeDetails.gpuEnabled ? 'GPU enabled' : 'CPU only'}
+              <View
+                style={[
+                  styles.downloadBox,
+                  { backgroundColor: colors.secondary },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.downloadTitle,
+                    { color: colors.cardForeground },
+                  ]}
+                >
+                  {localModel.name}
                 </Text>
-              )}
-                <Pressable onPress={removeModel} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border, marginTop: 12 }, pressed && styles.pressed]}>
-                  <Text style={[styles.secondaryButtonText, { color: colors.destructive }]}>Remove</Text>
+                <Text
+                  style={[
+                    styles.downloadMeta,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  {formatBytes(localModel.sizeBytes)} · Active
+                </Text>
+                <Text
+                  style={[
+                    styles.downloadMeta,
+                    { color: colors.mutedForeground, marginTop: 5 },
+                  ]}
+                >
+                  {deviceCompatibility.deviceName} ·{" "}
+                  {deviceCompatibility.memoryLabel} · context{" "}
+                  {deviceCompatibility.contextSize}
+                </Text>
+                {runtimeDetails && (
+                  <Text
+                    style={[
+                      styles.downloadMeta,
+                      { color: colors.mutedForeground, marginTop: 5 },
+                    ]}
+                  >
+                    Runtime: {runtimeDetails.modelDescription} ·{" "}
+                    {runtimeDetails.gpuEnabled ? "GPU enabled" : "CPU only"}
+                  </Text>
+                )}
+                <Pressable
+                  onPress={removeModel}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    { borderColor: colors.border, marginTop: 12 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      { color: colors.destructive },
+                    ]}
+                  >
+                    Remove
+                  </Text>
                 </Pressable>
               </View>
             )}
 
             {(downloadError || engineError) && (
-              <Text style={[styles.errorText, { color: colors.destructive, marginTop: 8 }]}>
+              <Text
+                style={[
+                  styles.errorText,
+                  { color: colors.destructive, marginTop: 8 },
+                ]}
+              >
                 {downloadError || engineError}
               </Text>
             )}
@@ -582,11 +937,15 @@ export default function SettingsScreen() {
         </View>
 
         <SectionLabel>Local voice</SectionLabel>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <Pressable
             testID="offline-speech-setup"
-            accessibilityRole={canSetupSpeech ? 'button' : undefined}
+            accessibilityRole={canSetupSpeech ? "button" : undefined}
             accessibilityLabel="Set up offline speech input"
             disabled={!canSetupSpeech}
             onPress={() => void installOfflineVoiceModel()}
@@ -596,16 +955,45 @@ export default function SettingsScreen() {
             ]}
           >
             <View style={styles.readinessHeader}>
-              <Feather name="mic" size={16} color={voiceInputAvailable ? colors.primary : colors.mutedForeground} />
-              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+              <Feather
+                name="mic"
+                size={16}
+                color={
+                  voiceInputAvailable ? colors.primary : colors.mutedForeground
+                }
+              />
+              <Text
+                style={[
+                  styles.readinessTitle,
+                  { color: colors.cardForeground },
+                ]}
+              >
                 2. Speech input
               </Text>
-              {voiceInputAvailable && <Feather name="check-circle" size={14} color={colors.primary} />}
-              {canSetupSpeech && <Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
-              {voiceSetupInProgress && <ActivityIndicator size="small" color={colors.primary} />}
+              {voiceInputAvailable && (
+                <Feather name="check-circle" size={14} color={colors.primary} />
+              )}
+              {canSetupSpeech && (
+                <Feather
+                  name="chevron-right"
+                  size={16}
+                  color={colors.mutedForeground}
+                />
+              )}
+              {voiceSetupInProgress && (
+                <ActivityIndicator size="small" color={colors.primary} />
+              )}
             </View>
-            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-              {voiceInputAvailable ? 'Offline dictation ready.' : Platform.OS !== 'android' ? 'Available in the installed Android app.' : requiresNewerAndroid ? 'Requires Android 13+.' : 'Install English offline language pack.'}
+            <Text
+              style={[styles.readinessDesc, { color: colors.mutedForeground }]}
+            >
+              {voiceInputAvailable
+                ? "Offline dictation ready."
+                : Platform.OS !== "android"
+                  ? "Available in the installed Android app."
+                  : requiresNewerAndroid
+                    ? "Requires Android 13+."
+                    : "Install English offline language pack."}
             </Text>
           </Pressable>
 
@@ -613,7 +1001,7 @@ export default function SettingsScreen() {
 
           <Pressable
             testID="offline-tts-setup"
-            accessibilityRole={canSetupSpokenReplies ? 'button' : undefined}
+            accessibilityRole={canSetupSpokenReplies ? "button" : undefined}
             accessibilityLabel="Set up offline spoken replies"
             disabled={!canSetupSpokenReplies}
             onPress={() => void openVoiceSettings()}
@@ -623,26 +1011,62 @@ export default function SettingsScreen() {
             ]}
           >
             <View style={styles.readinessHeader}>
-              <Feather name="volume-2" size={16} color={voiceOutputAvailable ? colors.primary : colors.mutedForeground} />
-              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+              <Feather
+                name="volume-2"
+                size={16}
+                color={
+                  voiceOutputAvailable ? colors.primary : colors.mutedForeground
+                }
+              />
+              <Text
+                style={[
+                  styles.readinessTitle,
+                  { color: colors.cardForeground },
+                ]}
+              >
                 3. Spoken replies
               </Text>
-              {voiceOutputAvailable && <Feather name="check-circle" size={14} color={colors.primary} />}
-              {canSetupSpokenReplies && <Feather name="chevron-right" size={16} color={colors.mutedForeground} />}
+              {voiceOutputAvailable && (
+                <Feather name="check-circle" size={14} color={colors.primary} />
+              )}
+              {canSetupSpokenReplies && (
+                <Feather
+                  name="chevron-right"
+                  size={16}
+                  color={colors.mutedForeground}
+                />
+              )}
             </View>
-            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-              {voiceOutputAvailable ? 'Offline TTS ready.' : Platform.OS !== 'android' ? 'Available in the installed Android app.' : 'Verify or install an offline TTS voice.'}
+            <Text
+              style={[styles.readinessDesc, { color: colors.mutedForeground }]}
+            >
+              {voiceOutputAvailable
+                ? "Offline TTS ready."
+                : Platform.OS !== "android"
+                  ? "Available in the installed Android app."
+                  : "Verify or install an offline TTS voice."}
             </Text>
           </Pressable>
 
           <View style={[styles.voicePicker, { borderTopColor: colors.border }]}>
             <View style={styles.voicePickerHeader}>
               <View style={styles.rowCopy}>
-                <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                <Text
+                  style={[
+                    styles.readinessTitle,
+                    { color: colors.cardForeground },
+                  ]}
+                >
                   Preferred English voice
                 </Text>
-                <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
-                  Automatic matching is used if the selected voice is unavailable.
+                <Text
+                  style={[
+                    styles.readinessDesc,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Automatic matching is used if the selected voice is
+                  unavailable.
                 </Text>
               </View>
               <Pressable
@@ -655,21 +1079,29 @@ export default function SettingsScreen() {
                   pressed && styles.pressed,
                 ]}
               >
-                <Feather name="refresh-cw" size={15} color={colors.foreground} />
+                <Feather
+                  name="refresh-cw"
+                  size={15}
+                  color={colors.foreground}
+                />
               </Pressable>
             </View>
 
             {offlineVoicesLoading ? (
               <View style={styles.voiceLoading}>
                 <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                <Text
+                  style={[styles.voiceMeta, { color: colors.mutedForeground }]}
+                >
                   Checking installed offline voices...
                 </Text>
               </View>
             ) : matchingOfflineVoices.length === 0 ? (
-              <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
-                {Platform.OS !== 'android'
-                  ? 'Verified offline voices are available in the installed Android app.'
+              <Text
+                style={[styles.voiceMeta, { color: colors.mutedForeground }]}
+              >
+                {Platform.OS !== "android"
+                  ? "Verified offline voices are available in the installed Android app."
                   : `No verified offline ${settings.voiceLanguage} voice is installed. Use Spoken replies above to open Android text-to-speech settings.`}
               </Text>
             ) : (
@@ -678,22 +1110,44 @@ export default function SettingsScreen() {
                   testID="voice-option-automatic"
                   accessibilityRole="radio"
                   accessibilityState={{ selected: !selectedVoiceIsInstalled }}
-                  onPress={() => void updateSettings({ preferredVoiceId: null })}
+                  onPress={() =>
+                    void updateSettings({ preferredVoiceId: null })
+                  }
                   style={({ pressed }) => [
                     styles.voiceOption,
-                    { borderColor: !selectedVoiceIsInstalled ? colors.primary : colors.border },
+                    {
+                      borderColor: !selectedVoiceIsInstalled
+                        ? colors.primary
+                        : colors.border,
+                    },
                     pressed && styles.pressed,
                   ]}
                 >
                   <View style={styles.voiceOptionCopy}>
-                    <Text style={[styles.voiceOptionTitle, { color: colors.cardForeground }]}>
+                    <Text
+                      style={[
+                        styles.voiceOptionTitle,
+                        { color: colors.cardForeground },
+                      ]}
+                    >
                       Automatic
                     </Text>
-                    <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                    <Text
+                      style={[
+                        styles.voiceMeta,
+                        { color: colors.mutedForeground },
+                      ]}
+                    >
                       Match the reply language
                     </Text>
                   </View>
-                  {!selectedVoiceIsInstalled && <Feather name="check-circle" size={17} color={colors.primary} />}
+                  {!selectedVoiceIsInstalled && (
+                    <Feather
+                      name="check-circle"
+                      size={17}
+                      color={colors.primary}
+                    />
+                  )}
                 </Pressable>
 
                 {matchingOfflineVoices.map((voice) => {
@@ -704,22 +1158,44 @@ export default function SettingsScreen() {
                       testID={`voice-option-${voice.id}`}
                       accessibilityRole="radio"
                       accessibilityState={{ selected }}
-                      onPress={() => void updateSettings({ preferredVoiceId: voice.id })}
+                      onPress={() =>
+                        void updateSettings({ preferredVoiceId: voice.id })
+                      }
                       style={({ pressed }) => [
                         styles.voiceOption,
-                        { borderColor: selected ? colors.primary : colors.border },
+                        {
+                          borderColor: selected
+                            ? colors.primary
+                            : colors.border,
+                        },
                         pressed && styles.pressed,
                       ]}
                     >
                       <View style={styles.voiceOptionCopy}>
-                        <Text style={[styles.voiceOptionTitle, { color: colors.cardForeground }]}>
+                        <Text
+                          style={[
+                            styles.voiceOptionTitle,
+                            { color: colors.cardForeground },
+                          ]}
+                        >
                           {voice.name}
                         </Text>
-                        <Text style={[styles.voiceMeta, { color: colors.mutedForeground }]}>
+                        <Text
+                          style={[
+                            styles.voiceMeta,
+                            { color: colors.mutedForeground },
+                          ]}
+                        >
                           {voice.language} · {voice.id}
                         </Text>
                       </View>
-                      {selected && <Feather name="check-circle" size={17} color={colors.primary} />}
+                      {selected && (
+                        <Feather
+                          name="check-circle"
+                          size={17}
+                          color={colors.primary}
+                        />
+                      )}
                     </Pressable>
                   );
                 })}
@@ -727,26 +1203,214 @@ export default function SettingsScreen() {
             )}
           </View>
           {(voiceError || voiceSetupMessage) && (
-            <Text style={[styles.errorText, { color: colors.destructive, marginTop: 10 }]}>
+            <Text
+              style={[
+                styles.errorText,
+                { color: colors.destructive, marginTop: 10 },
+              ]}
+            >
               {voiceError || voiceSetupMessage}
             </Text>
           )}
-          {voiceInputStatus === 'needs-model' && !voiceError && !voiceSetupMessage && (
-            <Text style={[styles.errorText, { color: colors.destructive, marginTop: 10 }]}>
-              Offline {settings.voiceLanguage} speech recognition is not installed. Tap Speech input to start Android setup.
-            </Text>
-          )}
-          <View style={[styles.voicePreferences, { borderTopColor: colors.border }]}>
-            <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+          {voiceInputStatus === "needs-model" &&
+            !voiceError &&
+            !voiceSetupMessage && (
+              <Text
+                style={[
+                  styles.errorText,
+                  { color: colors.destructive, marginTop: 10 },
+                ]}
+              >
+                Offline {settings.voiceLanguage} speech recognition is not
+                installed. Tap Speech input to start Android setup.
+              </Text>
+            )}
+          <View
+            style={[
+              styles.voiceSelfTest,
+              { backgroundColor: colors.secondary },
+            ]}
+          >
+            <View style={styles.voicePickerHeader}>
+              <View style={styles.rowCopy}>
+                <Text
+                  style={[
+                    styles.readinessTitle,
+                    { color: colors.cardForeground },
+                  ]}
+                >
+                  Voice self-test
+                </Text>
+                <Text
+                  style={[styles.voiceMeta, { color: colors.mutedForeground }]}
+                >
+                  Check the microphone and play a short sample before relying on
+                  voice controls.
+                </Text>
+              </View>
+              <Feather name="shield" size={17} color={colors.primary} />
+            </View>
+            {Platform.OS !== "android" ? (
+              <Text
+                style={[
+                  styles.voiceMeta,
+                  { color: colors.mutedForeground, marginTop: 12 },
+                ]}
+              >
+                Available in the installed Android app. The browser preview
+                never requests microphone access or plays speech.
+              </Text>
+            ) : (
+              <View style={styles.selfTestActions}>
+                <Pressable
+                  testID="voice-recognition-self-test"
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    voiceSelfTestRunning
+                      ? "Cancel microphone self-test"
+                      : "Test microphone recognition"
+                  }
+                  onPress={() => {
+                    if (voiceSelfTestRunning) cancelVoiceSelfTest();
+                    else void runVoiceSelfTest();
+                  }}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    { backgroundColor: colors.primary, flex: 1 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {voiceSelfTestRunning ? (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        { color: colors.primaryForeground },
+                      ]}
+                    >
+                      Cancel mic test
+                    </Text>
+                  ) : (
+                    <Text
+                      style={[
+                        styles.primaryButtonText,
+                        { color: colors.primaryForeground },
+                      ]}
+                    >
+                      Test microphone
+                    </Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  testID="voice-tts-self-test"
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    voiceSelfTestSpeechStatus === "speaking"
+                      ? "Stop local speech sample"
+                      : "Play local speech sample"
+                  }
+                  onPress={() => {
+                    if (voiceSelfTestSpeechStatus === "speaking") {
+                      void stopVoiceSelfTestSample();
+                    } else {
+                      void playVoiceSelfTestSample();
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    { borderColor: colors.border, flex: 1 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      { color: colors.cardForeground },
+                    ]}
+                  >
+                    {voiceSelfTestSpeechStatus === "speaking"
+                      ? "Stop sample"
+                      : "Play sample"}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+            {voiceSelfTestResult && (
+              <View
+                accessibilityLiveRegion="polite"
+                style={[
+                  styles.selfTestResult,
+                  {
+                    backgroundColor:
+                      voiceSelfTestResult.outcome === "passed"
+                        ? colors.background
+                        : colors.card,
+                  },
+                ]}
+              >
+                <View style={styles.readinessHeader}>
+                  <Feather
+                    name={
+                      voiceSelfTestResult.outcome === "passed"
+                        ? "check-circle"
+                        : voiceSelfTestResult.outcome === "running"
+                          ? "loader"
+                          : "alert-circle"
+                    }
+                    size={15}
+                    color={
+                      voiceSelfTestResult.outcome === "passed"
+                        ? colors.primary
+                        : voiceSelfTestResult.outcome === "running"
+                          ? colors.mutedForeground
+                          : colors.destructive
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.voiceOptionTitle,
+                      { color: colors.cardForeground },
+                    ]}
+                  >
+                    {voiceSelfTestResult.title}
+                  </Text>
+                </View>
+                <Text
+                  style={[styles.voiceMeta, { color: colors.mutedForeground }]}
+                >
+                  {voiceSelfTestResult.detail}
+                </Text>
+                <Text
+                  style={[
+                    styles.selfTestNextAction,
+                    { color: colors.cardForeground },
+                  ]}
+                >
+                  Next: {voiceSelfTestResult.nextAction}
+                </Text>
+              </View>
+            )}
+          </View>
+          <View
+            style={[styles.voicePreferences, { borderTopColor: colors.border }]}
+          >
+            <Text
+              style={[styles.readinessTitle, { color: colors.cardForeground }]}
+            >
               Voice language
             </Text>
-            <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+            <View
+              style={[styles.segmented, { backgroundColor: colors.secondary }]}
+            >
               {voiceLanguageOptions.map((option) => (
                 <Pressable
                   key={option.value}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: settings.voiceLanguage === option.value }}
-                  onPress={() => void updateSettings({ voiceLanguage: option.value })}
+                  accessibilityState={{
+                    selected: settings.voiceLanguage === option.value,
+                  }}
+                  onPress={() =>
+                    void updateSettings({ voiceLanguage: option.value })
+                  }
                   style={[
                     styles.segment,
                     settings.voiceLanguage === option.value && {
@@ -755,22 +1419,43 @@ export default function SettingsScreen() {
                     },
                   ]}
                 >
-                  <Text style={[styles.segmentText, { color: settings.voiceLanguage === option.value ? colors.cardForeground : colors.mutedForeground }]}>
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      {
+                        color:
+                          settings.voiceLanguage === option.value
+                            ? colors.cardForeground
+                            : colors.mutedForeground,
+                      },
+                    ]}
+                  >
                     {option.label}
                   </Text>
                 </Pressable>
               ))}
             </View>
-            <Text style={[styles.readinessTitle, { color: colors.cardForeground, marginTop: 14 }]}>
+            <Text
+              style={[
+                styles.readinessTitle,
+                { color: colors.cardForeground, marginTop: 14 },
+              ]}
+            >
               Spoken reply speed
             </Text>
-            <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+            <View
+              style={[styles.segmented, { backgroundColor: colors.secondary }]}
+            >
               {speechRateOptions.map((option) => (
                 <Pressable
                   key={option.value}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: settings.speechRate === option.value }}
-                  onPress={() => void updateSettings({ speechRate: option.value })}
+                  accessibilityState={{
+                    selected: settings.speechRate === option.value,
+                  }}
+                  onPress={() =>
+                    void updateSettings({ speechRate: option.value })
+                  }
                   style={[
                     styles.segment,
                     settings.speechRate === option.value && {
@@ -779,7 +1464,17 @@ export default function SettingsScreen() {
                     },
                   ]}
                 >
-                  <Text style={[styles.segmentText, { color: settings.speechRate === option.value ? colors.cardForeground : colors.mutedForeground }]}>
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      {
+                        color:
+                          settings.speechRate === option.value
+                            ? colors.cardForeground
+                            : colors.mutedForeground,
+                      },
+                    ]}
+                  >
                     {option.label}
                   </Text>
                 </Pressable>
@@ -789,54 +1484,188 @@ export default function SettingsScreen() {
         </View>
 
         <SectionLabel>Preferences</SectionLabel>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <SettingRow icon="mic" title="Offline voice input" description="Use mic for dictation">
-            <Switch value={settings.voiceInputEnabled} onValueChange={(v) => updateSettings({ voiceInputEnabled: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.voiceInputEnabled ? colors.accentForeground : colors.mutedForeground} />
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <SettingRow
+            icon="mic"
+            title="Offline voice input"
+            description="Use mic for dictation"
+          >
+            <Switch
+              value={settings.voiceInputEnabled}
+              onValueChange={(v) => updateSettings({ voiceInputEnabled: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.voiceInputEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
           </SettingRow>
-          <SettingRow icon="volume-2" title="Spoken replies" description="Read new replies aloud">
-            <Switch value={settings.spokenRepliesEnabled} onValueChange={(v) => updateSettings({ spokenRepliesEnabled: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.spokenRepliesEnabled ? colors.accentForeground : colors.mutedForeground} />
+          <SettingRow
+            icon="volume-2"
+            title="Spoken replies"
+            description="Read new replies aloud"
+          >
+            <Switch
+              value={settings.spokenRepliesEnabled}
+              onValueChange={(v) => updateSettings({ spokenRepliesEnabled: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.spokenRepliesEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
           </SettingRow>
-          <SettingRow icon="save" title="Save history" description="Keep conversations">
-            <Switch value={settings.saveConversations} onValueChange={(v) => updateSettings({ saveConversations: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.saveConversations ? colors.accentForeground : colors.mutedForeground} />
+          <SettingRow
+            icon="save"
+            title="Save history"
+            description="Keep conversations"
+          >
+            <Switch
+              value={settings.saveConversations}
+              onValueChange={(v) => updateSettings({ saveConversations: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.saveConversations
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
           </SettingRow>
-          <SettingRow icon="smartphone" title="Haptic feedback" description="Light tap on send" noBorder>
-            <Switch value={settings.hapticsEnabled} onValueChange={(v) => updateSettings({ hapticsEnabled: v })} trackColor={{ false: colors.secondary, true: colors.accent }} thumbColor={settings.hapticsEnabled ? colors.accentForeground : colors.mutedForeground} />
+          <SettingRow
+            icon="smartphone"
+            title="Haptic feedback"
+            description="Light tap on send"
+            noBorder
+          >
+            <Switch
+              value={settings.hapticsEnabled}
+              onValueChange={(v) => updateSettings({ hapticsEnabled: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.hapticsEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
           </SettingRow>
         </View>
 
         <SectionLabel>Appearance</SectionLabel>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View
+            style={[styles.segmented, { backgroundColor: colors.secondary }]}
+          >
             {appearanceOptions.map((option) => (
               <Pressable
                 key={option.value}
                 onPress={() => updateSettings({ appearance: option.value })}
-                style={[styles.segment, settings.appearance === option.value && { backgroundColor: colors.card, borderColor: colors.border }]}
+                style={[
+                  styles.segment,
+                  settings.appearance === option.value && {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                  },
+                ]}
               >
-                <Text style={[styles.segmentText, { color: settings.appearance === option.value ? colors.cardForeground : colors.mutedForeground }]}>{option.label}</Text>
+                <Text
+                  style={[
+                    styles.segmentText,
+                    {
+                      color:
+                        settings.appearance === option.value
+                          ? colors.cardForeground
+                          : colors.mutedForeground,
+                    },
+                  ]}
+                >
+                  {option.label}
+                </Text>
               </Pressable>
             ))}
           </View>
         </View>
 
-        <Pressable onPress={() => setShowClearConfirm(true)} style={({ pressed }) => [styles.dangerCard, { backgroundColor: colors.card, borderColor: colors.destructive }, pressed && styles.pressed]}>
+        <Pressable
+          onPress={() => setShowClearConfirm(true)}
+          style={({ pressed }) => [
+            styles.dangerCard,
+            { backgroundColor: colors.card, borderColor: colors.destructive },
+            pressed && styles.pressed,
+          ]}
+        >
           <Feather name="trash-2" size={16} color={colors.destructive} />
-          <Text style={[styles.dangerText, { color: colors.destructive }]}>Clear conversation history</Text>
+          <Text style={[styles.dangerText, { color: colors.destructive }]}>
+            Clear conversation history
+          </Text>
         </Pressable>
-
       </ScrollView>
 
-      <Modal visible={showClearConfirm} transparent animationType="fade" onRequestClose={() => setShowClearConfirm(false)}>
-        <View style={[styles.modalBackdrop, { backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.5)' }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>Clear history?</Text>
-            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>This removes all past messages. Memories and settings are kept.</Text>
+      <Modal
+        visible={showClearConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowClearConfirm(false)}
+      >
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              backgroundColor: colors.isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.5)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>
+              Clear history?
+            </Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              This removes all past messages. Memories and settings are kept.
+            </Text>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setShowClearConfirm(false)} style={styles.modalButton}>
-                <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>Cancel</Text>
+              <Pressable
+                onPress={() => setShowClearConfirm(false)}
+                style={styles.modalButton}
+              >
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Cancel
+                </Text>
               </Pressable>
-              <Pressable onPress={handleClearHistory} style={styles.modalButton}>
-                <Text style={[styles.modalButtonText, { color: colors.destructive }]}>Clear</Text>
+              <Pressable
+                onPress={handleClearHistory}
+                style={styles.modalButton}
+              >
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: colors.destructive },
+                  ]}
+                >
+                  Clear
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -851,11 +1680,32 @@ export default function SettingsScreen() {
           if (!isReclaimingModels) setShowReclaimConfirm(false);
         }}
       >
-        <View style={[styles.modalBackdrop, { backgroundColor: colors.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.5)' }]}>
-          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>Reclaim inactive models?</Text>
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              backgroundColor: colors.isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.5)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>
+              Reclaim inactive models?
+            </Text>
             <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
-              Remove {storageUsage?.reclaimableModels.fileCount ?? 0} inactive model file{storageUsage?.reclaimableModels.fileCount === 1 ? '' : 's'} (about {formatStorageBytes(storageUsage?.reclaimableModels.bytes ?? 0)}). The active model and encrypted memories will be kept.
+              Remove {storageUsage?.reclaimableModels.fileCount ?? 0} inactive
+              model file
+              {storageUsage?.reclaimableModels.fileCount === 1 ? "" : "s"}{" "}
+              (about{" "}
+              {formatStorageBytes(storageUsage?.reclaimableModels.bytes ?? 0)}).
+              The active model and encrypted memories will be kept.
             </Text>
             {modelReclaimMessage && (
               <Text style={[styles.modalBody, { color: colors.destructive }]}>
@@ -869,7 +1719,14 @@ export default function SettingsScreen() {
                 onPress={() => setShowReclaimConfirm(false)}
                 style={styles.modalButton}
               >
-                <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>Cancel</Text>
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Cancel
+                </Text>
               </Pressable>
               <Pressable
                 testID="confirm-reclaim-model-files"
@@ -880,7 +1737,11 @@ export default function SettingsScreen() {
                 {isReclaimingModels ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
-                  <Text style={[styles.modalButtonText, { color: colors.primary }]}>Reclaim</Text>
+                  <Text
+                    style={[styles.modalButtonText, { color: colors.primary }]}
+                  >
+                    Reclaim
+                  </Text>
                 )}
               </Pressable>
             </View>
@@ -888,83 +1749,275 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      <PersonalProfileEditor visible={showProfileEditor} mode="settings" onClose={() => setShowProfileEditor(false)} />
+      <PersonalProfileEditor
+        visible={showProfileEditor}
+        mode="settings"
+        onClose={() => setShowProfileEditor(false)}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  loadingScreen: { flex: 1, alignItems: "center", justifyContent: "center" },
   screen: { flex: 1 },
-  header: { height: 60, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 18 },
+  header: {
+    height: 60,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: { fontFamily: "SpaceGrotesk_600SemiBold", fontSize: 18 },
   headerSpacer: { width: 36 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 12 },
-  errorBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10, borderRadius: 12, marginBottom: 8 },
-  errorText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  errorText: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 16,
+  },
   diagnosticBox: { padding: 10, borderRadius: 10 },
-  diagnosticTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 12, marginBottom: 3 },
-  sectionLabel: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 11, letterSpacing: 1, marginBottom: 8, marginTop: 24, paddingLeft: 4 },
+  diagnosticTitle: {
+    fontFamily: "SpaceGrotesk_600SemiBold",
+    fontSize: 12,
+    marginBottom: 3,
+  },
+  sectionLabel: {
+    fontFamily: "SpaceGrotesk_700Bold",
+    fontSize: 11,
+    letterSpacing: 1,
+    marginBottom: 8,
+    marginTop: 24,
+    paddingLeft: 4,
+  },
   card: { borderWidth: 1, borderRadius: 20, padding: 16 },
-  profileSummary: { flexDirection: 'row', alignItems: 'center' },
-  rowIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  rowCopy: { flex: 1, justifyContent: 'center' },
-  rowTitle: { fontFamily: 'Inter_500Medium', fontSize: 15, marginBottom: 2 },
-  rowDescription: { fontFamily: 'Inter_400Regular', fontSize: 12 },
+  profileSummary: { flexDirection: "row", alignItems: "center" },
+  rowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  rowCopy: { flex: 1, justifyContent: "center" },
+  rowTitle: { fontFamily: "Inter_500Medium", fontSize: 15, marginBottom: 2 },
+  rowDescription: { fontFamily: "Inter_400Regular", fontSize: 12 },
   smallButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  smallButtonText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
-  linkCard: { marginTop: 12, borderWidth: 1, borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center' },
-  storageHeader: { flexDirection: 'row', alignItems: 'center' },
+  smallButtonText: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  linkCard: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  storageHeader: { flexDirection: "row", alignItems: "center" },
   storageRows: { marginTop: 16, gap: 12 },
-  storageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  storageRowLabel: { fontFamily: 'Inter_500Medium', fontSize: 13, marginBottom: 2 },
-  storageRowDetail: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 15 },
-  storageRowValue: { fontFamily: 'Inter_500Medium', fontSize: 12, textAlign: 'right' },
+  storageRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  storageRowLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  storageRowDetail: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  storageRowValue: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    textAlign: "right",
+  },
   storageDivider: { height: 1, marginVertical: 2 },
-  storageNote: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 16 },
-  storageAction: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
-  storageActionTitle: { fontFamily: 'Inter_500Medium', fontSize: 13, marginBottom: 2 },
+  storageNote: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 16,
+  },
+  storageAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  storageActionTitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    marginBottom: 2,
+  },
   readinessItem: { paddingVertical: 8 },
-  readinessHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  readinessTitle: { fontFamily: 'Inter_500Medium', fontSize: 15 },
-  readinessDesc: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 18 },
+  readinessHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  readinessTitle: { fontFamily: "Inter_500Medium", fontSize: 15 },
+  readinessDesc: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
+  },
   pressedReadiness: { opacity: 0.7 },
   voicePicker: { borderTopWidth: 1, marginTop: 8, paddingTop: 16 },
   voicePreferences: { borderTopWidth: 1, marginTop: 16, paddingTop: 16 },
-  voicePickerHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  refreshButton: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  voiceLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  voicePickerHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  refreshButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  voiceLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+  },
   voiceOptions: { gap: 8, marginTop: 12 },
-  voiceOption: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
+  voiceSelfTest: { marginTop: 16, padding: 12, borderRadius: 14 },
+  selfTestActions: { flexDirection: "row", gap: 8, marginTop: 12 },
+  selfTestResult: { marginTop: 12, padding: 10, borderRadius: 10 },
+  selfTestNextAction: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+  },
+  voiceOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
   voiceOptionCopy: { flex: 1 },
-  voiceOptionTitle: { fontFamily: 'Inter_500Medium', fontSize: 13, marginBottom: 2 },
-  voiceMeta: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
+  voiceOptionTitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    marginBottom: 2,
+  },
+  voiceMeta: { fontFamily: "Inter_400Regular", fontSize: 11, lineHeight: 16 },
   downloadBox: { marginTop: 12, padding: 12, borderRadius: 12 },
-  downloadTitle: { fontFamily: 'Inter_500Medium', fontSize: 14, marginBottom: 4 },
-  downloadMeta: { fontFamily: 'Inter_400Regular', fontSize: 12 },
-  downloadActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  primaryButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  primaryButtonText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
-  secondaryButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  secondaryButtonText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
-  smallPrimaryButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, alignSelf: 'flex-start' },
-  smallPrimaryButtonText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
-  progressBar: { height: 6, borderRadius: 3, marginTop: 12, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 3 },
+  downloadTitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  downloadMeta: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  downloadActions: { flexDirection: "row", gap: 8, marginTop: 12 },
+  primaryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryButtonText: { fontFamily: "Inter_500Medium", fontSize: 13 },
+  secondaryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryButtonText: { fontFamily: "Inter_500Medium", fontSize: 13 },
+  smallPrimaryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+  },
+  smallPrimaryButtonText: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  progressBar: {
+    height: 6,
+    borderRadius: 3,
+    marginTop: 12,
+    overflow: "hidden",
+  },
+  progressFill: { height: "100%", borderRadius: 3 },
   divider: { height: 1, marginVertical: 8 },
-  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  segmented: { flexDirection: 'row', borderRadius: 12, padding: 4 },
-  segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: 'transparent' },
-  segmentText: { fontFamily: 'Inter_500Medium', fontSize: 13 },
-  dangerCard: { marginTop: 32, padding: 16, borderRadius: 20, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  dangerText: { fontFamily: 'Inter_500Medium', fontSize: 14 },
-  modalBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  modalCard: { width: '100%', maxWidth: 340, borderWidth: 1, borderRadius: 20, padding: 20 },
-  modalTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 18, marginBottom: 8 },
-  modalBody: { fontFamily: 'Inter_400Regular', fontSize: 14, lineHeight: 20, marginBottom: 24 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 16 },
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  segmented: { flexDirection: "row", borderRadius: 12, padding: 4 },
+  segment: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  segmentText: { fontFamily: "Inter_500Medium", fontSize: 13 },
+  dangerCard: {
+    marginTop: 32,
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  dangerText: { fontFamily: "Inter_500Medium", fontSize: 14 },
+  modalBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 340,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 20,
+  },
+  modalTitle: {
+    fontFamily: "SpaceGrotesk_600SemiBold",
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  modalBody: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 16 },
   modalButton: { padding: 8 },
-  modalButtonText: { fontFamily: 'Inter_500Medium', fontSize: 14 },
+  modalButtonText: { fontFamily: "Inter_500Medium", fontSize: 14 },
   pressed: { opacity: 0.7 },
 });

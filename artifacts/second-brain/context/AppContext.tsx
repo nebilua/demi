@@ -1,7 +1,7 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Haptics from 'expo-haptics';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Haptics from "expo-haptics";
 import React, {
   createContext,
   useContext,
@@ -9,9 +9,9 @@ import React, {
   useMemo,
   useRef,
   useState,
-} from 'react';
-import { AppState, Platform } from 'react-native';
-import type { LlamaContext } from 'llama.rn';
+} from "react";
+import { AppState, Platform } from "react-native";
+import type { LlamaContext } from "llama.rn";
 import {
   formatBytes,
   getDeviceCompatibility,
@@ -22,7 +22,7 @@ import {
   type DeviceCompatibility,
   type LocalModel,
   type RuntimeDetails,
-} from '@/lib/offlineLlm';
+} from "@/lib/offlineLlm";
 import {
   getOfflineVoices,
   getRecognitionModule,
@@ -35,7 +35,9 @@ import {
   type OfflineVoice,
   type RecognitionModule,
   type VoiceInputStatus,
-} from '@/lib/offlineVoice';
+  type VoiceSelfTestResult,
+  voiceSelfTestDiagnosis,
+} from "@/lib/offlineVoice";
 import {
   memoryFingerprint,
   hasConversationalReminderIntent,
@@ -46,8 +48,8 @@ import {
   selectRelevantMemories,
   type ApprovedMemory,
   type MemoryCandidate,
-} from '@/lib/memory';
-import { computeFileSha256 } from '@/lib/fileHash';
+} from "@/lib/memory";
+import { computeFileSha256 } from "@/lib/fileHash";
 import {
   getSecureStorageProtection,
   migratePlaintextRecord,
@@ -55,22 +57,22 @@ import {
   removeSecureRecord,
   writeSecureRecord,
   type SecureStorageProtection,
-} from '@/lib/secureLocalStorage';
+} from "@/lib/secureLocalStorage";
 import {
   MAX_CONVERSATION_TURNS,
   MAX_MEMORIES,
   MODEL_STORAGE_SAFETY_MARGIN_BYTES,
-} from '@/lib/localLimits';
+} from "@/lib/localLimits";
 import {
   measureLocalStorageUsage,
   type LocalStorageUsage,
-} from '@/lib/localStorageUsage';
+} from "@/lib/localStorageUsage";
 
-export type Appearance = 'system' | 'light' | 'dark';
+export type Appearance = "system" | "light" | "dark";
 
 export type ConversationTurn = {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   createdAt: number;
 };
@@ -93,14 +95,10 @@ export type PersonalProfile = {
 };
 
 export type ModelSetupStatus =
-  | 'idle'
-  | 'selecting'
-  | 'copying'
-  | 'validating'
-  | 'loading';
+  "idle" | "selecting" | "copying" | "validating" | "loading";
 
 export type ModelCleanupResult = {
-  status: 'completed' | 'unavailable';
+  status: "completed" | "unavailable";
   deletedFiles: number;
   deletedBytes: number;
   failedFiles: number;
@@ -112,7 +110,7 @@ type AppContextValue = {
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>;
   profile: PersonalProfile;
   saveProfile: (
-    profile: Pick<PersonalProfile, 'displayName' | 'context'>,
+    profile: Pick<PersonalProfile, "displayName" | "context">,
   ) => Promise<void>;
   skipProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
@@ -132,7 +130,7 @@ type AppContextValue = {
   savedTurnCount: number;
   localModel: LocalModel | null;
   deviceCompatibility: DeviceCompatibility;
-  engineStatus: 'unsupported' | 'no-model' | 'loading' | 'ready' | 'error';
+  engineStatus: "unsupported" | "no-model" | "loading" | "ready" | "error";
   engineProgress: number;
   engineError: string | null;
   modelSetupStatus: ModelSetupStatus;
@@ -148,10 +146,17 @@ type AppContextValue = {
   voiceSetupMessage: string | null;
   voiceSetupInProgress: boolean;
   isSpeaking: boolean;
+  voiceSelfTestResult: VoiceSelfTestResult | null;
+  voiceSelfTestRunning: boolean;
+  voiceSelfTestSpeechStatus: "idle" | "speaking";
+  runVoiceSelfTest: () => Promise<void>;
+  cancelVoiceSelfTest: () => void;
+  playVoiceSelfTestSample: () => Promise<void>;
+  stopVoiceSelfTestSample: () => Promise<void>;
   importModel: () => Promise<void>;
   downloadRecommendedModel: () => Promise<void>;
   cancelDownload: () => void;
-  downloadStatus: 'idle' | 'downloading' | 'validating' | 'loading' | 'error';
+  downloadStatus: "idle" | "downloading" | "validating" | "loading" | "error";
   downloadProgress: number;
   downloadError: string | null;
   loadModel: () => Promise<boolean>;
@@ -172,28 +177,28 @@ type AppContextValue = {
   reclaimUnusedModelFiles: () => Promise<ModelCleanupResult>;
 };
 
-const SETTINGS_KEY = '@second-brain/settings-v1';
-const CONVERSATION_KEY = '@second-brain/conversation-v1';
-const MODEL_KEY = '@second-brain/local-model-v1';
-const PROFILE_KEY = '@second-brain/personal-profile-v1';
-const SECURE_PROFILE_KEY = 'profile';
-const SECURE_CONVERSATION_KEY = 'conversation';
-const SECURE_MEMORIES_KEY = 'approved-memories';
+const SETTINGS_KEY = "@second-brain/settings-v1";
+const CONVERSATION_KEY = "@second-brain/conversation-v1";
+const MODEL_KEY = "@second-brain/local-model-v1";
+const PROFILE_KEY = "@second-brain/personal-profile-v1";
+const SECURE_PROFILE_KEY = "profile";
+const SECURE_CONVERSATION_KEY = "conversation";
+const SECURE_MEMORIES_KEY = "approved-memories";
 
 const DEFAULT_SETTINGS: AppSettings = {
-  appearance: 'system',
+  appearance: "system",
   hapticsEnabled: true,
   saveConversations: true,
   voiceInputEnabled: true,
   spokenRepliesEnabled: true,
-  voiceLanguage: 'en-US',
+  voiceLanguage: "en-US",
   speechRate: 0.92,
   preferredVoiceId: null,
 };
 
 const DEFAULT_PROFILE: PersonalProfile = {
-  displayName: '',
-  context: '',
+  displayName: "",
+  context: "",
   onboardingCompleted: false,
 };
 
@@ -210,23 +215,25 @@ function parseSettings(value: string | null): AppSettings {
     const parsed = JSON.parse(value) as Partial<AppSettings>;
     return {
       appearance:
-        parsed.appearance === 'light' || parsed.appearance === 'dark'
+        parsed.appearance === "light" || parsed.appearance === "dark"
           ? parsed.appearance
-          : 'system',
+          : "system",
       hapticsEnabled: parsed.hapticsEnabled !== false,
       saveConversations: parsed.saveConversations !== false,
       voiceInputEnabled: parsed.voiceInputEnabled !== false,
       spokenRepliesEnabled: parsed.spokenRepliesEnabled !== false,
       voiceLanguage:
-        typeof parsed.voiceLanguage === 'string' ? parsed.voiceLanguage : 'en-US',
+        typeof parsed.voiceLanguage === "string"
+          ? parsed.voiceLanguage
+          : "en-US",
       speechRate:
-        typeof parsed.speechRate === 'number' &&
+        typeof parsed.speechRate === "number" &&
         parsed.speechRate >= 0.75 &&
         parsed.speechRate <= 1.2
           ? parsed.speechRate
           : 0.92,
       preferredVoiceId:
-        typeof parsed.preferredVoiceId === 'string'
+        typeof parsed.preferredVoiceId === "string"
           ? parsed.preferredVoiceId
           : null,
     };
@@ -242,13 +249,13 @@ function parseProfile(value: string | null): PersonalProfile {
     const parsed = JSON.parse(value) as Partial<PersonalProfile>;
     return {
       displayName:
-        typeof parsed.displayName === 'string'
+        typeof parsed.displayName === "string"
           ? parsed.displayName.trim().slice(0, 80)
-          : '',
+          : "",
       context:
-        typeof parsed.context === 'string'
+        typeof parsed.context === "string"
           ? parsed.context.trim().slice(0, 2000)
-          : '',
+          : "",
       onboardingCompleted: parsed.onboardingCompleted === true,
     };
   } catch {
@@ -264,10 +271,10 @@ function parseTurns(value: string | null): ConversationTurn[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (turn) =>
-        typeof turn.id === 'string' &&
-        (turn.role === 'user' || turn.role === 'assistant') &&
-        typeof turn.content === 'string' &&
-        typeof turn.createdAt === 'number',
+        typeof turn.id === "string" &&
+        (turn.role === "user" || turn.role === "assistant") &&
+        typeof turn.content === "string" &&
+        typeof turn.createdAt === "number",
     );
   } catch {
     return [];
@@ -279,12 +286,12 @@ function parseModel(value: string | null): LocalModel | null {
   try {
     const model = JSON.parse(value) as Partial<LocalModel>;
     if (
-      typeof model.id !== 'string' ||
-      typeof model.name !== 'string' ||
-      typeof model.uri !== 'string' ||
-      typeof model.sizeBytes !== 'number' ||
-      typeof model.importedAt !== 'number' ||
-      typeof model.contextSize !== 'number'
+      typeof model.id !== "string" ||
+      typeof model.name !== "string" ||
+      typeof model.uri !== "string" ||
+      typeof model.sizeBytes !== "number" ||
+      typeof model.importedAt !== "number" ||
+      typeof model.contextSize !== "number"
     ) {
       return null;
     }
@@ -295,33 +302,33 @@ function parseModel(value: string | null): LocalModel | null {
 }
 
 function cleanFileName(name: string) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '-');
+  return name.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
 function readableError(error: unknown) {
-  const message = error instanceof Error ? error.message : '';
+  const message = error instanceof Error ? error.message : "";
   const normalized = message.toLowerCase();
   if (
-    normalized.includes('outofmemory') ||
-    normalized.includes('out of memory') ||
-    normalized.includes('allocation failed') ||
-    normalized.includes('cannot allocate') ||
-    normalized.includes('bad_alloc') ||
-    normalized.includes('failed to create context') ||
-    normalized.includes('failed to load model')
+    normalized.includes("outofmemory") ||
+    normalized.includes("out of memory") ||
+    normalized.includes("allocation failed") ||
+    normalized.includes("cannot allocate") ||
+    normalized.includes("bad_alloc") ||
+    normalized.includes("failed to create context") ||
+    normalized.includes("failed to load model")
   ) {
-    return 'Android ran out of memory while loading this model. Remove other apps from recents and retry with a smaller Q4 GGUF model.';
+    return "Android ran out of memory while loading this model. Remove other apps from recents and retry with a smaller Q4 GGUF model.";
   }
   if (
-    normalized.includes('no space') ||
-    normalized.includes('insufficient storage') ||
-    normalized.includes('storage full') ||
-    normalized.includes('enospc')
+    normalized.includes("no space") ||
+    normalized.includes("insufficient storage") ||
+    normalized.includes("storage full") ||
+    normalized.includes("enospc")
   ) {
-    return 'There is not enough free storage to copy this model. Free space on the device and try again.';
+    return "There is not enough free storage to copy this model. Free space on the device and try again.";
   }
   if (message) return message;
-  return 'The model could not be loaded. Choose a smaller compatible GGUF file and try again.';
+  return "The model could not be loaded. Choose a smaller compatible GGUF file and try again.";
 }
 
 async function validateGgufHeader(uri: string) {
@@ -330,9 +337,9 @@ async function validateGgufHeader(uri: string) {
     position: 0,
     length: 4,
   });
-  if (!header.replace(/\s/g, '').startsWith('R0dVRg')) {
+  if (!header.replace(/\s/g, "").startsWith("R0dVRg")) {
     throw new Error(
-      'This file is not a valid GGUF model. Choose a compatible Q4_K_M or other Q4 GGUF file.',
+      "This file is not a valid GGUF model. Choose a compatible Q4_K_M or other Q4 GGUF file.",
     );
   }
 }
@@ -341,28 +348,28 @@ async function cleanupUnusedModelFiles(
   activeModelUri: string | null,
 ): Promise<ModelCleanupResult> {
   const result: ModelCleanupResult = {
-    status: 'completed',
+    status: "completed",
     deletedFiles: 0,
     deletedBytes: 0,
     failedFiles: 0,
   };
-  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return result;
+  if (Platform.OS === "web" || !FileSystem.documentDirectory) return result;
 
   const modelsDirectory = `${FileSystem.documentDirectory}models`;
-  const normalizedActiveUri = activeModelUri?.replace(/\/$/, '');
+  const normalizedActiveUri = activeModelUri?.replace(/\/$/, "");
 
   async function removeInactiveFiles(directoryUri: string): Promise<boolean> {
     let entries: string[];
     try {
       entries = await FileSystem.readDirectoryAsync(directoryUri);
     } catch {
-      result.status = 'unavailable';
+      result.status = "unavailable";
       return false;
     }
 
     for (const entry of entries) {
-      const candidateUri = `${directoryUri.replace(/\/$/, '')}/${entry}`;
-      if (candidateUri.replace(/\/$/, '') === normalizedActiveUri) continue;
+      const candidateUri = `${directoryUri.replace(/\/$/, "")}/${entry}`;
+      if (candidateUri.replace(/\/$/, "") === normalizedActiveUri) continue;
 
       let info;
       try {
@@ -397,12 +404,12 @@ async function cleanupUnusedModelFiles(
     const directoryInfo = await FileSystem.getInfoAsync(modelsDirectory);
     if (!directoryInfo.exists) return result;
     if (!directoryInfo.isDirectory) {
-      result.status = 'unavailable';
+      result.status = "unavailable";
       return result;
     }
     await removeInactiveFiles(modelsDirectory);
   } catch {
-    result.status = 'unavailable';
+    result.status = "unavailable";
   }
   return result;
 }
@@ -428,27 +435,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const storageProtection = getSecureStorageProtection();
   const [localModel, setLocalModel] = useState<LocalModel | null>(null);
   const [engineStatus, setEngineStatus] = useState<
-    'unsupported' | 'no-model' | 'loading' | 'ready' | 'error'
-  >(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+    "unsupported" | "no-model" | "loading" | "ready" | "error"
+  >(Platform.OS === "web" ? "unsupported" : "no-model");
   const [engineProgress, setEngineProgress] = useState(0);
   const [engineError, setEngineError] = useState<string | null>(null);
   const [modelSetupStatus, setModelSetupStatus] =
-    useState<ModelSetupStatus>('idle');
-  const [runtimeDetails, setRuntimeDetails] = useState<RuntimeDetails | null>(null);
+    useState<ModelSetupStatus>("idle");
+  const [runtimeDetails, setRuntimeDetails] = useState<RuntimeDetails | null>(
+    null,
+  );
   const [voiceInputStatus, setVoiceInputStatus] = useState<VoiceInputStatus>(
-    Platform.OS === 'web' ? 'unavailable' : 'checking',
+    Platform.OS === "web" ? "unavailable" : "checking",
   );
   const [voiceInputAvailable, setVoiceInputAvailable] = useState(false);
   const [voiceOutputAvailable, setVoiceOutputAvailable] = useState(false);
   const [offlineVoices, setOfflineVoices] = useState<OfflineVoice[]>([]);
   const [offlineVoicesLoading, setOfflineVoicesLoading] = useState(true);
-  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [voiceSetupMessage, setVoiceSetupMessage] = useState<string | null>(null);
+  const [voiceSetupMessage, setVoiceSetupMessage] = useState<string | null>(
+    null,
+  );
   const [voiceSetupInProgress, setVoiceSetupInProgress] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceSelfTestResult, setVoiceSelfTestResult] =
+    useState<VoiceSelfTestResult | null>(null);
+  const [voiceSelfTestRunning, setVoiceSelfTestRunning] = useState(false);
+  const [voiceSelfTestSpeechStatus, setVoiceSelfTestSpeechStatus] = useState<
+    "idle" | "speaking"
+  >("idle");
 
-  const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'validating' | 'loading' | 'error'>('idle');
+  const [downloadStatus, setDownloadStatus] = useState<
+    "idle" | "downloading" | "validating" | "loading" | "error"
+  >("idle");
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const downloadResumableRef = useRef<any>(null);
@@ -457,6 +476,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const llamaContextRef = useRef<LlamaContext | null>(null);
   const recognitionModuleRef = useRef<RecognitionModule | null>(null);
   const recognitionServicePackageRef = useRef<string | undefined>(undefined);
+  const voiceSelfTestActiveRef = useRef(false);
+  const voiceSelfTestCancelRef = useRef<(() => void) | null>(null);
+  const voiceSelfTestCancelRequestedRef = useRef(false);
+  const voiceSelfTestSpeechRunRef = useRef(0);
   const didRestoreModelRef = useRef(false);
   const modelImportInFlightRef = useRef(false);
   const modelLoadInFlightRef = useRef(false);
@@ -474,11 +497,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (
       modelImportInFlightRef.current ||
       modelLoadInFlightRef.current ||
-      modelSetupStatus !== 'idle' ||
-      (downloadStatus !== 'idle' && downloadStatus !== 'error')
+      modelSetupStatus !== "idle" ||
+      (downloadStatus !== "idle" && downloadStatus !== "error")
     ) {
       return {
-        status: 'unavailable',
+        status: "unavailable",
         deletedFiles: 0,
         deletedBytes: 0,
         failedFiles: 0,
@@ -505,39 +528,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           storedProfile,
           storedMemories,
         ]) => {
-        if (!isMounted) return;
-        const nextSettings = parseSettings(storedSettings);
-        const savedTurns = parseTurns(storedConversation);
-        const savedModel = parseModel(storedModel);
-        const savedProfile = parseProfile(storedProfile);
-        const savedMemories = parseApprovedMemories(storedMemories);
+          if (!isMounted) return;
+          const nextSettings = parseSettings(storedSettings);
+          const savedTurns = parseTurns(storedConversation);
+          const savedModel = parseModel(storedModel);
+          const savedProfile = parseProfile(storedProfile);
+          const savedMemories = parseApprovedMemories(storedMemories);
 
-        setSettings(nextSettings);
-        setProfile(savedProfile);
-        setMemories(savedMemories);
-        memoriesRef.current = savedMemories;
-        setSavedTurnCount(savedTurns.length);
-        setTurns(nextSettings.saveConversations ? savedTurns : []);
+          setSettings(nextSettings);
+          setProfile(savedProfile);
+          setMemories(savedMemories);
+          memoriesRef.current = savedMemories;
+          setSavedTurnCount(savedTurns.length);
+          setTurns(nextSettings.saveConversations ? savedTurns : []);
           let activeModelUri: string | null = null;
-        if (savedModel && Platform.OS !== 'web') {
-          const file = await FileSystem.getInfoAsync(savedModel.uri);
-          if (file.exists) {
-            setLocalModel(savedModel);
+          if (savedModel && Platform.OS !== "web") {
+            const file = await FileSystem.getInfoAsync(savedModel.uri);
+            if (file.exists) {
+              setLocalModel(savedModel);
               activeModelUri = savedModel.uri;
-            setEngineStatus('no-model');
-          } else {
-            await AsyncStorage.removeItem(MODEL_KEY);
+              setEngineStatus("no-model");
+            } else {
+              await AsyncStorage.removeItem(MODEL_KEY);
+            }
           }
-        }
           await cleanupUnusedModelFiles(activeModelUri);
-        setSettingsReady(true);
-        setIsConversationReady(true);
+          setSettingsReady(true);
+          setIsConversationReady(true);
         },
       )
       .catch(() => {
         if (!isMounted) return;
         setStorageError(
-          'Secure local memory could not be opened. Prior data was preserved. Do not clear app data; restart the app or restore access to this device’s Android Keystore.',
+          "Secure local memory could not be opened. Prior data was preserved. Do not clear app data; restart the app or restore access to this device’s Android Keystore.",
         );
         setSettingsReady(true);
         setIsConversationReady(true);
@@ -582,7 +605,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const module = getRecognitionModule();
     recognitionModuleRef.current = module;
     if (!module) {
-      setVoiceInputStatus('unavailable');
+      setVoiceInputStatus("unavailable");
       return () => {
         isMounted = false;
         void stopLocalSpeech();
@@ -590,50 +613,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     void refreshVoiceAvailability(module);
-    const appStateSubscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        void refreshVoiceAvailability(module);
-        void refreshOfflineVoices();
-        if (offlineVoiceSetupInFlightRef.current) {
-          offlineVoiceSetupInFlightRef.current = false;
-          setVoiceSetupInProgress(false);
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (state) => {
+        if (state === "active") {
+          void refreshVoiceAvailability(module);
+          void refreshOfflineVoices();
+          if (offlineVoiceSetupInFlightRef.current) {
+            offlineVoiceSetupInFlightRef.current = false;
+            setVoiceSetupInProgress(false);
+          }
         }
-      }
-    });
+      },
+    );
 
     const subscriptions = [
-      module.addListener('start', () => {
-        setVoiceInputStatus('listening');
+      module.addListener("start", () => {
+        if (voiceSelfTestActiveRef.current) return;
+        setVoiceInputStatus("listening");
         setVoiceError(null);
       }),
-      module.addListener('result', (event: ExpoSpeechRecognitionResultEvent) => {
-        const transcript = event.results[0]?.transcript?.trim();
-        if (transcript) setVoiceTranscript(transcript);
-        if (event.isFinal) setVoiceInputStatus('processing');
-      }),
-      module.addListener('end', () => {
+      module.addListener(
+        "result",
+        (event: ExpoSpeechRecognitionResultEvent) => {
+          if (voiceSelfTestActiveRef.current) return;
+          const transcript = event.results[0]?.transcript?.trim();
+          if (transcript) setVoiceTranscript(transcript);
+          if (event.isFinal) setVoiceInputStatus("processing");
+        },
+      ),
+      module.addListener("end", () => {
+        if (voiceSelfTestActiveRef.current) return;
         setVoiceInputStatus((current) =>
-          current === 'unavailable' || current === 'needs-model'
+          current === "unavailable" || current === "needs-model"
             ? current
-            : 'idle',
+            : "idle",
         );
       }),
-      module.addListener('error', (event) => {
-        if (event.error === 'aborted') {
-          setVoiceInputStatus('idle');
+      module.addListener("error", (event) => {
+        if (voiceSelfTestActiveRef.current) return;
+        if (event.error === "aborted") {
+          setVoiceInputStatus("idle");
           return;
         }
         const needsModel =
-          event.error === 'language-not-supported' ||
-          event.error === 'service-not-allowed' ||
-          event.error === 'network';
-        setVoiceInputStatus(needsModel ? 'needs-model' : 'error');
+          event.error === "language-not-supported" ||
+          event.error === "service-not-allowed" ||
+          event.error === "network";
+        setVoiceInputStatus(needsModel ? "needs-model" : "error");
         setVoiceError(voiceErrorMessage(event));
       }),
     ];
 
     return () => {
       isMounted = false;
+      voiceSelfTestCancelRef.current?.();
       appStateSubscription.remove();
       subscriptions.forEach((subscription) => subscription.remove());
       try {
@@ -653,7 +687,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setOfflineVoices(voices);
       setVoiceOutputAvailable(
         voices.some((voice) =>
-          voiceMatchesLanguage(voice.language, settingsRef.current.voiceLanguage),
+          voiceMatchesLanguage(
+            voice.language,
+            settingsRef.current.voiceLanguage,
+          ),
         ),
       );
     } catch {
@@ -664,23 +701,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function refreshVoiceAvailability(
-    moduleOverride?: RecognitionModule,
-  ) {
+  async function refreshVoiceAvailability(moduleOverride?: RecognitionModule) {
     const module = moduleOverride ?? recognitionModuleRef.current;
-    if (!module || Platform.OS !== 'android') {
+    if (!module || Platform.OS !== "android") {
       setVoiceInputAvailable(false);
-      setVoiceInputStatus('unavailable');
+      setVoiceInputStatus("unavailable");
       return false;
     }
 
     const androidApiLevel =
-      typeof Platform.Version === 'number' ? Platform.Version : 0;
+      typeof Platform.Version === "number" ? Platform.Version : 0;
     if (androidApiLevel < 33) {
       setVoiceInputAvailable(false);
-      setVoiceInputStatus('unavailable');
+      setVoiceInputStatus("unavailable");
       setVoiceSetupMessage(
-        'Private offline dictation requires Android 13 or newer. Voice input is disabled on this device so audio cannot fall back to a network recognizer.',
+        "Private offline dictation requires Android 13 or newer. Voice input is disabled on this device so audio cannot fall back to a network recognizer.",
       );
       return false;
     }
@@ -691,33 +726,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         !module.supportsOnDeviceRecognition()
       ) {
         setVoiceInputAvailable(false);
-        setVoiceInputStatus('unavailable');
+        setVoiceInputStatus("unavailable");
         setVoiceSetupMessage(
-          'This device does not provide private on-device speech recognition.',
+          "This device does not provide private on-device speech recognition.",
         );
         return false;
       }
 
       const services = module.getSpeechRecognitionServices();
-      const onDevicePackage = services.includes('com.google.android.as')
-        ? 'com.google.android.as'
+      const onDevicePackage = services.includes("com.google.android.as")
+        ? "com.google.android.as"
         : undefined;
       recognitionServicePackageRef.current = onDevicePackage;
       const { installedLocales } = await module.getSupportedLocales({
         androidRecognitionServicePackage: onDevicePackage,
       });
       const expectedLocale = settingsRef.current.voiceLanguage.toLowerCase();
-      const expectedLanguage = expectedLocale.split('-')[0];
+      const expectedLanguage = expectedLocale.split("-")[0];
       const localeInstalled = installedLocales.some((locale) => {
         const normalized = locale.toLowerCase();
         return (
           normalized === expectedLocale ||
-          normalized.split('-')[0] === expectedLanguage
+          normalized.split("-")[0] === expectedLanguage
         );
       });
 
       setVoiceInputAvailable(localeInstalled);
-      setVoiceInputStatus(localeInstalled ? 'idle' : 'needs-model');
+      setVoiceInputStatus(localeInstalled ? "idle" : "needs-model");
       setVoiceSetupMessage(
         localeInstalled
           ? null
@@ -726,7 +761,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return localeInstalled;
     } catch {
       setVoiceInputAvailable(false);
-      setVoiceInputStatus('needs-model');
+      setVoiceInputStatus("needs-model");
       setVoiceSetupMessage(
         `Demi could not verify an installed ${settingsRef.current.voiceLanguage} offline language pack.`,
       );
@@ -746,26 +781,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!model || modelLoadInFlightRef.current) return false;
 
     modelLoadInFlightRef.current = true;
-    setModelSetupStatus('loading');
-    setEngineStatus('loading');
+    setModelSetupStatus("loading");
+    setEngineStatus("loading");
     setEngineProgress(0);
     setEngineError(null);
 
     try {
       await releaseModelContext();
-      const loaded = await loadNativeModel(model, deviceCompatibility, setEngineProgress);
+      const loaded = await loadNativeModel(
+        model,
+        deviceCompatibility,
+        setEngineProgress,
+      );
       llamaContextRef.current = loaded.context;
       setRuntimeDetails(loaded.details);
       setEngineProgress(100);
-      setEngineStatus('ready');
+      setEngineStatus("ready");
       return true;
     } catch (error) {
       setEngineError(readableError(error));
-      setEngineStatus('error');
+      setEngineStatus("error");
       return false;
     } finally {
       modelLoadInFlightRef.current = false;
-      setModelSetupStatus('idle');
+      setModelSetupStatus("idle");
     }
   }
 
@@ -777,81 +816,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function importModel() {
     if (modelImportInFlightRef.current || modelLoadInFlightRef.current) return;
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       setEngineError(
-        'Model import and offline inference are available in the installed Android app.',
+        "Model import and offline inference are available in the installed Android app.",
       );
-      setEngineStatus('unsupported');
+      setEngineStatus("unsupported");
       return;
     }
 
     modelImportInFlightRef.current = true;
-    setModelSetupStatus('selecting');
+    setModelSetupStatus("selecting");
     setEngineError(null);
     let destination: string | null = null;
     let loadedNewModel = false;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/octet-stream',
+        type: "application/octet-stream",
         copyToCacheDirectory: true,
         multiple: false,
       });
-       if (result.canceled) {
-         setModelSetupStatus('idle');
-         return;
-       }
+      if (result.canceled) {
+        setModelSetupStatus("idle");
+        return;
+      }
 
       const asset = result.assets[0];
-      if (!asset.name.toLowerCase().endsWith('.gguf')) {
-        setEngineError('Choose a quantized model file ending in .gguf.');
-        setEngineStatus('error');
-         setModelSetupStatus('idle');
+      if (!asset.name.toLowerCase().endsWith(".gguf")) {
+        setEngineError("Choose a quantized model file ending in .gguf.");
+        setEngineStatus("error");
+        setModelSetupStatus("idle");
         return;
       }
 
-       setModelSetupStatus('validating');
+      setModelSetupStatus("validating");
       const sourceInfo = await FileSystem.getInfoAsync(asset.uri);
-      const sizeBytes = asset.size ?? (sourceInfo.exists ? sourceInfo.size ?? 0 : 0);
+      const sizeBytes =
+        asset.size ?? (sourceInfo.exists ? (sourceInfo.size ?? 0) : 0);
       if (sizeBytes <= 0) {
-        setEngineError('The selected file could not be read.');
-        setEngineStatus('error');
-         setModelSetupStatus('idle');
+        setEngineError("The selected file could not be read.");
+        setEngineStatus("error");
+        setModelSetupStatus("idle");
         return;
       }
-       await validateGgufHeader(asset.uri);
+      await validateGgufHeader(asset.uri);
 
-       let freeStorageBytes: number;
-       try {
-         freeStorageBytes = await FileSystem.getFreeDiskStorageAsync();
-       } catch {
-         throw new Error(
-           'Demi could not check free storage before copying this model. Try again after closing other apps.',
-         );
-       }
-        if (
-          freeStorageBytes <
-          sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES
-        ) {
-         throw new Error(
-            `There is not enough free storage to copy this ${formatBytes(sizeBytes)} model. Free at least ${formatBytes(
-              sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES,
-           )} and try again.`,
-         );
-       }
+      let freeStorageBytes: number;
+      try {
+        freeStorageBytes = await FileSystem.getFreeDiskStorageAsync();
+      } catch {
+        throw new Error(
+          "Demi could not check free storage before copying this model. Try again after closing other apps.",
+        );
+      }
+      if (freeStorageBytes < sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES) {
+        throw new Error(
+          `There is not enough free storage to copy this ${formatBytes(sizeBytes)} model. Free at least ${formatBytes(
+            sizeBytes + MODEL_STORAGE_SAFETY_MARGIN_BYTES,
+          )} and try again.`,
+        );
+      }
 
       const modelsDirectory = `${FileSystem.documentDirectory}models`;
-      await FileSystem.makeDirectoryAsync(modelsDirectory, { intermediates: true });
-       destination = `${modelsDirectory}/${Date.now()}-${cleanFileName(asset.name)}`;
-       setModelSetupStatus('copying');
+      await FileSystem.makeDirectoryAsync(modelsDirectory, {
+        intermediates: true,
+      });
+      destination = `${modelsDirectory}/${Date.now()}-${cleanFileName(asset.name)}`;
+      setModelSetupStatus("copying");
       await FileSystem.copyAsync({ from: asset.uri, to: destination });
-       setModelSetupStatus('validating');
-       const copiedInfo = await FileSystem.getInfoAsync(destination);
-       if (!copiedInfo.exists || (copiedInfo.size ?? 0) !== sizeBytes) {
-         throw new Error(
-           'The model copy did not finish correctly. Remove the partial file and try importing it again.',
-         );
-       }
-       await validateGgufHeader(destination);
+      setModelSetupStatus("validating");
+      const copiedInfo = await FileSystem.getInfoAsync(destination);
+      if (!copiedInfo.exists || (copiedInfo.size ?? 0) !== sizeBytes) {
+        throw new Error(
+          "The model copy did not finish correctly. Remove the partial file and try importing it again.",
+        );
+      }
+      await validateGgufHeader(destination);
 
       const nextModel: LocalModel = {
         id: createId(),
@@ -864,43 +903,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (nextModel.sizeBytes > deviceCompatibility.maxRecommendedModelBytes) {
         await FileSystem.deleteAsync(destination, { idempotent: true });
-         destination = null;
+        destination = null;
         setEngineError(
           `${asset.name} is ${formatBytes(sizeBytes)}. Choose a model smaller than ${formatBytes(
             deviceCompatibility.maxRecommendedModelBytes,
           )} to avoid a low-memory crash.`,
         );
-        setEngineStatus('error');
-         setModelSetupStatus('idle');
+        setEngineStatus("error");
+        setModelSetupStatus("idle");
         return;
       }
 
-       const previousModel = localModel;
-       const loaded = await loadModel(nextModel);
-       if (!loaded) {
-         await FileSystem.deleteAsync(destination, { idempotent: true });
-         destination = null;
-         return;
+      const previousModel = localModel;
+      const loaded = await loadModel(nextModel);
+      if (!loaded) {
+        await FileSystem.deleteAsync(destination, { idempotent: true });
+        destination = null;
+        return;
       }
-       loadedNewModel = true;
-       await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
-       setStorageError(null);
-       setLocalModel(nextModel);
-       destination = null;
-       if (previousModel && previousModel.uri !== nextModel.uri) {
-         await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(
-           () => {},
-         );
-       }
-        await cleanupUnusedModelFiles(nextModel.uri);
+      loadedNewModel = true;
+      await AsyncStorage.setItem(MODEL_KEY, JSON.stringify(nextModel));
+      setStorageError(null);
+      setLocalModel(nextModel);
+      destination = null;
+      if (previousModel && previousModel.uri !== nextModel.uri) {
+        await FileSystem.deleteAsync(previousModel.uri, {
+          idempotent: true,
+        }).catch(() => {});
+      }
+      await cleanupUnusedModelFiles(nextModel.uri);
     } catch (error) {
       if (destination) {
-        await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+        await FileSystem.deleteAsync(destination, { idempotent: true }).catch(
+          () => {},
+        );
       }
       if (loadedNewModel) await releaseModelContext();
       setEngineError(readableError(error));
-      setEngineStatus('error');
-      setModelSetupStatus('idle');
+      setEngineStatus("error");
+      setModelSetupStatus("idle");
     } finally {
       modelImportInFlightRef.current = false;
     }
@@ -908,7 +949,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function removeModel() {
     const model = localModel;
-    if (!model || modelImportInFlightRef.current || modelLoadInFlightRef.current) {
+    if (
+      !model ||
+      modelImportInFlightRef.current ||
+      modelLoadInFlightRef.current
+    ) {
       return;
     }
     try {
@@ -918,11 +963,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setLocalModel(null);
       setEngineProgress(0);
       setEngineError(null);
-      setEngineStatus(Platform.OS === 'web' ? 'unsupported' : 'no-model');
+      setEngineStatus(Platform.OS === "web" ? "unsupported" : "no-model");
       setStorageError(null);
     } catch {
       setStorageError(
-        'The model could not be removed completely. Your saved model selection was kept.',
+        "The model could not be removed completely. Your saved model selection was kept.",
       );
     }
   }
@@ -932,25 +977,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (downloadResumableRef.current) {
       downloadResumableRef.current.cancelAsync().catch(() => {});
       const dest = downloadResumableRef.current.fileUri;
-      if (dest) FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+      if (dest)
+        FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
       downloadResumableRef.current = null;
     }
     setDownloadError(null);
-    setDownloadStatus('idle');
+    setDownloadStatus("idle");
     setDownloadProgress(0);
   }
 
   async function downloadRecommendedModel() {
-    if (modelLoadInFlightRef.current || downloadStatus === 'downloading') return;
-    if (Platform.OS === 'web') {
-      setDownloadError('Model download is available in the installed Android app.');
-      setDownloadStatus('error');
+    if (modelLoadInFlightRef.current || downloadStatus === "downloading")
+      return;
+    if (Platform.OS === "web") {
+      setDownloadError(
+        "Model download is available in the installed Android app.",
+      );
+      setDownloadStatus("error");
       return;
     }
 
     const runId = downloadRunRef.current + 1;
     downloadRunRef.current = runId;
-    setDownloadStatus('downloading');
+    setDownloadStatus("downloading");
     setDownloadProgress(0);
     setDownloadError(null);
 
@@ -961,7 +1010,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       if (!deviceCompatibility.architectureSupported) {
         throw new Error(
-          'This device needs a 64-bit ARM or x86-64 processor to run the local model.',
+          "This device needs a 64-bit ARM or x86-64 processor to run the local model.",
         );
       }
       if (
@@ -978,7 +1027,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         freeStorageBytes = await FileSystem.getFreeDiskStorageAsync();
       } catch {
-        throw new Error('Could not check free storage.');
+        throw new Error("Could not check free storage.");
       }
       if (
         freeStorageBytes <
@@ -990,16 +1039,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           )}.`,
         );
       }
-      await FileSystem.makeDirectoryAsync(modelsDirectory, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(modelsDirectory, {
+        intermediates: true,
+      });
 
       const downloadResumable = FileSystem.createDownloadResumable(
         RECOMMENDED_MODEL.url,
         destination,
         {},
         (downloadProgress) => {
-          const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+          const progress =
+            downloadProgress.totalBytesWritten /
+            downloadProgress.totalBytesExpectedToWrite;
           setDownloadProgress(progress * 100);
-        }
+        },
       );
       downloadResumableRef.current = downloadResumable;
 
@@ -1011,23 +1064,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!result || result.status !== 200) {
-        throw new Error('Download failed.');
+        throw new Error("Download failed.");
       }
 
       const downloadedInfo = await FileSystem.getInfoAsync(destination);
-      if (!downloadedInfo.exists || downloadedInfo.size !== RECOMMENDED_MODEL.sizeBytes) {
-        throw new Error('Downloaded file size does not match expected size.');
+      if (
+        !downloadedInfo.exists ||
+        downloadedInfo.size !== RECOMMENDED_MODEL.sizeBytes
+      ) {
+        throw new Error("Downloaded file size does not match expected size.");
       }
 
-      setDownloadStatus('validating');
+      setDownloadStatus("validating");
       await validateGgufHeader(destination);
 
       const checksum = await computeFileSha256(destination);
       if (checksum !== RECOMMENDED_MODEL.expectedChecksum) {
-        throw new Error('Downloaded file checksum does not match expected checksum.');
+        throw new Error(
+          "Downloaded file checksum does not match expected checksum.",
+        );
       }
 
-      setDownloadStatus('loading');
+      setDownloadStatus("loading");
 
       const nextModel: LocalModel = {
         id: createId(),
@@ -1047,7 +1105,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (!loaded) {
         await FileSystem.deleteAsync(destination, { idempotent: true });
-        setDownloadStatus('idle');
+        setDownloadStatus("idle");
         return;
       }
       loadedNewModel = true;
@@ -1057,45 +1115,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setLocalModel(nextModel);
 
       if (previousModel && previousModel.uri !== nextModel.uri) {
-        await FileSystem.deleteAsync(previousModel.uri, { idempotent: true }).catch(() => {});
+        await FileSystem.deleteAsync(previousModel.uri, {
+          idempotent: true,
+        }).catch(() => {});
       }
       await cleanupUnusedModelFiles(nextModel.uri);
 
-      setDownloadStatus('idle');
-
+      setDownloadStatus("idle");
     } catch (error) {
       downloadResumableRef.current = null;
-      await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+      await FileSystem.deleteAsync(destination, { idempotent: true }).catch(
+        () => {},
+      );
       if (runId !== downloadRunRef.current) return;
       if (loadedNewModel) await releaseModelContext();
-      setDownloadError(error instanceof Error ? error.message : 'Download failed.');
-      setDownloadStatus('error');
+      setDownloadError(
+        error instanceof Error ? error.message : "Download failed.",
+      );
+      setDownloadStatus("error");
     }
   }
 
   async function startVoiceInput() {
     if (!settings.voiceInputEnabled) {
-      setVoiceError('Voice input is turned off in Settings.');
+      setVoiceError("Voice input is turned off in Settings.");
       return;
     }
 
     const module = recognitionModuleRef.current;
     if (!module) {
-      setVoiceInputStatus('unavailable');
+      setVoiceInputStatus("unavailable");
       setVoiceError(
-        'Offline listening needs the installed Android build. It is not included in Expo Go or the browser preview.',
+        "Offline listening needs the installed Android build. It is not included in Expo Go or the browser preview.",
       );
       return;
     }
 
     const androidApiLevel =
-      Platform.OS === 'android' && typeof Platform.Version === 'number'
+      Platform.OS === "android" && typeof Platform.Version === "number"
         ? Platform.Version
         : 0;
-    if (Platform.OS !== 'android' || androidApiLevel < 33) {
-      setVoiceInputStatus('unavailable');
+    if (Platform.OS !== "android" || androidApiLevel < 33) {
+      setVoiceInputStatus("unavailable");
       setVoiceError(
-        'Private offline voice input requires an installed Android 13 or newer build.',
+        "Private offline voice input requires an installed Android 13 or newer build.",
       );
       return;
     }
@@ -1107,18 +1170,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const permission = await module.requestPermissionsAsync();
       if (!permission.granted) {
-        setVoiceInputStatus('error');
+        setVoiceInputStatus("error");
         setVoiceError(
           permission.canAskAgain === false
-            ? 'Microphone access is blocked. Open Android Settings to enable it.'
-            : 'Microphone access is required for local voice input.',
+            ? "Microphone access is blocked. Open Android Settings to enable it."
+            : "Microphone access is required for local voice input.",
         );
         return;
       }
 
       const offlineLocaleInstalled = await refreshVoiceAvailability(module);
       if (!offlineLocaleInstalled) {
-        setVoiceInputStatus('needs-model');
+        setVoiceInputStatus("needs-model");
         setVoiceError(
           `Install the ${settings.voiceLanguage} offline language pack before using private voice input.`,
         );
@@ -1126,8 +1189,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       setVoiceInputAvailable(true);
-      setVoiceTranscript('');
-      setVoiceInputStatus('checking');
+      setVoiceTranscript("");
+      setVoiceInputStatus("checking");
       module.start({
         lang: settings.voiceLanguage,
         interimResults: true,
@@ -1135,15 +1198,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         continuous: false,
         requiresOnDeviceRecognition: true,
         addsPunctuation: true,
-        androidRecognitionServicePackage:
-          recognitionServicePackageRef.current,
+        androidRecognitionServicePackage: recognitionServicePackageRef.current,
       });
     } catch (error) {
-      setVoiceInputStatus('error');
+      setVoiceInputStatus("error");
       setVoiceError(
         error instanceof Error
           ? error.message
-          : 'Offline voice input could not start.',
+          : "Offline voice input could not start.",
       );
     }
   }
@@ -1151,7 +1213,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   function stopVoiceInput() {
     const module = recognitionModuleRef.current;
     if (!module) return;
-    setVoiceInputStatus('processing');
+    setVoiceInputStatus("processing");
     module.stop();
   }
 
@@ -1159,31 +1221,354 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const module = recognitionModuleRef.current;
     if (!module) return;
     module.abort();
-    setVoiceTranscript('');
-    setVoiceInputStatus('idle');
+    setVoiceTranscript("");
+    setVoiceInputStatus("idle");
     setVoiceError(null);
   }
 
   function clearVoiceTranscript() {
-    setVoiceTranscript('');
+    setVoiceTranscript("");
+  }
+
+  async function runVoiceSelfTest() {
+    if (voiceSelfTestRunning) return;
+
+    const module = recognitionModuleRef.current;
+    if (!module || Platform.OS !== "android") {
+      setVoiceSelfTestResult({
+        kind: "recognition",
+        outcome: "recognizer-unavailable",
+        title: "Voice self-test is unavailable here",
+        detail:
+          "The browser preview does not access the microphone or a local Android recognizer.",
+        nextAction: "Run this test from the installed Android app.",
+      });
+      return;
+    }
+
+    const androidApiLevel =
+      typeof Platform.Version === "number" ? Platform.Version : 0;
+    if (androidApiLevel < 33) {
+      setVoiceSelfTestResult({
+        kind: "recognition",
+        outcome: "recognizer-unavailable",
+        title: "Android 13 or newer is required",
+        detail:
+          "This app only uses the Android on-device recognizer when it can guarantee private recognition.",
+        nextAction: "Use an Android 13+ device for the voice self-test.",
+      });
+      return;
+    }
+
+    setVoiceSelfTestRunning(true);
+    voiceSelfTestCancelRequestedRef.current = false;
+    setVoiceSelfTestResult({
+      kind: "recognition",
+      outcome: "running",
+      title: "Checking local microphone access",
+      detail:
+        "Android will ask for microphone access if it has not been granted.",
+      nextAction: "When listening starts, speak a short phrase.",
+    });
+    voiceSelfTestActiveRef.current = true;
+
+    try {
+      const permission = await module.requestPermissionsAsync();
+      if (voiceSelfTestCancelRequestedRef.current) return;
+      if (!permission.granted) {
+        setVoiceSelfTestResult({
+          kind: "recognition",
+          outcome: "permission-denied",
+          title: "Microphone permission is off",
+          detail: "Android did not grant this app access to the microphone.",
+          nextAction:
+            permission.canAskAgain === false
+              ? "Allow microphone access for Demi in Android Settings, then run the test again."
+              : "Allow microphone access when Android asks, then run the test again.",
+        });
+        return;
+      }
+
+      if (
+        !module.isRecognitionAvailable() ||
+        !module.supportsOnDeviceRecognition()
+      ) {
+        setVoiceSelfTestResult({
+          kind: "recognition",
+          outcome: "recognizer-unavailable",
+          title: "On-device recognizer is unavailable",
+          detail:
+            "Android does not have a recognizer that can run this test locally.",
+          nextAction:
+            "Install or enable an on-device speech recognition service, then run the test again.",
+        });
+        return;
+      }
+
+      const services = module.getSpeechRecognitionServices();
+      const onDevicePackage = services.includes("com.google.android.as")
+        ? "com.google.android.as"
+        : undefined;
+      const { installedLocales } = await module.getSupportedLocales({
+        androidRecognitionServicePackage: onDevicePackage,
+      });
+      if (voiceSelfTestCancelRequestedRef.current) return;
+      const expectedLocale = settingsRef.current.voiceLanguage.toLowerCase();
+      const expectedLanguage = expectedLocale.split("-")[0];
+      const localeInstalled = installedLocales.some((locale) => {
+        const normalized = locale.toLowerCase();
+        return (
+          normalized === expectedLocale ||
+          normalized.split("-")[0] === expectedLanguage
+        );
+      });
+      if (!localeInstalled) {
+        setVoiceSelfTestResult({
+          kind: "recognition",
+          outcome: "offline-language-missing",
+          title: "Offline language data is missing",
+          detail: `Android does not have the ${settingsRef.current.voiceLanguage} recognition pack installed.`,
+          nextAction:
+            "Tap Install offline language pack above, wait for Android to finish, then run the test again.",
+        });
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        let transcript = "";
+        let settled = false;
+        const subscriptions = [
+          module.addListener(
+            "result",
+            (event: ExpoSpeechRecognitionResultEvent) => {
+              transcript = event.results[0]?.transcript?.trim() ?? transcript;
+            },
+          ),
+          module.addListener("error", (event) => {
+            finish(voiceSelfTestDiagnosis(event));
+          }),
+          module.addListener("end", () => {
+            if (transcript) {
+              finish({
+                outcome: "passed",
+                title: "Microphone recognition passed",
+                detail: `Android recognized “${transcript}” on this device without sending it to a network service.`,
+                nextAction:
+                  "You can use the microphone button for private voice input.",
+                transcript,
+              });
+            } else {
+              finish({
+                outcome: "error",
+                title: "No speech was detected",
+                detail:
+                  "The microphone opened, but the recognizer did not hear a phrase.",
+                nextAction:
+                  "Tap the test again and speak close to the device microphone.",
+              });
+            }
+          }),
+        ];
+
+        function finish(diagnosis: Omit<VoiceSelfTestResult, "kind">) {
+          if (settled) return;
+          settled = true;
+          subscriptions.forEach((subscription) => subscription.remove());
+          voiceSelfTestCancelRef.current = null;
+          setVoiceSelfTestResult({ kind: "recognition", ...diagnosis });
+          resolve();
+        }
+
+        voiceSelfTestCancelRef.current = () => {
+          try {
+            module.abort();
+          } catch {
+            // The recognizer may already have stopped.
+          }
+          finish({
+            outcome: "cancelled",
+            title: "Microphone test cancelled",
+            detail:
+              "The on-device recognizer stopped before it returned a result.",
+            nextAction:
+              "Run the test again and speak a short phrase when prompted.",
+          });
+        };
+
+        try {
+          module.start({
+            lang: settingsRef.current.voiceLanguage,
+            interimResults: true,
+            maxAlternatives: 1,
+            continuous: false,
+            requiresOnDeviceRecognition: true,
+            addsPunctuation: true,
+            androidRecognitionServicePackage: onDevicePackage,
+          });
+        } catch (error) {
+          finish({
+            outcome: "error",
+            title: "Microphone test could not start",
+            detail:
+              error instanceof Error
+                ? error.message
+                : "Android rejected the local recognition request.",
+            nextAction: "Close other recording apps and run the test again.",
+          });
+        }
+      });
+    } catch (error) {
+      setVoiceSelfTestResult({
+        kind: "recognition",
+        outcome: "error",
+        title: "Microphone test could not finish",
+        detail:
+          error instanceof Error
+            ? error.message
+            : "Android could not verify local speech recognition.",
+        nextAction: "Check Android voice settings and run the test again.",
+      });
+    } finally {
+      voiceSelfTestCancelRef.current = null;
+      voiceSelfTestActiveRef.current = false;
+      setVoiceSelfTestRunning(false);
+    }
+  }
+
+  function cancelVoiceSelfTest() {
+    voiceSelfTestCancelRequestedRef.current = true;
+    voiceSelfTestCancelRef.current?.();
+    if (!voiceSelfTestCancelRef.current) {
+      setVoiceSelfTestResult({
+        kind: "recognition",
+        outcome: "cancelled",
+        title: "Microphone test cancelled",
+        detail:
+          "The local microphone check was cancelled before listening started.",
+        nextAction:
+          "Run the test again and speak a short phrase when prompted.",
+      });
+    }
+  }
+
+  async function playVoiceSelfTestSample() {
+    if (voiceSelfTestSpeechStatus === "speaking") return;
+    if (Platform.OS !== "android") {
+      setVoiceSelfTestResult({
+        kind: "tts",
+        outcome: "recognizer-unavailable",
+        title: "Voice self-test is unavailable here",
+        detail: "The browser preview does not play local Android speech.",
+        nextAction: "Run this test from the installed Android app.",
+      });
+      return;
+    }
+
+    const runId = voiceSelfTestSpeechRunRef.current + 1;
+    voiceSelfTestSpeechRunRef.current = runId;
+    setVoiceSelfTestSpeechStatus("speaking");
+    setVoiceSelfTestResult({
+      kind: "tts",
+      outcome: "running",
+      title: "Playing local speech sample",
+      detail:
+        "This short sample uses the selected language and the verified offline voice fallback.",
+      nextAction: "Tap Stop sample if you want to end playback early.",
+    });
+    await stopLocalSpeech();
+    const availableVoices = await getOfflineVoices();
+    const languageVoiceAvailable = availableVoices.some((voice) =>
+      voiceMatchesLanguage(voice.language, settingsRef.current.voiceLanguage),
+    );
+    if (runId !== voiceSelfTestSpeechRunRef.current) return;
+    if (!languageVoiceAvailable) {
+      setVoiceSelfTestSpeechStatus("idle");
+      setVoiceSelfTestResult({
+        kind: "tts",
+        outcome: "error",
+        title: "No verified offline voice is installed",
+        detail: `Android does not have a verified offline voice for ${settingsRef.current.voiceLanguage}.`,
+        nextAction:
+          "Open Android text-to-speech settings, install an offline voice, then try the sample again.",
+      });
+      return;
+    }
+    await speakLocally("This is a private local voice test.", {
+      language: settingsRef.current.voiceLanguage,
+      rate: settingsRef.current.speechRate,
+      preferredVoiceId: settingsRef.current.preferredVoiceId,
+      onStart: () => {
+        if (runId === voiceSelfTestSpeechRunRef.current) {
+          setVoiceSelfTestSpeechStatus("speaking");
+        }
+      },
+      onDone: () => {
+        if (runId !== voiceSelfTestSpeechRunRef.current) return;
+        setVoiceSelfTestSpeechStatus("idle");
+        setVoiceSelfTestResult({
+          kind: "tts",
+          outcome: "passed",
+          title: "Local speech playback passed",
+          detail:
+            "The selected language and a verified offline voice played on this device.",
+          nextAction: "You can use spoken replies without a network voice.",
+        });
+      },
+      onStopped: () => {
+        if (runId !== voiceSelfTestSpeechRunRef.current) return;
+        setVoiceSelfTestSpeechStatus("idle");
+        setVoiceSelfTestResult({
+          kind: "tts",
+          outcome: "cancelled",
+          title: "Speech sample stopped",
+          detail: "The local sample stopped before it finished.",
+          nextAction: "Tap Play sample to run the voice test again.",
+        });
+      },
+      onError: (message) => {
+        if (runId !== voiceSelfTestSpeechRunRef.current) return;
+        setVoiceSelfTestSpeechStatus("idle");
+        setVoiceSelfTestResult({
+          kind: "tts",
+          outcome: "error",
+          title: "Local speech playback failed",
+          detail: message || "The verified offline voice could not start.",
+          nextAction:
+            "Install or enable an offline voice for the selected language in Android Settings, then try again.",
+        });
+      },
+    });
+  }
+
+  async function stopVoiceSelfTestSample() {
+    voiceSelfTestSpeechRunRef.current += 1;
+    await stopLocalSpeech();
+    setVoiceSelfTestSpeechStatus("idle");
+    setVoiceSelfTestResult({
+      kind: "tts",
+      outcome: "cancelled",
+      title: "Speech sample stopped",
+      detail: "The local sample stopped before it finished.",
+      nextAction: "Tap Play sample to run the voice test again.",
+    });
   }
 
   async function installOfflineVoiceModel() {
     if (offlineVoiceSetupInFlightRef.current) return;
     const module = recognitionModuleRef.current;
-    if (!module || Platform.OS !== 'android') {
+    if (!module || Platform.OS !== "android") {
       setVoiceError(
-        'Offline language installation is available in the installed Android build.',
+        "Offline language installation is available in the installed Android build.",
       );
       return;
     }
 
     const androidApiLevel =
-      typeof Platform.Version === 'number' ? Platform.Version : 0;
+      typeof Platform.Version === "number" ? Platform.Version : 0;
     if (androidApiLevel < 33) {
-      setVoiceInputStatus('unavailable');
+      setVoiceInputStatus("unavailable");
       setVoiceError(
-        'Private offline dictation requires Android 13 or newer and is disabled on this device.',
+        "Private offline dictation requires Android 13 or newer and is disabled on this device.",
       );
       return;
     }
@@ -1192,31 +1577,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setVoiceSetupInProgress(true);
     setVoiceError(null);
     setVoiceSetupMessage(null);
-    setVoiceInputStatus('checking');
+    setVoiceInputStatus("checking");
     try {
       const result = await module.androidTriggerOfflineModelDownload({
         locale: settings.voiceLanguage,
       });
       setVoiceSetupMessage(
-        result.status === 'download_success'
+        result.status === "download_success"
           ? `${settings.voiceLanguage} offline recognition is installed.`
-          : result.status === 'download_scheduled'
-            ? 'The offline language download is scheduled. Android may wait for Wi-Fi.'
-            : 'Android opened the offline language download. Return here when it finishes.',
+          : result.status === "download_scheduled"
+            ? "The offline language download is scheduled. Android may wait for Wi-Fi."
+            : "Android opened the offline language download. Return here when it finishes.",
       );
       await refreshVoiceAvailability(module);
-      if (result.status !== 'opened_dialog') {
+      if (result.status !== "opened_dialog") {
         offlineVoiceSetupInFlightRef.current = false;
         setVoiceSetupInProgress(false);
       }
     } catch (error) {
       offlineVoiceSetupInFlightRef.current = false;
       setVoiceSetupInProgress(false);
-      setVoiceInputStatus('needs-model');
+      setVoiceInputStatus("needs-model");
       setVoiceError(
         error instanceof Error
           ? error.message
-          : 'The offline language download could not be opened.',
+          : "The offline language download could not be opened.",
       );
     }
   }
@@ -1249,7 +1634,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       onStopped: () => setIsSpeaking(false),
       onError: (message) => {
         setIsSpeaking(false);
-        setVoiceError(message || 'The local voice could not speak this response.');
+        setVoiceError(
+          message || "The local voice could not speak this response.",
+        );
       },
     });
   }
@@ -1264,7 +1651,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await openLocalVoiceSettings();
     } catch {
       setVoiceError(
-        'Android text-to-speech settings could not be opened from this build. Open Android Settings, then choose Text-to-speech output.',
+        "Android text-to-speech settings could not be opened from this build. Open Android Settings, then choose Text-to-speech output.",
       );
     }
   }
@@ -1272,8 +1659,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   function dismissVoiceError() {
     setVoiceError(null);
     setVoiceSetupMessage(null);
-    if (voiceInputStatus === 'error') {
-      setVoiceInputStatus(voiceInputAvailable ? 'idle' : 'unavailable');
+    if (voiceInputStatus === "error") {
+      setVoiceInputStatus(voiceInputAvailable ? "idle" : "unavailable");
     }
   }
 
@@ -1285,7 +1672,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSettings(nextSettings);
       setStorageError(null);
     } catch {
-      setStorageError('Settings could not be saved on this device.');
+      setStorageError("Settings could not be saved on this device.");
     }
   }
 
@@ -1295,13 +1682,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setProfile(nextProfile);
       setStorageError(null);
     } catch {
-      setStorageError('Your local profile could not be saved on this device.');
-      throw new Error('Your local profile could not be saved on this device.');
+      setStorageError("Your local profile could not be saved on this device.");
+      throw new Error("Your local profile could not be saved on this device.");
     }
   }
 
   async function saveProfile(
-    nextProfile: Pick<PersonalProfile, 'displayName' | 'context'>,
+    nextProfile: Pick<PersonalProfile, "displayName" | "context">,
   ) {
     await persistProfile({
       displayName: nextProfile.displayName.trim().slice(0, 80),
@@ -1312,16 +1699,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function skipProfile() {
     await persistProfile({
-      displayName: '',
-      context: '',
+      displayName: "",
+      context: "",
       onboardingCompleted: true,
     });
   }
 
   async function clearProfile() {
     await persistProfile({
-      displayName: '',
-      context: '',
+      displayName: "",
+      context: "",
       onboardingCompleted: true,
     });
   }
@@ -1337,7 +1724,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSavedTurnCount(Math.min(nextTurns.length, MAX_CONVERSATION_TURNS));
       setStorageError(null);
     } catch {
-      setStorageError('This message is visible now, but could not be saved locally.');
+      setStorageError(
+        "This message is visible now, but could not be saved locally.",
+      );
     }
   }
 
@@ -1347,7 +1736,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       !trimmedContent ||
       isThinking ||
       !isConversationReady ||
-      engineStatus !== 'ready' ||
+      engineStatus !== "ready" ||
       !llamaContextRef.current
     ) {
       return;
@@ -1359,7 +1748,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const userTurn: ConversationTurn = {
       id: createId(),
-      role: 'user',
+      role: "user",
       content: trimmedContent,
       createdAt: Date.now(),
     };
@@ -1371,15 +1760,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const assistantTurn: ConversationTurn = {
       id: createId(),
-      role: 'assistant',
-      content: '',
+      role: "assistant",
+      content: "",
       createdAt: Date.now(),
     };
     const withAssistantTurn = [...withUserTurn, assistantTurn];
     setTurns(withAssistantTurn);
 
     try {
-      let streamedContent = '';
+      let streamedContent = "";
       const finalContent = await streamCompletion(
         llamaContextRef.current,
         withUserTurn.map((turn) => ({
@@ -1406,7 +1795,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             withUserTurn
               .slice(-6)
               .map((turn) => `${turn.role}: ${turn.content}`)
-              .join('\n'),
+              .join("\n"),
           ),
         },
       );
@@ -1417,18 +1806,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               content:
                 finalContent ||
                 streamedContent ||
-                'The model finished without returning text. Try asking in a different way.',
+                "The model finished without returning text. Try asking in a different way.",
             }
           : turn,
       );
       setTurns(completedTurns);
       await persistTurns(completedTurns);
       const completedResponse =
-        completedTurns.find((turn) => turn.id === assistantTurn.id)?.content ?? '';
+        completedTurns.find((turn) => turn.id === assistantTurn.id)?.content ??
+        "";
       if (settings.spokenRepliesEnabled && completedResponse) {
         await speakText(completedResponse);
       }
-      const conversationalReminder = parseConversationalReminder(trimmedContent);
+      const conversationalReminder =
+        parseConversationalReminder(trimmedContent);
       const hasReminderIntent = hasConversationalReminderIntent(trimmedContent);
       if (conversationalReminder) {
         setPendingMemoryCandidate(conversationalReminder);
@@ -1469,8 +1860,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function clearConversation() {
     if (clearConversationInFlightRef.current) return;
     if (isThinking) {
-      setStorageError('Wait for the current response to finish before clearing history.');
-      throw new Error('A response is still being generated.');
+      setStorageError(
+        "Wait for the current response to finish before clearing history.",
+      );
+      throw new Error("A response is still being generated.");
     }
     clearConversationInFlightRef.current = true;
     try {
@@ -1479,8 +1872,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSavedTurnCount(0);
       setStorageError(null);
     } catch {
-      setStorageError('Conversation history could not be cleared.');
-      throw new Error('Conversation history could not be cleared.');
+      setStorageError("Conversation history could not be cleared.");
+      throw new Error("Conversation history could not be cleared.");
     } finally {
       clearConversationInFlightRef.current = false;
     }
@@ -1501,18 +1894,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           aliases: normalizeMemoryAliases(memory.aliases),
         }))
         .slice(0, MAX_MEMORIES);
-      await writeSecureRecord(
-        SECURE_MEMORIES_KEY,
-        JSON.stringify(bounded),
-      );
+      await writeSecureRecord(SECURE_MEMORIES_KEY, JSON.stringify(bounded));
       memoriesRef.current = bounded;
       setMemories(bounded);
       setStorageError(null);
     } catch {
       setStorageError(
-        'Memory changes could not be encrypted and saved. Your previous memories are unchanged.',
+        "Memory changes could not be encrypted and saved. Your previous memories are unchanged.",
       );
-      throw new Error('The memory could not be saved securely.');
+      throw new Error("The memory could not be saved securely.");
     }
   }
 
@@ -1528,7 +1918,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function saveMemoryCandidate(editedContent?: string) {
     const candidate = pendingMemoryCandidate;
-    if (!candidate || candidate.kind !== 'memory') return;
+    if (!candidate || candidate.kind !== "memory") return;
     const content = (editedContent ?? candidate.content).trim().slice(0, 240);
     if (!content) {
       setPendingMemoryCandidate(null);
@@ -1550,7 +1940,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           category: candidate.category,
           content,
           source: {
-            turnId: turns.filter((turn) => turn.role === 'user').at(-1)?.id ?? '',
+            turnId:
+              turns.filter((turn) => turn.role === "user").at(-1)?.id ?? "",
             excerpt: candidate.sourceExcerpt,
             createdAt: now,
           },
@@ -1581,7 +1972,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         memory.id === id
           ? { ...memory, content: normalized, updatedAt: Date.now() }
           : memory,
-      )
+      ),
     );
   }
 
@@ -1600,9 +1991,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await mutateMemories((current) =>
       current.map((memory) =>
         memory.id === id
-          ? { ...memory, archivedAt: archived ? Date.now() : null, updatedAt: Date.now() }
+          ? {
+              ...memory,
+              archivedAt: archived ? Date.now() : null,
+              updatedAt: Date.now(),
+            }
           : memory,
-      )
+      ),
     );
   }
 
@@ -1653,6 +2048,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSetupMessage,
       voiceSetupInProgress,
       isSpeaking,
+      voiceSelfTestResult,
+      voiceSelfTestRunning,
+      voiceSelfTestSpeechStatus,
+      runVoiceSelfTest,
+      cancelVoiceSelfTest,
+      playVoiceSelfTestSample,
+      stopVoiceSelfTestSample,
       importModel,
       downloadRecommendedModel,
       cancelDownload,
@@ -1705,6 +2107,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSetupMessage,
       voiceSetupInProgress,
       isSpeaking,
+      voiceSelfTestResult,
+      voiceSelfTestRunning,
+      voiceSelfTestSpeechStatus,
       storageUsage,
     ],
   );
@@ -1715,7 +2120,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 export function useApp() {
   const context = useContext(AppContext);
   if (!context) {
-    throw new Error('useApp must be used inside AppProvider');
+    throw new Error("useApp must be used inside AppProvider");
   }
   return context;
 }
