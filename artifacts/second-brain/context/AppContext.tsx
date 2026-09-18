@@ -61,6 +61,10 @@ import {
   MAX_MEMORIES,
   MODEL_STORAGE_SAFETY_MARGIN_BYTES,
 } from '@/lib/localLimits';
+import {
+  measureLocalStorageUsage,
+  type LocalStorageUsage,
+} from '@/lib/localStorageUsage';
 
 export type Appearance = 'system' | 'light' | 'dark';
 
@@ -156,6 +160,8 @@ type AppContextValue = {
   dismissVoiceError: () => void;
   sendMessage: (content: string) => Promise<void>;
   clearConversation: () => Promise<void>;
+  storageUsage: LocalStorageUsage | null;
+  refreshStorageUsage: () => void;
 };
 
 const SETTINGS_KEY = '@second-brain/settings-v1';
@@ -353,6 +359,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isConversationReady, setIsConversationReady] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [storageUsage, setStorageUsage] = useState<LocalStorageUsage | null>(
+    null,
+  );
+  const [storageUsageRefreshToken, setStorageUsageRefreshToken] = useState(0);
   const [memories, setMemories] = useState<ApprovedMemory[]>([]);
   const [pendingMemoryCandidate, setPendingMemoryCandidate] =
     useState<MemoryCandidate | null>(null);
@@ -398,6 +408,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const clearConversationInFlightRef = useRef(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+
+  function refreshStorageUsage() {
+    setStorageUsageRefreshToken((current) => current + 1);
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -461,6 +475,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       llamaContextRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    let isMounted = true;
+    void measureLocalStorageUsage(localModel?.uri ?? null, {
+      settings: SETTINGS_KEY,
+      model: MODEL_KEY,
+      conversation: SECURE_CONVERSATION_KEY,
+      profile: SECURE_PROFILE_KEY,
+      memories: SECURE_MEMORIES_KEY,
+    }).then((usage) => {
+      if (isMounted) setStorageUsage(usage);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    settingsReady,
+    settings.saveConversations,
+    profile,
+    turns,
+    memories,
+    localModel?.uri,
+    storageUsageRefreshToken,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1559,6 +1598,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dismissVoiceError,
       sendMessage,
       clearConversation,
+      storageUsage,
+      refreshStorageUsage,
     }),
     [
       settings,
@@ -1589,6 +1630,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSetupMessage,
       voiceSetupInProgress,
       isSpeaking,
+      storageUsage,
     ],
   );
 

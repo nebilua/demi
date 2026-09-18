@@ -21,6 +21,7 @@ import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type Appearance } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import { formatBytes, RECOMMENDED_MODEL } from '@/lib/offlineLlm';
+import type { LocalStorageUsage, StorageMetric } from '@/lib/localStorageUsage';
 import { voiceMatchesLanguage } from '@/lib/offlineVoice';
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
@@ -83,6 +84,153 @@ function SettingRow({
   );
 }
 
+function formatStorageBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function storageMetricText(metric: StorageMetric | null | undefined) {
+  if (!metric || metric.bytes === null) return 'Unavailable';
+  return `${formatStorageBytes(metric.bytes)}${metric.status === 'estimated' ? ' estimated' : ''}`;
+}
+
+function StorageUsageRow({
+  label,
+  detail,
+  metric,
+  colors,
+}: {
+  label: string;
+  detail?: string;
+  metric: StorageMetric | null | undefined;
+  colors: ReturnType<typeof useColors>;
+}) {
+  return (
+    <View style={styles.storageRow}>
+      <View style={styles.rowCopy}>
+        <Text style={[styles.storageRowLabel, { color: colors.cardForeground }]}>
+          {label}
+        </Text>
+        {detail && (
+          <Text style={[styles.storageRowDetail, { color: colors.mutedForeground }]}>
+            {detail}
+          </Text>
+        )}
+      </View>
+      <Text style={[styles.storageRowValue, { color: colors.mutedForeground }]}>
+        {storageMetricText(metric)}
+      </Text>
+    </View>
+  );
+}
+
+function StorageUsageCard({
+  usage,
+  colors,
+  onRefresh,
+}: {
+  usage: LocalStorageUsage | null;
+  colors: ReturnType<typeof useColors>;
+  onRefresh: () => void;
+}) {
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={styles.storageHeader}>
+        <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+          <Feather name="hard-drive" size={17} color={colors.accentForeground} />
+        </View>
+        <View style={styles.rowCopy}>
+          <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+            Local storage
+          </Text>
+          <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+            {usage
+              ? usage.total.bytes === null
+                ? 'Some local data could not be measured.'
+                : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === 'estimated' ? ' · some values estimated' : ''}`
+              : 'Checking app-managed storage...'}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Refresh local storage usage"
+          onPress={onRefresh}
+          style={({ pressed }) => [
+            styles.refreshButton,
+            { backgroundColor: colors.secondary },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Feather name="refresh-cw" size={15} color={colors.foreground} />
+        </Pressable>
+      </View>
+
+      {usage && (
+        <View style={styles.storageRows}>
+          <StorageUsageRow label="Active model" metric={usage.activeModel} colors={colors} />
+          <StorageUsageRow
+            label="Reclaimable model files"
+            detail={
+              usage.reclaimableModels.bytes === null
+                ? 'Active model is never included'
+                : usage.reclaimableModels.fileCount === 0
+                  ? 'No inactive model files found'
+                  : `${usage.reclaimableModels.fileCount} inactive file${usage.reclaimableModels.fileCount === 1 ? '' : 's'} · active model excluded`
+            }
+            metric={usage.reclaimableModels}
+            colors={colors}
+          />
+          <StorageUsageRow
+            label="Conversations"
+            detail="Encrypted local record"
+            metric={usage.conversations}
+            colors={colors}
+          />
+          <StorageUsageRow
+            label="Memories"
+            detail="Encrypted local record"
+            metric={usage.memories}
+            colors={colors}
+          />
+          <StorageUsageRow
+            label="Settings & profile"
+            detail="Local preferences and profile"
+            metric={usage.settingsAndProfile}
+            colors={colors}
+          />
+          <StorageUsageRow
+            label="App files"
+            detail="Files outside model storage"
+            metric={usage.appFiles}
+            colors={colors}
+          />
+          <StorageUsageRow
+            label="Temporary files"
+            detail="Cache files that the OS may reclaim"
+            metric={usage.temporaryFiles}
+            colors={colors}
+          />
+          <View style={[styles.storageDivider, { backgroundColor: colors.border }]} />
+          <StorageUsageRow
+            label="Free device storage"
+            detail={usage.freeDevice.bytes === null ? 'Unavailable in browser preview' : 'Reported by the device'}
+            metric={usage.freeDevice}
+            colors={colors}
+          />
+        </View>
+      )}
+
+      <Text style={[styles.storageNote, { color: colors.mutedForeground }]}>
+        Secure-store values are estimates because Android encrypts them internally. Inactive model files are identified only; this screen never deletes active models or saved memories.
+      </Text>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const router = useRouter();
   const {
@@ -119,6 +267,8 @@ export default function SettingsScreen() {
     installOfflineVoiceModel,
     openVoiceSettings,
     dismissVoiceError,
+    storageUsage,
+    refreshStorageUsage,
   } = useApp();
   const colors = useColors(settings.appearance);
   const insets = useSafeAreaInsets();
@@ -227,6 +377,13 @@ export default function SettingsScreen() {
           </View>
           <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
         </Pressable>
+
+        <SectionLabel>Device footprint</SectionLabel>
+        <StorageUsageCard
+          usage={storageUsage}
+          colors={colors}
+          onRefresh={refreshStorageUsage}
+        />
 
         <SectionLabel>Offline setup</SectionLabel>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -613,6 +770,14 @@ const styles = StyleSheet.create({
   smallButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   smallButtonText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
   linkCard: { marginTop: 12, borderWidth: 1, borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center' },
+  storageHeader: { flexDirection: 'row', alignItems: 'center' },
+  storageRows: { marginTop: 16, gap: 12 },
+  storageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  storageRowLabel: { fontFamily: 'Inter_500Medium', fontSize: 13, marginBottom: 2 },
+  storageRowDetail: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 15 },
+  storageRowValue: { fontFamily: 'Inter_500Medium', fontSize: 12, textAlign: 'right' },
+  storageDivider: { height: 1, marginVertical: 2 },
+  storageNote: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 16 },
   readinessItem: { paddingVertical: 8 },
   readinessHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
   readinessTitle: { fontFamily: 'Inter_500Medium', fontSize: 15 },

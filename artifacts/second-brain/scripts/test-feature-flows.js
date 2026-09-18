@@ -343,6 +343,14 @@ async function main() {
     path.resolve(__dirname, '../lib/offlineVoice.ts'),
     'utf8',
   );
+  const localStorageUsage = fs.readFileSync(
+    path.resolve(__dirname, '../lib/localStorageUsage.ts'),
+    'utf8',
+  );
+  const settingsScreen = fs.readFileSync(
+    path.resolve(__dirname, '../app/settings.tsx'),
+    'utf8',
+  );
   const offlineTts = fs.readFileSync(
     path.resolve(__dirname, '../modules/offline-tts/android/src/main/java/com/secondbrain/offlinetts/SecondBrainOfflineTtsModule.kt'),
     'utf8',
@@ -353,6 +361,12 @@ async function main() {
   assert.match(offlineVoice, /voiceMatchesLanguage/);
   assert.match(offlineTts, /isNetworkConnectionRequired/);
   assert.match(offlineTts, /preferredVoiceId/);
+  assert.match(localStorageUsage, /getFreeDiskStorageAsync/);
+  assert.match(localStorageUsage, /reclaimableModels/);
+  assert.match(localStorageUsage, /cacheDirectory/);
+  assert.match(settingsScreen, /Refresh local storage usage/);
+  assert.match(settingsScreen, /Active model is never included/);
+  assert.match(settingsScreen, /never deletes active models or saved memories/);
 
   const reminders = fs.readFileSync(
     path.resolve(__dirname, '../lib/reminders.ts'),

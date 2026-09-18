@@ -34,6 +34,18 @@ async function getRaw(key: string) {
     : SecureStore.getItemAsync(key);
 }
 
+function estimateUtf8Bytes(value: string) {
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint <= 0x7f) bytes += 1;
+    else if (codePoint <= 0x7ff) bytes += 2;
+    else if (codePoint <= 0xffff) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
+}
+
 async function setRaw(key: string, value: string) {
   if (Platform.OS === 'web') {
     await AsyncStorage.setItem(key, value);
@@ -91,6 +103,42 @@ export async function readSecureRecord(key: string): Promise<string | null> {
     throw new Error('SECURE_RECORD_CORRUPT');
   }
   return value;
+}
+
+export async function getSecureRecordStorageBytes(
+  key: string,
+): Promise<number | null> {
+  const rawManifest = await getRaw(manifestKey(key));
+  if (!rawManifest) return 0;
+
+  let manifest: Partial<Manifest>;
+  try {
+    manifest = JSON.parse(rawManifest) as Partial<Manifest>;
+  } catch {
+    return null;
+  }
+  const chunkCount = manifest.chunks;
+  const generation = manifest.generation;
+  if (
+    manifest.version !== 1 ||
+    typeof generation !== 'string' ||
+    typeof chunkCount !== 'number' ||
+    !Number.isInteger(chunkCount) ||
+    chunkCount < 1 ||
+    chunkCount > MAX_SECURE_RECORD_CHUNKS
+  ) {
+    return null;
+  }
+
+  const chunks = await Promise.all(
+    Array.from({ length: chunkCount }, (_, index) =>
+      getRaw(chunkKey(key, generation, index)),
+    ),
+  );
+  if (chunks.some((chunk) => chunk === null)) return null;
+
+  return estimateUtf8Bytes(rawManifest) +
+    chunks.reduce((total, chunk) => total + estimateUtf8Bytes(chunk ?? ''), 0);
 }
 
 async function commitSecureRecord(key: string, value: string) {
