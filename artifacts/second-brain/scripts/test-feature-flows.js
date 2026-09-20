@@ -167,6 +167,85 @@ async function main() {
     ),
     [],
   );
+  const aliasVariantCases = [
+    ['Alex', 'alex'],
+    ['Mary Jane', ' Mary   Jane '],
+    ["O'Connor", 'O Connor'],
+  ];
+  for (const [firstAlias, secondAlias] of aliasVariantCases) {
+    const first = {
+      ...aliasMemory,
+      id: `variant-first-${firstAlias}`,
+      aliases: [firstAlias],
+    };
+    const second = {
+      ...secondApprovedMemory,
+      id: `variant-second-${secondAlias}`,
+      aliases: [secondAlias],
+    };
+    const conflictKeys = memory.getConflictingMemoryAliasKeys([first, second]);
+    assert.ok(
+      conflictKeys.has(memory.memoryFingerprint(firstAlias)),
+      `Expected ${JSON.stringify([firstAlias, secondAlias])} to share a conflict`,
+    );
+    assert.deepEqual(
+      memory
+        .getConflictingMemoryOwners([first, second], first.id, secondAlias)
+        .map((item) => item.id),
+      [second.id],
+    );
+    assert.deepEqual(
+      memory.selectRelevantMemories(
+        [first, second],
+        `What gift should I get ${secondAlias}?`,
+      ),
+      [],
+    );
+  }
+  const archivedVariantOwner = {
+    ...secondApprovedMemory,
+    id: 'archived-variant-owner',
+    aliases: ['  mary-jane  '],
+    archivedAt: 42,
+  };
+  const activeVariantOwner = {
+    ...aliasMemory,
+    id: 'active-variant-owner',
+    aliases: ['Mary Jane'],
+  };
+  assert.equal(
+    memory
+      .getConflictingMemoryAliasKeys([activeVariantOwner, archivedVariantOwner])
+      .has(memory.memoryFingerprint('Mary Jane')),
+    false,
+  );
+  assert.deepEqual(
+    memory.getConflictingMemoryOwners(
+      [activeVariantOwner, archivedVariantOwner],
+      activeVariantOwner.id,
+      'Mary Jane',
+    ),
+    [],
+  );
+  const distinctAliasOwner = {
+    ...secondApprovedMemory,
+    id: 'distinct-alias-owner',
+    aliases: ['Mary Janet'],
+  };
+  assert.equal(
+    memory
+      .getConflictingMemoryAliasKeys([activeVariantOwner, distinctAliasOwner])
+      .has(memory.memoryFingerprint('Mary Jane')),
+    false,
+  );
+  assert.deepEqual(
+    memory.getConflictingMemoryOwners(
+      [activeVariantOwner, distinctAliasOwner],
+      activeVariantOwner.id,
+      'Mary Jane',
+    ),
+    [],
+  );
   assert.deepEqual(
     memory.parseApprovedMemories(JSON.stringify([aliasMemory]))[0]?.aliases,
     ['Alex'],
@@ -371,7 +450,7 @@ async function main() {
   assert.match(settingsScreen, /reclaim-model-files/);
   assert.match(settingsScreen, /confirm-reclaim-model-files/);
   assert.match(settingsScreen, /Active model is never included/);
-  assert.match(settingsScreen, /never deletes active models or saved memories/);
+  assert.match(settingsScreen, /never deletes\s+active models or saved memories/);
 
   const reminders = fs.readFileSync(
     path.resolve(__dirname, '../lib/reminders.ts'),
