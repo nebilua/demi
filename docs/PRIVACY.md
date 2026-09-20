@@ -26,6 +26,8 @@ Demi is designed so its core experience works without an account.
 - References to user-imported GGUF models
 - The bounded, user-selected private research library (encrypted document
   metadata and passages)
+- Sandboxed code action audit records and results (the selected input is used
+  transiently and is not copied into the audit record)
 - Encrypted scheduled job definitions, selected file contents, and bounded result history
 - Capability grants, connector references, schedules, redacted agent traces, and
   user-visible action history
@@ -76,6 +78,15 @@ The global privacy pause stops privileged actions and records the decision in
 local action history. Clearing capability data removes grants, connector
 references, schedules, traces, and audit history; it does not delete
 conversations, memories, or imported models.
+
+Sandboxed code actions are off by default and require both the capability grant
+and a fresh per-run review. They accept only a small JSON program and explicitly
+selected CSV or JSON text. The interpreter has no JavaScript evaluator,
+filesystem, network, credential, Android-intent, or native-service access. It
+enforces bounded input, rows, cells, steps, runtime, and output, writes no
+files, and reports cancellation or failure without changing the selected file
+or the rest of the app. Results are shown in the current screen; raw code,
+input, and output are omitted from the retained privacy audit summaries.
 
 ## Threat boundary and retention
 

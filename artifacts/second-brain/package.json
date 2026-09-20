@@ -18,6 +18,7 @@
     "test:scheduled-jobs": "tsx scripts/test-scheduled-jobs.js",
     "test:privacy": "tsx scripts/test-privacy-capabilities.js",
     "test:tool-registry": "tsx scripts/test-tool-registry.js",
+    "test:sandbox-code": "tsx scripts/test-sandbox-code.js",
     "test:research": "tsx scripts/test-research.js",
     "validate:android-apk": "node scripts/validate-android-apk.js",
     "serve": "node server/serve.js",

@@ -843,6 +843,29 @@ export default function SettingsScreen() {
             <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
           </Pressable>
           <Pressable
+            testID="open-sandbox-code-actions"
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: "/code-actions" } as never)}
+            style={({ pressed }) => [
+              styles.privacyToolLink,
+              { backgroundColor: colors.secondary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+              <Feather name="code" size={16} color={colors.accentForeground} />
+            </View>
+            <View style={styles.rowCopy}>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                Sandboxed code actions
+              </Text>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                Run reviewed calculations or transformations on selected CSV and JSON files. Off by default; no writes or network.
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+          </Pressable>
+          <Pressable
             testID="open-private-research"
             accessibilityRole="button"
             onPress={() => router.push({ pathname: "/research" } as never)}

@@ -73,6 +73,23 @@ visible. Expired records are pruned, action history is bounded, and Settings
 can pause, revoke, or clear the state. A global pause blocks local privileged
 actions until resumed.
 
+## Sandboxed code actions
+
+Sandboxed code actions use a deliberately small JSON program language interpreted
+by `lib/sandboxCode.ts`. The supported operations are bounded arithmetic,
+count, sum, average, filter, and field selection over one explicitly selected
+CSV or JSON input. This is not JavaScript execution: there is no evaluator,
+module loader, shell, filesystem API, network API, credential access, Android
+intent, or native-service bridge.
+
+The code action capability is not granted by default. Each run presents the
+program, selected input, privacy impact, and limits before execution. The
+interpreter enforces input, row, column, cell, output, step, and wall-clock
+budgets, reports stdout/stderr and resource usage, and returns no generated
+files. Cancellation and malformed, oversized, or interrupted runs are recorded
+as non-successful results without mutating app data. Any future write, message,
+or system action must be a separate typed tool outside this interpreter.
+
 ## Platform fallbacks
 
 The web and Expo Go previews cannot load the custom Android modules or

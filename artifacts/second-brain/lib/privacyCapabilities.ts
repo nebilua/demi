@@ -1,6 +1,7 @@
 export type CapabilityId =
   | "local.inference"
   | "local.files"
+  | "local.code-execution"
   | "local.calendar"
   | "local.contacts"
   | "local.voice-input"
@@ -58,6 +59,18 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     dataSensitivity: "sensitive",
     networkUse: "never",
     defaultApproval: "approved",
+    defaultLifetime: "until-revoked",
+    requiresDestructiveConfirmation: false,
+  },
+  {
+    id: "local.code-execution",
+    name: "Sandboxed code actions",
+    purpose: "Run a reviewed calculation or data transformation against files you explicitly select.",
+    scope: "Only the selected input text, inside Demi's bounded pure-operation sandbox; no file writes or side effects.",
+    kind: "local",
+    dataSensitivity: "sensitive",
+    networkUse: "never",
+    defaultApproval: "not-granted",
     defaultLifetime: "until-revoked",
     requiresDestructiveConfirmation: false,
   },

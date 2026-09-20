@@ -54,6 +54,10 @@ function RootLayoutNav() {
         options={{ headerShown: false, animation: 'slide_from_right' }}
       />
       <Stack.Screen
+        name="code-actions"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
         name="research"
         options={{ headerShown: false, animation: 'slide_from_right' }}
       />
