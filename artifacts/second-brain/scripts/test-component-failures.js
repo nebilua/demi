@@ -187,6 +187,19 @@ function hasTestId(renderer, testID) {
   return renderer.root.findAllByProps({ testID }).length > 0;
 }
 
+async function expandSettingsGroup(renderer, testID) {
+  await TestRenderer.act(async () => {
+    const group = findByTestId(renderer, testID);
+    assert.equal(group.props.accessibilityRole, 'button');
+    assert.equal(group.props.accessibilityState.expanded, false);
+    await group.props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, testID).props.accessibilityState.expanded,
+    true,
+  );
+}
+
 function SettingsSessionHarness({ SettingsScreen }) {
   const [expanded, setExpanded] = React.useState(
     appValue.storageDetailsExpanded ?? false,
@@ -371,6 +384,116 @@ function baseAppValue(overrides = {}) {
   };
 }
 
+async function testSettingsNavigationGroupsRemainReachable() {
+  appValue = baseAppValue();
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(SettingsSessionHarness, { SettingsScreen }),
+    );
+  });
+
+  for (const groupId of [
+    'settings-group-privacy',
+    'settings-group-device-footprint',
+    'settings-group-offline-setup',
+    'settings-group-local-voice',
+    'settings-group-advanced-preferences',
+  ]) {
+    const group = findByTestId(renderer, groupId);
+    assert.equal(group.props.accessibilityRole, 'button');
+    assert.equal(group.props.accessibilityState.expanded, false);
+    assert.match(group.props.accessibilityLabel, /expand/);
+  }
+  assert.ok(findByTestId(renderer, 'privacy-global-pause'));
+  assert.ok(findByTestId(renderer, 'model-status-summary'));
+  assert.ok(findByTestId(renderer, 'clear-conversation-history'));
+  assert.equal(hasTestId(renderer, 'open-screen-access'), false);
+  assert.equal(hasTestId(renderer, 'offline-speech-setup'), false);
+  assert.equal(hasTestId(renderer, 'appearance-option-light'), false);
+
+  await expandSettingsGroup(renderer, 'settings-group-privacy');
+  assert.ok(findByTestId(renderer, 'open-screen-access'));
+  assert.ok(findByTestId(renderer, 'clear-privacy-state'));
+
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
+  assert.ok(findByTestId(renderer, 'toggle-storage-details'));
+
+  await expandSettingsGroup(renderer, 'settings-group-offline-setup');
+  assert.ok(findByTestId(renderer, 'download-recommended'));
+
+  await expandSettingsGroup(renderer, 'settings-group-local-voice');
+  assert.ok(findByTestId(renderer, 'offline-speech-setup'));
+  assert.ok(findByTestId(renderer, 'offline-tts-setup'));
+
+  await expandSettingsGroup(renderer, 'settings-group-advanced-preferences');
+  assert.ok(findByTestId(renderer, 'appearance-option-light'));
+  assert.equal(
+    findByTestId(renderer, 'appearance-option-light').props.accessibilityRole,
+    'radio',
+  );
+  assert.equal(
+    findByTestId(renderer, 'appearance-option-light').props.accessibilityState
+      .selected,
+    true,
+  );
+
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'clear-conversation-history').props.onPress();
+  });
+  assert.ok(findByTestId(renderer, 'confirm-clear-conversation'));
+  assert.equal(
+    findByTestId(renderer, 'confirm-clear-conversation').props.accessibilityRole,
+    'button',
+  );
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'cancel-clear-conversation').props.onPress();
+  });
+  assert.equal(hasTestId(renderer, 'confirm-clear-conversation'), false);
+
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
+async function testModelRemovalRequiresConfirmation() {
+  let removeCalls = 0;
+  appValue = baseAppValue({
+    localModel: {
+      id: 'model-1',
+      name: 'private-model.gguf',
+      uri: '/device/documents/models/private-model.gguf',
+      sizeBytes: 42,
+      importedAt: 1,
+      contextSize: 2048,
+    },
+    removeModel: async () => {
+      removeCalls += 1;
+    },
+  });
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(SettingsScreen));
+  });
+  await expandSettingsGroup(renderer, 'settings-group-offline-setup');
+  assert.equal(hasTestId(renderer, 'confirm-remove-local-model'), false);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'remove-local-model').props.onPress();
+  });
+  assert.equal(removeCalls, 0);
+  assert.match(textContent(renderer), /Remove local model\?/);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'confirm-remove-local-model').props.onPress();
+  });
+  assert.equal(removeCalls, 1);
+  assert.equal(hasTestId(renderer, 'confirm-remove-local-model'), false);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
 async function testSettingsFailureKeepsControlledValue() {
   let updateCalls = 0;
   appValue = baseAppValue({
@@ -393,6 +516,7 @@ async function testSettingsFailureKeepsControlledValue() {
   await TestRenderer.act(async () => {
     renderer = TestRenderer.create(React.createElement(SettingsScreen));
   });
+  await expandSettingsGroup(renderer, 'settings-group-local-voice');
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'voice-option-voice-1').props.onPress();
   });
@@ -441,6 +565,7 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
       React.createElement(SettingsSessionHarness, { SettingsScreen }),
     );
   });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   const storageToggle = findByTestId(renderer, 'toggle-storage-details');
   assert.equal(storageToggle.props.accessibilityRole, 'button');
   assert.equal(storageToggle.props.accessibilityState.expanded, false);
@@ -505,6 +630,7 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
       React.createElement(SettingsSessionHarness, { SettingsScreen }),
     );
   });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'toggle-storage-details').props.onPress();
   });
@@ -522,6 +648,7 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
       React.createElement(SettingsSessionHarness, { SettingsScreen }),
     );
   });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   assert.equal(
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
     false,
@@ -582,6 +709,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
       }),
     );
   });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'toggle-storage-details').props.onPress();
   });
@@ -651,6 +779,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
       }),
     );
   });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'toggle-storage-details').props.onPress();
   });
@@ -874,13 +1003,15 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
       React.createElement(SettingsSessionHarness, { SettingsScreen }),
     );
   });
+  await expandSettingsGroup(settingsRenderer, 'settings-group-local-voice');
   assert.equal(findByTestId(settingsRenderer, 'offline-speech-setup').props.disabled, true);
   assert.equal(findByTestId(settingsRenderer, 'offline-tts-setup').props.disabled, true);
   assert.match(textContent(settingsRenderer), /installed Android app/);
+  await expandSettingsGroup(settingsRenderer, 'settings-group-device-footprint');
   assert.match(textContent(settingsRenderer), /Device storage measurements are available/);
-   await TestRenderer.act(async () => {
-     await findByTestId(settingsRenderer, 'toggle-storage-details').props.onPress();
-   });
+  await TestRenderer.act(async () => {
+    await findByTestId(settingsRenderer, 'toggle-storage-details').props.onPress();
+  });
   assert.match(textContent(settingsRenderer), /does not report device disk usage/);
   await TestRenderer.act(async () => {
     settingsRenderer.unmount();
@@ -962,6 +1093,7 @@ async function testSettingsStaysUsableWhenStorageIsUnavailable() {
     renderer = TestRenderer.create(React.createElement(SettingsScreen));
   });
   assert.match(textContent(renderer), /Some local data could not be opened/);
+  await expandSettingsGroup(renderer, 'settings-group-local-voice');
   assert.ok(findByTestId(renderer, 'offline-speech-setup'));
   assert.ok(findByTestId(renderer, 'offline-tts-setup'));
   await TestRenderer.act(async () => {
@@ -1180,6 +1312,8 @@ function testDownloadCancellationGuardRunsBeforeCommit() {
 
 async function main() {
   await testProfileSaveFailureKeepsEditorOpen();
+  await testSettingsNavigationGroupsRemainReachable();
+  await testModelRemovalRequiresConfirmation();
   await testSettingsFailureKeepsControlledValue();
   await testModelReclaimFailureKeepsConfirmationOpen();
   await testStorageDetailsPersistAcrossSettingsVisits();

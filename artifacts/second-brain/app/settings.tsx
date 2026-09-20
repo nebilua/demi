@@ -101,6 +101,67 @@ function SettingRow({
   );
 }
 
+function CollapsibleSection({
+  sectionTestID,
+  icon,
+  title,
+  summary,
+  expanded,
+  onToggle,
+  children,
+}: {
+  sectionTestID: string;
+  icon: keyof typeof Feather.glyphMap;
+  title: string;
+  summary: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const { settings } = useApp();
+  const colors = useColors(settings.appearance);
+
+  return (
+    <View style={styles.collapsibleSection}>
+      <Pressable
+        testID={sectionTestID}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}, ${expanded ? "collapse" : "expand"}`}
+        accessibilityHint={
+          expanded
+            ? `Double tap to collapse ${title.toLowerCase()}.`
+            : `Double tap to expand ${title.toLowerCase()}.`
+        }
+        accessibilityState={{ expanded }}
+        onPress={onToggle}
+        style={({ pressed }) => [
+          styles.collapsibleHeader,
+          { backgroundColor: colors.card, borderColor: colors.border },
+          pressed && styles.pressed,
+        ]}
+      >
+        <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
+          <Feather name={icon} size={17} color={colors.primary} />
+        </View>
+        <View style={styles.rowCopy}>
+          <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+            {title}
+          </Text>
+          <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+            {summary}
+          </Text>
+        </View>
+        <Feather
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={18}
+          color={colors.mutedForeground}
+        />
+      </Pressable>
+      {expanded && <View style={styles.collapsibleBody}>{children}</View>}
+    </View>
+  );
+}
+
 function formatStorageBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -603,11 +664,18 @@ export default function SettingsScreen() {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [showReclaimConfirm, setShowReclaimConfirm] = useState(false);
   const [isReclaimingModels, setIsReclaimingModels] = useState(false);
+  const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
   const [modelReclaimMessage, setModelReclaimMessage] = useState<string | null>(
     null,
   );
   const [showPrivacyClearConfirm, setShowPrivacyClearConfirm] = useState(false);
   const [isClearingPrivacy, setIsClearingPrivacy] = useState(false);
+  const [privacyDetailsExpanded, setPrivacyDetailsExpanded] = useState(false);
+  const [deviceFootprintExpanded, setDeviceFootprintExpanded] = useState(false);
+  const [offlineSetupExpanded, setOfflineSetupExpanded] = useState(false);
+  const [localVoiceExpanded, setLocalVoiceExpanded] = useState(false);
+  const [advancedPreferencesExpanded, setAdvancedPreferencesExpanded] =
+    useState(false);
   const safePrivacyState = privacyState ?? createDefaultPrivacyState(0);
 
   const androidApiLevel =
@@ -654,6 +722,15 @@ export default function SettingsScreen() {
       // Keep the confirmation open so a failed clear is not reported as success.
     } finally {
       setIsClearing(false);
+    }
+  }
+
+  async function handleRemoveModel() {
+    try {
+      await removeModel();
+      setShowRemoveModelConfirm(false);
+    } catch {
+      // Keep the confirmation open so a failed removal is not reported as success.
     }
   }
 
@@ -762,7 +839,7 @@ export default function SettingsScreen() {
             </Text>
           </View>
         )}
-        <SectionLabel>Privacy & capabilities</SectionLabel>
+        <SectionLabel>Essentials</SectionLabel>
         <View
           style={[
             styles.card,
@@ -787,6 +864,7 @@ export default function SettingsScreen() {
             </View>
             <Switch
               testID="privacy-global-pause"
+              accessibilityLabel="Pause privileged actions"
               value={safePrivacyState.globalPause}
               onValueChange={(value) => void setGlobalPrivacyPause?.(value)}
               trackColor={{ false: colors.secondary, true: colors.accent }}
@@ -797,6 +875,65 @@ export default function SettingsScreen() {
               }
             />
           </View>
+          <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
+            {safePrivacyState.globalPause
+              ? "Privileged actions are paused until you resume them."
+              : "Local actions follow the capability approvals below."}
+          </Text>
+        </View>
+
+        <View
+          testID="model-status-summary"
+          style={[
+            styles.modelStatusSummary,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+            <Feather
+              name="cpu"
+              size={17}
+              color={engineStatus === "ready" ? colors.primary : colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.rowCopy}>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              Local model
+            </Text>
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[styles.rowDescription, { color: modelStatusColor }]}
+            >
+              {engineStatus === "ready"
+                ? localModel?.name ?? "Ready for private replies"
+                : engineStatus === "no-model"
+                  ? "Not installed"
+                  : engineStatus === "loading"
+                    ? "Loading"
+                    : engineStatus === "error"
+                      ? "Needs attention"
+                      : "Unavailable in browser preview"}
+            </Text>
+            <Text style={[styles.modelStatusDetail, { color: colors.mutedForeground }]}>
+              {modelStatusMessage}
+            </Text>
+          </View>
+        </View>
+
+        <CollapsibleSection
+          sectionTestID="settings-group-privacy"
+          icon="shield"
+          title="Privacy capabilities"
+          summary="Permissions, activity history, and local tool access"
+          expanded={privacyDetailsExpanded}
+          onToggle={() => setPrivacyDetailsExpanded((expanded) => !expanded)}
+        >
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
             {privacyReady
               ? Platform.OS === "android"
@@ -1022,6 +1159,7 @@ export default function SettingsScreen() {
             Clearing removes saved grants, connector references, schedules, traces, and action history. Local-only defaults remain available; network capabilities stay off.
           </Text>
         </View>
+        </CollapsibleSection>
         <SectionLabel>Personal context</SectionLabel>
         <View
           style={[
@@ -1098,24 +1236,39 @@ export default function SettingsScreen() {
           />
         </Pressable>
 
-        <SectionLabel>Device footprint</SectionLabel>
-        <StorageUsageCard
-          usage={storageUsage}
-          colors={colors}
-          onRefresh={refreshStorageUsage}
-          onReclaim={() => setShowReclaimConfirm(true)}
-          isReclaiming={isReclaimingModels}
-          reclaimMessage={modelReclaimMessage}
-          detailsExpanded={storageDetailsExpanded}
-          onDetailsExpandedChange={setStorageDetailsExpanded}
-          isRefreshing={storageUsageRefreshing}
-          modelOperationInProgress={
-            modelSetupStatus !== "idle" ||
-            (downloadStatus !== "idle" && downloadStatus !== "error")
-          }
-        />
+        <CollapsibleSection
+          sectionTestID="settings-group-device-footprint"
+          icon="hard-drive"
+          title="Device footprint"
+          summary="Local storage measurements and inactive model files"
+          expanded={deviceFootprintExpanded}
+          onToggle={() => setDeviceFootprintExpanded((expanded) => !expanded)}
+        >
+          <StorageUsageCard
+            usage={storageUsage}
+            colors={colors}
+            onRefresh={refreshStorageUsage}
+            onReclaim={() => setShowReclaimConfirm(true)}
+            isReclaiming={isReclaimingModels}
+            reclaimMessage={modelReclaimMessage}
+            detailsExpanded={storageDetailsExpanded}
+            onDetailsExpandedChange={setStorageDetailsExpanded}
+            isRefreshing={storageUsageRefreshing}
+            modelOperationInProgress={
+              modelSetupStatus !== "idle" ||
+              (downloadStatus !== "idle" && downloadStatus !== "error")
+            }
+          />
+        </CollapsibleSection>
 
-        <SectionLabel>Offline setup</SectionLabel>
+        <CollapsibleSection
+          sectionTestID="settings-group-offline-setup"
+          icon="cpu"
+          title="Offline setup"
+          summary="Install or manage the on-device model"
+          expanded={offlineSetupExpanded}
+          onToggle={() => setOfflineSetupExpanded((expanded) => !expanded)}
+        >
         <View
           style={[
             styles.card,
@@ -1395,7 +1548,10 @@ export default function SettingsScreen() {
                   </Text>
                 )}
                 <Pressable
-                  onPress={removeModel}
+                  testID="remove-local-model"
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove local model"
+                  onPress={() => setShowRemoveModelConfirm(true)}
                   style={({ pressed }) => [
                     styles.secondaryButton,
                     { borderColor: colors.border, marginTop: 12 },
@@ -1408,7 +1564,7 @@ export default function SettingsScreen() {
                       { color: colors.destructive },
                     ]}
                   >
-                    Remove
+                    Remove model
                   </Text>
                 </Pressable>
               </View>
@@ -1426,8 +1582,16 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
+        </CollapsibleSection>
 
-        <SectionLabel>Local voice</SectionLabel>
+        <CollapsibleSection
+          sectionTestID="settings-group-local-voice"
+          icon="volume-2"
+          title="Local voice setup"
+          summary="Speech input, spoken replies, and installed voices"
+          expanded={localVoiceExpanded}
+          onToggle={() => setLocalVoiceExpanded((expanded) => !expanded)}
+        >
         <View
           style={[
             styles.card,
@@ -1973,8 +2137,9 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+        </CollapsibleSection>
 
-        <SectionLabel>Preferences</SectionLabel>
+        <SectionLabel>Everyday controls</SectionLabel>
         <View
           style={[
             styles.card,
@@ -2029,6 +2194,24 @@ export default function SettingsScreen() {
               }
             />
           </SettingRow>
+        </View>
+
+        <CollapsibleSection
+          sectionTestID="settings-group-advanced-preferences"
+          icon="sliders"
+          title="Advanced preferences"
+          summary="Appearance and haptic feedback"
+          expanded={advancedPreferencesExpanded}
+          onToggle={() =>
+            setAdvancedPreferencesExpanded((expanded) => !expanded)
+          }
+        >
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <SettingRow
             icon="smartphone"
             title="Haptic feedback"
@@ -2047,8 +2230,6 @@ export default function SettingsScreen() {
             />
           </SettingRow>
         </View>
-
-        <SectionLabel>Appearance</SectionLabel>
         <View
           style={[
             styles.card,
@@ -2061,6 +2242,11 @@ export default function SettingsScreen() {
             {appearanceOptions.map((option) => (
               <Pressable
                 key={option.value}
+                testID={`appearance-option-${option.value}`}
+                accessibilityRole="radio"
+                accessibilityState={{
+                  selected: settings.appearance === option.value,
+                }}
                 onPress={() => updateSettings({ appearance: option.value })}
                 style={[
                   styles.segment,
@@ -2087,8 +2273,12 @@ export default function SettingsScreen() {
             ))}
           </View>
         </View>
+        </CollapsibleSection>
 
         <Pressable
+          testID="clear-conversation-history"
+          accessibilityRole="button"
+          accessibilityLabel="Clear conversation history"
           onPress={() => setShowClearConfirm(true)}
           style={({ pressed }) => [
             styles.dangerCard,
@@ -2133,6 +2323,9 @@ export default function SettingsScreen() {
             </Text>
             <View style={styles.modalActions}>
               <Pressable
+                testID="cancel-clear-conversation"
+                accessibilityRole="button"
+                accessibilityLabel="Cancel clearing conversation history"
                 onPress={() => setShowClearConfirm(false)}
                 style={styles.modalButton}
               >
@@ -2146,6 +2339,9 @@ export default function SettingsScreen() {
                 </Text>
               </Pressable>
               <Pressable
+                testID="confirm-clear-conversation"
+                accessibilityRole="button"
+                accessibilityLabel="Confirm clear conversation history"
                 onPress={handleClearHistory}
                 style={styles.modalButton}
               >
@@ -2156,6 +2352,70 @@ export default function SettingsScreen() {
                   ]}
                 >
                   Clear
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showRemoveModelConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRemoveModelConfirm(false)}
+      >
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              backgroundColor: colors.isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.5)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>
+              Remove local model?
+            </Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              Remove {localModel?.name ?? "this model"} from this device. Saved
+              conversations and memories will be kept.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="cancel-remove-local-model"
+                accessibilityRole="button"
+                accessibilityLabel="Cancel removing local model"
+                onPress={() => setShowRemoveModelConfirm(false)}
+                style={styles.modalButton}
+              >
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-remove-local-model"
+                accessibilityRole="button"
+                accessibilityLabel="Confirm remove local model"
+                onPress={() => void handleRemoveModel()}
+                style={styles.modalButton}
+              >
+                <Text
+                  style={[styles.modalButtonText, { color: colors.destructive }]}
+                >
+                  Remove
                 </Text>
               </Pressable>
             </View>
@@ -2358,6 +2618,30 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
   card: { borderWidth: 1, borderRadius: 20, padding: 16 },
+  collapsibleSection: { marginTop: 20 },
+  collapsibleHeader: {
+    minHeight: 68,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  collapsibleBody: { marginTop: 8 },
+  modelStatusSummary: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  modelStatusDetail: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 4,
+  },
   profileSummary: { flexDirection: "row", alignItems: "center" },
   rowIcon: {
     width: 36,
