@@ -12,6 +12,25 @@ Local language-model inference uses `llama.rn`, an Android bridge around
 llama.cpp. Users import a compatible GGUF model through the device document
 picker. Model files are never committed to this repository.
 
+## Private research workspace
+
+`context/ResearchContext.tsx` owns the private research library. The user
+selects TXT, Markdown, CSV, or JSON files through the scoped document picker.
+Files are bounded to 120 KB each and 12 documents total, split into bounded
+passages, and written to a verified encrypted secure record. The retrieval
+function is deterministic, caps the number of passages and passages per source,
+excludes archived documents, and removes deleted documents before the next
+query. Source text is wrapped as untrusted evidence in the local-model prompt,
+so document instructions cannot become Demi instructions.
+
+Research results are transient. The UI shows the local file names or the one
+approved web URL used, labels the model output as interpretation, and lets the
+user forget the result. Web mode is disabled by default, accepts one public
+HTTPS URL, does not follow links, and fetches only after a per-request consent
+surface. Fetched web text is passed to the on-device model and is not stored in
+the local library. Remote inference is a separate capability and is not used by
+this workspace.
+
 ## Voice privacy boundary
 
 Recognition is available only in an installed native Android build. Android

@@ -132,10 +132,12 @@ function PrivacyCapabilityRow({
   colors: ReturnType<typeof useColors>;
 }) {
   const isNetwork = definition.kind === "network";
+  const isWebResearch = definition.id === "network.web-research";
   const canChange =
     !isNetwork ||
     definition.id === "network.model-download" ||
-    definition.id === "network.connectors";
+    definition.id === "network.connectors" ||
+    definition.id === "network.web-research";
   const nextApproval: CapabilityApproval =
     grant.approval === "approved" ? "paused" : "approved";
 
@@ -179,6 +181,8 @@ function PrivacyCapabilityRow({
           {isNetwork
             ? definition.id === "network.model-download"
               ? "Network: required · off by default · only the named model file is downloaded"
+              : isWebResearch
+                ? "Network: required · only one user-approved public URL is fetched"
               : "Network: required · off by default · nothing leaves this device"
             : `Network: ${definition.networkUse === "never" ? "never" : "only with a future explicit approval"}`}
         </Text>
@@ -834,6 +838,29 @@ export default function SettingsScreen() {
               </Text>
               <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
                 Pick a text, Markdown, CSV, or JSON file and summarize or transform it locally.
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+          </Pressable>
+          <Pressable
+            testID="open-private-research"
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: "/research" } as never)}
+            style={({ pressed }) => [
+              styles.privacyToolLink,
+              { backgroundColor: colors.secondary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+              <Feather name="search" size={16} color={colors.accentForeground} />
+            </View>
+            <View style={styles.rowCopy}>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                Private research workspace
+              </Text>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                Ask questions over encrypted local files, with optional one-source web research.
               </Text>
             </View>
             <Feather name="chevron-right" size={17} color={colors.mutedForeground} />

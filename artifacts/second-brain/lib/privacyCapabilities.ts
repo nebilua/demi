@@ -8,6 +8,7 @@ export type CapabilityId =
   | "local.notifications"
   | "network.model-download"
   | "network.connectors"
+  | "network.web-research"
   | "network.remote-inference"
   | "device.screen-access"
   | "automation.scheduled-actions";
@@ -143,6 +144,18 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     defaultApproval: "not-granted",
     defaultLifetime: "24-hours",
     requiresDestructiveConfirmation: true,
+  },
+  {
+    id: "network.web-research",
+    name: "Opt-in web research",
+    purpose: "Fetch one public HTTPS source that you approve for the current research request.",
+    scope: "Only the URL shown in the request; no background crawling, local memories, or hidden browser access.",
+    kind: "network",
+    dataSensitivity: "ordinary",
+    networkUse: "required",
+    defaultApproval: "not-granted",
+    defaultLifetime: "24-hours",
+    requiresDestructiveConfirmation: false,
   },
   {
     id: "network.remote-inference",
