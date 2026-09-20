@@ -17,6 +17,8 @@ import {
   migratePlaintextRecord,
   writeSecureRecord,
 } from '@/lib/secureLocalStorage';
+import { useApp } from '@/context/AppContext';
+import { isCapabilityActive } from '@/lib/privacyCapabilities';
 
 type CalendarContextValue = {
   reminders: DateReminder[];
@@ -76,12 +78,30 @@ export function CalendarProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const { privacyReady, privacyState, recordPrivacyAction } = useApp();
   const [reminders, setReminders] = useState<DateReminder[]>([]);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function capabilityIsEnabled(
+    capabilityId: 'local.calendar' | 'local.notifications',
+  ) {
+    // Older isolated component fixtures do not mount AppProvider. The real
+    // app always supplies privacy state, where this remains fail-closed.
+    if (privacyReady === undefined || privacyState === undefined) return true;
+    return privacyReady && isCapabilityActive(privacyState, capabilityId);
+  }
+
   useEffect(() => {
+    if (privacyReady === false) return;
     let mounted = true;
+    if (!capabilityIsEnabled('local.calendar')) {
+      setError('Local calendar access is paused or revoked in Settings.');
+      setIsReady(true);
+      return () => {
+        mounted = false;
+      };
+    }
     void initializeNotifications().catch(() => {
       // Scheduling surfaces actionable errors when the user saves a date.
     });
@@ -121,7 +141,7 @@ export function CalendarProvider({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [privacyReady]);
 
   async function persist(next: DateReminder[]) {
     try {
@@ -136,6 +156,16 @@ export function CalendarProvider({
   }
 
   async function saveReminder(draft: ReminderDraft, existingId?: string) {
+    if (
+      !capabilityIsEnabled('local.calendar') ||
+      !capabilityIsEnabled('local.notifications')
+    ) {
+      throw new Error(
+        privacyState.globalPause
+          ? 'Privacy pause is active. Resume calendar and notification actions in Settings before saving.'
+          : 'Calendar or notification access is paused in Settings.',
+      );
+    }
     const existing = existingId
       ? reminders.find((item) => item.id === existingId)
       : undefined;
@@ -155,6 +185,14 @@ export function CalendarProvider({
       deletedAt: null,
     };
     const schedule = await scheduleReminder(base);
+    if (typeof recordPrivacyAction === 'function') {
+      await recordPrivacyAction({
+        capabilityId: 'local.calendar',
+        action: existingId ? 'local-calendar-update' : 'local-calendar-create',
+        status: 'allowed',
+        summary: 'A local reminder change was requested; reminder details omitted.',
+      });
+    }
     const retiredNotificationIds = [
       ...(existing?.retiredNotificationIds ?? []),
       ...(existing?.notificationId ? [existing.notificationId] : []),
@@ -192,6 +230,11 @@ export function CalendarProvider({
   }
 
   async function retryReminderNotification(id: string) {
+    if (
+      !capabilityIsEnabled('local.notifications')
+    ) {
+      throw new Error('Local notifications are paused or revoked in Settings.');
+    }
     const target = reminders.find((item) => item.id === id);
     if (!target || target.deletedAt) return;
     try {
@@ -222,6 +265,12 @@ export function CalendarProvider({
   }
 
   async function deleteReminder(id: string) {
+    if (
+      !capabilityIsEnabled('local.calendar') ||
+      !capabilityIsEnabled('local.notifications')
+    ) {
+      throw new Error('Calendar or notification access is paused in Settings.');
+    }
     const target = reminders.find((item) => item.id === id);
     if (!target) return;
     const tombstoned = reminders.map((item) =>
@@ -246,6 +295,14 @@ export function CalendarProvider({
       return;
     }
     await persist(tombstoned.filter((item) => item.id !== id));
+    if (typeof recordPrivacyAction === 'function') {
+      await recordPrivacyAction({
+        capabilityId: 'local.calendar',
+        action: 'local-calendar-delete',
+        status: 'completed',
+        summary: 'A local reminder and its device alert were deleted after confirmation.',
+      });
+    }
   }
 
   const upcomingReminders = useMemo(

@@ -32,6 +32,7 @@ import {
   type CapabilityId,
   type PrivacyState,
 } from "@/lib/privacyCapabilities";
+import { TOOL_REGISTRY } from "@/lib/toolRegistry";
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: "system", label: "System" },
@@ -131,7 +132,10 @@ function PrivacyCapabilityRow({
   colors: ReturnType<typeof useColors>;
 }) {
   const isNetwork = definition.kind === "network";
-  const canChange = !isNetwork || definition.id === "network.model-download";
+  const canChange =
+    !isNetwork ||
+    definition.id === "network.model-download" ||
+    definition.id === "network.connectors";
   const nextApproval: CapabilityApproval =
     grant.approval === "approved" ? "paused" : "approved";
 
@@ -811,6 +815,55 @@ export default function SettingsScreen() {
               colors={colors}
             />
           ))}
+          <Pressable
+            testID="open-local-documents"
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: "/documents" } as never)}
+            style={({ pressed }) => [
+              styles.privacyToolLink,
+              { backgroundColor: colors.secondary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+              <Feather name="file-text" size={16} color={colors.accentForeground} />
+            </View>
+            <View style={styles.rowCopy}>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                Work with a selected document
+              </Text>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                Pick a text, Markdown, CSV, or JSON file and summarize or transform it locally.
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+          </Pressable>
+          <View style={styles.connectorHeader}>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              Optional network connectors
+            </Text>
+            <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+              Read-only by default. A connector must be connected separately, and every request shows its records, scope, and network status first.
+            </Text>
+          </View>
+          {TOOL_REGISTRY.filter((tool) => tool.source === "connector").map((tool) => (
+            <View key={tool.id} style={[styles.connectorRow, { borderBottomColor: colors.border }]}>
+              <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
+                <Feather name="globe" size={16} color={colors.mutedForeground} />
+              </View>
+              <View style={styles.rowCopy}>
+                <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                  {tool.name}
+                </Text>
+                <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                  {tool.description}
+                </Text>
+                <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+                  Not connected · network required · no writes supported
+                </Text>
+              </View>
+            </View>
+          ))}
           <View style={styles.privacyHistoryHeader}>
             <View style={styles.rowCopy}>
               <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
@@ -841,6 +894,40 @@ export default function SettingsScreen() {
                   </View>
                   <Text style={[styles.privacyStatus, { color: colors.mutedForeground }]}>
                     {event.status}
+                  </Text>
+                </View>
+              ))
+          )}
+          <View style={styles.privacyHistoryHeader}>
+            <View style={styles.rowCopy}>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                Tool activity
+              </Text>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                Tool calls show their source and result without retaining document text or secrets.
+              </Text>
+            </View>
+          </View>
+          {safePrivacyState.traces.length === 0 ? (
+            <Text style={[styles.privacyEmpty, { color: colors.mutedForeground }]}>
+              No local tool calls recorded yet.
+            </Text>
+          ) : (
+            safePrivacyState.traces
+              .slice(-5)
+              .reverse()
+              .map((trace) => (
+                <View key={trace.id} style={styles.privacyHistoryRow}>
+                  <View style={styles.rowCopy}>
+                    <Text style={[styles.privacyHistoryAction, { color: colors.cardForeground }]}>
+                      {trace.phase} · {trace.capabilityId}
+                    </Text>
+                    <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+                      {trace.summary}
+                    </Text>
+                  </View>
+                  <Text style={[styles.privacyStatus, { color: colors.mutedForeground }]}>
+                    {trace.status}
                   </Text>
                 </View>
               ))
@@ -2212,6 +2299,20 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1, justifyContent: "center" },
   rowTitle: { fontFamily: "Inter_500Medium", fontSize: 15, marginBottom: 2 },
   rowDescription: { fontFamily: "Inter_400Regular", fontSize: 12 },
+  privacyToolLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 13,
+    padding: 10,
+    marginTop: 10,
+  },
+  connectorHeader: { paddingTop: 18, paddingBottom: 8 },
+  connectorRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+  },
   smallButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   smallButtonText: { fontFamily: "Inter_500Medium", fontSize: 12 },
   linkCard: {

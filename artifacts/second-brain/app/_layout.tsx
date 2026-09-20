@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppProvider } from '@/context/AppContext';
 import { CalendarProvider } from '@/context/CalendarContext';
+import { ToolProvider } from '@/context/ToolContext';
 import {
   SpaceGrotesk_400Regular,
   SpaceGrotesk_500Medium,
@@ -46,6 +47,10 @@ function RootLayoutNav() {
         name="memories"
         options={{ headerShown: false, animation: 'slide_from_right' }}
       />
+      <Stack.Screen
+        name="documents"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
     </Stack>
   );
 }
@@ -82,7 +87,9 @@ export default function RootLayout() {
             <KeyboardProvider>
               <AppProvider>
                 <CalendarProvider>
-                  <RootLayoutNav />
+                  <ToolProvider>
+                    <RootLayoutNav />
+                  </ToolProvider>
                 </CalendarProvider>
               </AppProvider>
             </KeyboardProvider>

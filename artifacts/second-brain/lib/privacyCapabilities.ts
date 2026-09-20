@@ -1,5 +1,8 @@
 export type CapabilityId =
   | "local.inference"
+  | "local.files"
+  | "local.calendar"
+  | "local.contacts"
   | "local.voice-input"
   | "local.voice-output"
   | "local.notifications"
@@ -43,6 +46,42 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
     networkUse: "never",
     defaultApproval: "approved",
     defaultLifetime: "until-revoked",
+    requiresDestructiveConfirmation: false,
+  },
+  {
+    id: "local.files",
+    name: "Selected local files",
+    purpose: "Read a document the user selected through Android's document picker.",
+    scope: "Only the selected document; file contents stay on this device.",
+    kind: "system",
+    dataSensitivity: "sensitive",
+    networkUse: "never",
+    defaultApproval: "approved",
+    defaultLifetime: "until-revoked",
+    requiresDestructiveConfirmation: false,
+  },
+  {
+    id: "local.calendar",
+    name: "Local calendar and reminders",
+    purpose: "Read or change reminders that Demi saved on this device.",
+    scope: "Only Demi's local reminders; changes require a fresh confirmation.",
+    kind: "system",
+    dataSensitivity: "personal",
+    networkUse: "never",
+    defaultApproval: "approved",
+    defaultLifetime: "until-revoked",
+    requiresDestructiveConfirmation: true,
+  },
+  {
+    id: "local.contacts",
+    name: "Local contacts",
+    purpose: "Read selected contact details through an explicit device permission.",
+    scope: "Contact records requested for the current action; no background access.",
+    kind: "system",
+    dataSensitivity: "sensitive",
+    networkUse: "never",
+    defaultApproval: "not-granted",
+    defaultLifetime: "session",
     requiresDestructiveConfirmation: false,
   },
   {

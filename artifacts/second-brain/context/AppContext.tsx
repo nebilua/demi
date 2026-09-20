@@ -203,6 +203,10 @@ type AppContextValue = {
   openVoiceSettings: () => Promise<void>;
   dismissVoiceError: () => void;
   sendMessage: (content: string) => Promise<void>;
+  runLocalInference: (
+    prompt: string,
+    onToken?: (token: string) => void,
+  ) => Promise<string>;
   clearConversation: () => Promise<void>;
   storageUsage: LocalStorageUsage | null;
   storageUsageRefreshing: boolean;
@@ -2185,6 +2189,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function runLocalInference(
+    prompt: string,
+    onToken?: (token: string) => void,
+  ) {
+    const trimmedPrompt = prompt.trim();
+    if (
+      !trimmedPrompt ||
+      !privacyReady ||
+      !isCapabilityActive(privacyState, "local.inference") ||
+      engineStatus !== "ready" ||
+      !llamaContextRef.current
+    ) {
+      throw new Error("Load the local model and enable local inference first.");
+    }
+    return streamCompletion(
+      llamaContextRef.current,
+      [{ role: "user", content: trimmedPrompt }],
+      onToken ?? (() => undefined),
+      {
+        displayName: profile.displayName,
+        context: profile.context,
+        memories: selectRelevantMemories(memories, trimmedPrompt, 3),
+      },
+    );
+  }
+
   async function clearConversation() {
     if (clearConversationInFlightRef.current) return;
     if (isThinking) {
@@ -2408,6 +2438,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openVoiceSettings,
       dismissVoiceError,
       sendMessage,
+      runLocalInference,
       clearConversation,
       storageUsage,
       storageUsageRefreshing,
