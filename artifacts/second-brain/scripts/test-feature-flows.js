@@ -436,6 +436,8 @@ async function main() {
   );
   assert.match(appContext, /cleanupUnusedModelFiles/);
   assert.match(appContext, /reclaimUnusedModelFiles/);
+  assert.match(appContext, /storageDetailsExpanded/);
+  assert.match(appContext, /setStorageDetailsExpanded/);
   assert.match(appContext, /failedFiles/);
   assert.match(appContext, /remaining\.exists/);
   assert.match(appContext, /MODEL_STORAGE_SAFETY_MARGIN_BYTES/);
@@ -449,6 +451,7 @@ async function main() {
   assert.match(settingsScreen, /Refresh local storage usage/);
   assert.match(settingsScreen, /toggle-storage-details/);
   assert.match(settingsScreen, /accessibilityState=\{\{ expanded: detailsExpanded \}\}/);
+  assert.match(settingsScreen, /onDetailsExpandedChange/);
   assert.match(settingsScreen, /reclaim-model-files/);
   assert.match(settingsScreen, /confirm-reclaim-model-files/);
   assert.match(settingsScreen, /Active model is never included/);

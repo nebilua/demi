@@ -176,6 +176,8 @@ type AppContextValue = {
   storageUsage: LocalStorageUsage | null;
   refreshStorageUsage: () => void;
   reclaimUnusedModelFiles: () => Promise<ModelCleanupResult>;
+  storageDetailsExpanded: boolean;
+  setStorageDetailsExpanded: (expanded: boolean) => void;
 };
 
 const SETTINGS_KEY = "@second-brain/settings-v1";
@@ -443,6 +445,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [storageUsage, setStorageUsage] = useState<LocalStorageUsage | null>(
     null,
   );
+  const [storageDetailsExpanded, setStorageDetailsExpanded] = useState(false);
   const [storageUsageRefreshToken, setStorageUsageRefreshToken] = useState(0);
   const [memories, setMemories] = useState<ApprovedMemory[]>([]);
   const [pendingMemoryCandidate, setPendingMemoryCandidate] =
@@ -2125,6 +2128,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       storageUsage,
       refreshStorageUsage,
       reclaimUnusedModelFiles,
+      storageDetailsExpanded,
+      setStorageDetailsExpanded,
     }),
     [
       settings,
@@ -2159,6 +2164,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSelfTestRunning,
       voiceSelfTestSpeechStatus,
       storageUsage,
+      storageDetailsExpanded,
     ],
   );
 

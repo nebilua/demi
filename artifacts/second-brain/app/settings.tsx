@@ -147,6 +147,8 @@ function StorageUsageCard({
   isReclaiming,
   reclaimMessage,
   modelOperationInProgress,
+  detailsExpanded,
+  onDetailsExpandedChange,
 }: {
   usage: LocalStorageUsage | null;
   colors: ReturnType<typeof useColors>;
@@ -155,8 +157,9 @@ function StorageUsageCard({
   isReclaiming: boolean;
   reclaimMessage: string | null;
   modelOperationInProgress: boolean;
+  detailsExpanded: boolean;
+  onDetailsExpandedChange: (expanded: boolean) => void;
 }) {
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const canReclaim =
     Platform.OS !== "web" &&
     !modelOperationInProgress &&
@@ -180,7 +183,7 @@ function StorageUsageCard({
               : "Show local storage details"
           }
           accessibilityState={{ expanded: detailsExpanded }}
-          onPress={() => setDetailsExpanded((expanded) => !expanded)}
+          onPress={() => onDetailsExpandedChange(!detailsExpanded)}
           style={({ pressed }) => [
             styles.storageHeaderToggle,
             pressed && styles.pressed,
@@ -417,6 +420,8 @@ export default function SettingsScreen() {
     storageUsage,
     refreshStorageUsage,
     reclaimUnusedModelFiles,
+    storageDetailsExpanded,
+    setStorageDetailsExpanded,
   } = useApp();
   const colors = useColors(settings.appearance);
   const insets = useSafeAreaInsets();
@@ -654,6 +659,8 @@ export default function SettingsScreen() {
           onReclaim={() => setShowReclaimConfirm(true)}
           isReclaiming={isReclaimingModels}
           reclaimMessage={modelReclaimMessage}
+          detailsExpanded={storageDetailsExpanded}
+          onDetailsExpandedChange={setStorageDetailsExpanded}
           modelOperationInProgress={
             modelSetupStatus !== "idle" ||
             (downloadStatus !== "idle" && downloadStatus !== "error")

@@ -187,6 +187,18 @@ function hasTestId(renderer, testID) {
   return renderer.root.findAllByProps({ testID }).length > 0;
 }
 
+function SettingsSessionHarness({ SettingsScreen }) {
+  const [expanded, setExpanded] = React.useState(
+    appValue.storageDetailsExpanded ?? false,
+  );
+  appValue = {
+    ...appValue,
+    storageDetailsExpanded: expanded,
+    setStorageDetailsExpanded: setExpanded,
+  };
+  return React.createElement(SettingsScreen);
+}
+
 function textContent(renderer) {
   return renderer.root
     .findAllByType('Text')
@@ -249,6 +261,8 @@ function baseAppValue(overrides = {}) {
     storageProtection: 'secure',
     storageError: null,
     storageUsage: null,
+    storageDetailsExpanded: false,
+    setStorageDetailsExpanded: () => {},
     refreshStorageUsage: () => {},
     reclaimUnusedModelFiles: async () => ({
       status: 'completed',
@@ -375,7 +389,9 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
   const { default: SettingsScreen } = require('../app/settings.tsx');
   let renderer;
   await TestRenderer.act(async () => {
-    renderer = TestRenderer.create(React.createElement(SettingsScreen));
+    renderer = TestRenderer.create(
+      React.createElement(SettingsSessionHarness, { SettingsScreen }),
+    );
   });
   const storageToggle = findByTestId(renderer, 'toggle-storage-details');
   assert.equal(storageToggle.props.accessibilityState.expanded, false);
@@ -419,6 +435,40 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
   });
   fakeReactNative.Platform.OS = previousPlatform.OS;
   fakeReactNative.Platform.Version = previousPlatform.Version;
+}
+
+async function testStorageDetailsPersistAcrossSettingsVisits() {
+  appValue = baseAppValue();
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(SettingsSessionHarness, { SettingsScreen }),
+    );
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
+    true,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(SettingsSessionHarness, { SettingsScreen }),
+    );
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
+    true,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
 }
 
 async function testMemoryApprovalFailureKeepsModalOpen() {
@@ -600,7 +650,9 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   const { default: SettingsScreen } = require('../app/settings.tsx');
   let settingsRenderer;
   await TestRenderer.act(async () => {
-    settingsRenderer = TestRenderer.create(React.createElement(SettingsScreen));
+    settingsRenderer = TestRenderer.create(
+      React.createElement(SettingsSessionHarness, { SettingsScreen }),
+    );
   });
   assert.equal(findByTestId(settingsRenderer, 'offline-speech-setup').props.disabled, true);
   assert.equal(findByTestId(settingsRenderer, 'offline-tts-setup').props.disabled, true);
@@ -910,6 +962,7 @@ async function main() {
   await testProfileSaveFailureKeepsEditorOpen();
   await testSettingsFailureKeepsControlledValue();
   await testModelReclaimFailureKeepsConfirmationOpen();
+  await testStorageDetailsPersistAcrossSettingsVisits();
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
