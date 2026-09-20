@@ -1,5 +1,20 @@
 # Privacy
 
+## Scheduled digests and monitors
+
+Scheduled work is opt-in per job and bounded to the sources, cadence, local model
+runtime, and execution budget shown in the editor. Digest results and monitor
+history stay in the encrypted local job record and are pruned according to the
+job's seven- or thirty-day retention setting. Notifications contain only generic
+result-ready or change-detected text, never private source content.
+
+Android local notifications provide a reboot-safe best-effort wake-up, but Android
+may defer background execution because of battery policy, force-stop, locked-device
+state, storage pressure, or revoked notification permission. Demi does not promise
+exact-time model execution: it recovers due jobs when the app becomes active and
+records failed or missed runs without deleting the job definition. Monitors record
+a local baseline and notify only when their configured count condition matches.
+
 Demi is designed so its core experience works without an account.
 
 ## Stored on the device
@@ -9,6 +24,7 @@ Demi is designed so its core experience works without an account.
 - Appearance and behavior settings
 - Important dates and reminder notes
 - References to user-imported GGUF models
+- Encrypted scheduled job definitions, selected file contents, and bounded result history
 - Capability grants, connector references, schedules, redacted agent traces, and
   user-visible action history
 

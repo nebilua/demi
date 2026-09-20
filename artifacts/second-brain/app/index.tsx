@@ -189,6 +189,14 @@ export default function DemiScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Open scheduled work"
+              onPress={() => router.push('/scheduled' as never)}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+            >
+              <Feather name="clock" size={20} color={colors.foreground} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
               onPress={() => router.push('/settings')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >

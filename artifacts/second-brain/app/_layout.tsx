@@ -7,6 +7,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppProvider } from '@/context/AppContext';
 import { CalendarProvider } from '@/context/CalendarContext';
 import { ToolProvider } from '@/context/ToolContext';
+import { ScheduledJobsProvider } from '@/context/ScheduledJobsContext';
 import {
   SpaceGrotesk_400Regular,
   SpaceGrotesk_500Medium,
@@ -51,6 +52,14 @@ function RootLayoutNav() {
         name="documents"
         options={{ headerShown: false, animation: 'slide_from_right' }}
       />
+      <Stack.Screen
+        name="scheduled/index"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="scheduled/edit"
+        options={{ headerShown: false, animation: 'slide_from_bottom' }}
+      />
     </Stack>
   );
 }
@@ -88,7 +97,9 @@ export default function RootLayout() {
               <AppProvider>
                 <CalendarProvider>
                   <ToolProvider>
-                    <RootLayoutNav />
+                    <ScheduledJobsProvider>
+                      <RootLayoutNav />
+                    </ScheduledJobsProvider>
                   </ToolProvider>
                 </CalendarProvider>
               </AppProvider>

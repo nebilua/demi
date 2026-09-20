@@ -147,6 +147,7 @@ type AppContextValue = {
   ) => Promise<void>;
   setGlobalPrivacyPause: (paused: boolean) => Promise<void>;
   clearPrivacyState: () => Promise<void>;
+  privacyResetVersion: number;
   recordPrivacyAction: (event: PrivacyActionInput) => Promise<void>;
   recordAgentTrace: (
     trace: Omit<AgentTrace, "id" | "createdAt" | "retentionUntil">,
@@ -495,6 +496,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [privacyState, setPrivacyState] = useState<PrivacyState>(
     createDefaultPrivacyState(),
   );
+  const [privacyResetVersion, setPrivacyResetVersion] = useState(0);
   const [localModel, setLocalModel] = useState<LocalModel | null>(null);
   const [engineStatus, setEngineStatus] = useState<
     "unsupported" | "no-model" | "loading" | "ready" | "error"
@@ -1907,9 +1909,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await privacyMutationQueueRef.current.catch(() => undefined);
       await removeSecureRecord(SECURE_PRIVACY_STATE_KEY);
+      await removeSecureRecord("scheduled-jobs");
       const reset = createDefaultPrivacyState();
       privacyStateRef.current = reset;
       setPrivacyState(reset);
+      setPrivacyResetVersion((value) => value + 1);
       setStorageError(null);
     } catch {
       setStorageError(
@@ -2381,6 +2385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       storageProtection,
       privacyReady,
       privacyState,
+      privacyResetVersion,
       setCapabilityApproval,
       setGlobalPrivacyPause,
       clearPrivacyState,
@@ -2458,6 +2463,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       storageProtection,
       privacyReady,
       privacyState,
+      privacyResetVersion,
       memories,
       pendingMemoryCandidate,
       savedTurnCount,
