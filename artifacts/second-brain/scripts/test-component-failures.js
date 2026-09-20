@@ -207,6 +207,47 @@ function textContent(renderer) {
     .join(' ');
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function storageUsage(totalBytes) {
+  return {
+    total: { bytes: totalBytes, status: 'measured' },
+    activeModel: { bytes: 32, status: 'measured' },
+    reclaimableModels: { bytes: 16, status: 'measured', fileCount: 1 },
+    conversations: { bytes: 8, status: 'estimated' },
+    memories: { bytes: 4, status: 'estimated' },
+    settingsAndProfile: { bytes: 2, status: 'estimated' },
+    appFiles: { bytes: 1, status: 'measured' },
+    temporaryFiles: { bytes: 1, status: 'measured' },
+    freeDevice: { bytes: 1000, status: 'measured' },
+  };
+}
+
+function StorageRefreshHarness({ SettingsScreen, refreshPromise }) {
+  const [expanded, setExpanded] = React.useState(
+    appValue.storageDetailsExpanded ?? false,
+  );
+  const [usage, setUsage] = React.useState(appValue.storageUsage ?? null);
+  appValue = {
+    ...appValue,
+    storageDetailsExpanded: expanded,
+    setStorageDetailsExpanded: setExpanded,
+    storageUsage: usage,
+    refreshStorageUsage: () => {
+      void refreshPromise.then(setUsage).catch(() => {});
+    },
+  };
+  return React.createElement(SettingsScreen);
+}
+
 async function testProfileSaveFailureKeepsEditorOpen() {
   let closed = false;
   appValue = {
@@ -480,6 +521,97 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
+}
+
+async function testStorageRefreshKeepsDetailsAndSummary() {
+  const previousPlatform = { ...fakeReactNative.Platform };
+  fakeReactNative.Platform.OS = 'android';
+  fakeReactNative.Platform.Version = 34;
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+
+  const initialUsage = storageUsage(64);
+  const refreshedUsage = storageUsage(128);
+  const refresh = deferred();
+  appValue = baseAppValue({ storageUsage: initialUsage });
+
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(StorageRefreshHarness, {
+        SettingsScreen,
+        refreshPromise: refresh.promise,
+      }),
+    );
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+  assert.match(textContent(renderer), /64 B tracked on this device/);
+
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'refresh-storage-usage').props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+  refresh.resolve(refreshedUsage);
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+  assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.match(textContent(renderer), /128 B tracked on this device/);
+  assert.doesNotMatch(textContent(renderer), /64 B tracked on this device/);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  const failedRefresh = deferred();
+  appValue = baseAppValue({ storageUsage: initialUsage });
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(StorageRefreshHarness, {
+        SettingsScreen,
+        refreshPromise: failedRefresh.promise,
+      }),
+    );
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'refresh-storage-usage').props.onPress();
+  });
+  failedRefresh.reject(new Error('storage refresh failed'));
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+  assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.match(textContent(renderer), /64 B tracked on this device/);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  fakeReactNative.Platform.OS = previousPlatform.OS;
+  fakeReactNative.Platform.Version = previousPlatform.Version;
 }
 
 async function testMemoryApprovalFailureKeepsModalOpen() {
@@ -974,6 +1106,7 @@ async function main() {
   await testSettingsFailureKeepsControlledValue();
   await testModelReclaimFailureKeepsConfirmationOpen();
   await testStorageDetailsPersistAcrossSettingsVisits();
+  await testStorageRefreshKeepsDetailsAndSummary();
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
