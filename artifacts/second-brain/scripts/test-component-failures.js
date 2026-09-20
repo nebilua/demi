@@ -394,9 +394,15 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
     );
   });
   const storageToggle = findByTestId(renderer, 'toggle-storage-details');
+  assert.equal(storageToggle.props.accessibilityRole, 'button');
   assert.equal(storageToggle.props.accessibilityState.expanded, false);
-  assert.equal(storageToggle.props.accessibilityLabel, 'Show local storage details');
+  assert.equal(storageToggle.props.accessibilityLabel, 'Local storage, show details');
+  assert.equal(
+    storageToggle.props.accessibilityHint,
+    'Double tap to expand storage details.',
+  );
   assert.equal(hasTestId(renderer, 'reclaim-model-files'), false);
+  assert.equal(hasTestId(renderer, 'refresh-storage-usage'), false);
   assert.doesNotMatch(textContent(renderer), /Reclaimable model files/);
   await TestRenderer.act(async () => {
     await storageToggle.props.onPress();
@@ -407,11 +413,16 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
   );
   assert.equal(
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityLabel,
-    'Hide local storage details',
+    'Local storage, hide details',
+  );
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityHint,
+    'Double tap to collapse storage details.',
   );
   assert.ok(findByTestId(renderer, 'reclaim-model-files'));
   assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
   assert.match(textContent(renderer), /Reclaimable model files/);
+  assert.match(textContent(renderer), /Local storage/);
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'toggle-storage-details').props.onPress();
   });

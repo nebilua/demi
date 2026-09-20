@@ -179,8 +179,13 @@ function StorageUsageCard({
           accessibilityRole="button"
           accessibilityLabel={
             detailsExpanded
-              ? "Hide local storage details"
-              : "Show local storage details"
+              ? "Local storage, hide details"
+              : "Local storage, show details"
+          }
+          accessibilityHint={
+            detailsExpanded
+              ? "Double tap to collapse storage details."
+              : "Double tap to expand storage details."
           }
           accessibilityState={{ expanded: detailsExpanded }}
           onPress={() => onDetailsExpandedChange(!detailsExpanded)}
