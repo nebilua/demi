@@ -183,6 +183,10 @@ function findByTestId(renderer, testID) {
   return renderer.root.findByProps({ testID });
 }
 
+function hasTestId(renderer, testID) {
+  return renderer.root.findAllByProps({ testID }).length > 0;
+}
+
 function textContent(renderer) {
   return renderer.root
     .findAllByType('Text')
@@ -372,6 +376,32 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
   let renderer;
   await TestRenderer.act(async () => {
     renderer = TestRenderer.create(React.createElement(SettingsScreen));
+  });
+  const storageToggle = findByTestId(renderer, 'toggle-storage-details');
+  assert.equal(storageToggle.props.accessibilityState.expanded, false);
+  assert.equal(storageToggle.props.accessibilityLabel, 'Show local storage details');
+  assert.equal(hasTestId(renderer, 'reclaim-model-files'), false);
+  assert.doesNotMatch(textContent(renderer), /Reclaimable model files/);
+  await TestRenderer.act(async () => {
+    await storageToggle.props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
+    true,
+  );
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityLabel,
+    'Hide local storage details',
+  );
+  assert.ok(findByTestId(renderer, 'reclaim-model-files'));
+  assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.match(textContent(renderer), /Reclaimable model files/);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
+  });
+  assert.equal(hasTestId(renderer, 'reclaim-model-files'), false);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
   });
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'reclaim-model-files').props.onPress();
@@ -576,6 +606,9 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   assert.equal(findByTestId(settingsRenderer, 'offline-tts-setup').props.disabled, true);
   assert.match(textContent(settingsRenderer), /installed Android app/);
   assert.match(textContent(settingsRenderer), /Device storage measurements are available/);
+   await TestRenderer.act(async () => {
+     await findByTestId(settingsRenderer, 'toggle-storage-details').props.onPress();
+   });
   assert.match(textContent(settingsRenderer), /does not report device disk usage/);
   await TestRenderer.act(async () => {
     settingsRenderer.unmount();
