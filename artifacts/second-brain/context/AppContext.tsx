@@ -64,6 +64,7 @@ import {
   MODEL_STORAGE_SAFETY_MARGIN_BYTES,
 } from "@/lib/localLimits";
 import {
+  createUnavailableLocalStorageUsage,
   measureLocalStorageUsage,
   type LocalStorageUsage,
 } from "@/lib/localStorageUsage";
@@ -301,6 +302,22 @@ function parseModel(value: string | null): LocalModel | null {
   }
 }
 
+type StartupRead<T> = {
+  value: T;
+  failed: boolean;
+};
+
+async function readStartupValue<T>(
+  read: () => Promise<T>,
+  fallback: T,
+): Promise<StartupRead<T>> {
+  try {
+    return { value: await read(), failed: false };
+  } catch {
+    return { value: fallback, failed: true };
+  }
+}
+
 function cleanFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "-");
 }
@@ -513,58 +530,84 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([
-      AsyncStorage.getItem(SETTINGS_KEY),
-      AsyncStorage.getItem(MODEL_KEY),
-      migratePlaintextRecord(SECURE_CONVERSATION_KEY, CONVERSATION_KEY),
-      migratePlaintextRecord(SECURE_PROFILE_KEY, PROFILE_KEY),
-      readSecureRecord(SECURE_MEMORIES_KEY),
-    ])
-      .then(
-        async ([
-          storedSettings,
-          storedModel,
-          storedConversation,
-          storedProfile,
-          storedMemories,
-        ]) => {
-          if (!isMounted) return;
-          const nextSettings = parseSettings(storedSettings);
-          const savedTurns = parseTurns(storedConversation);
-          const savedModel = parseModel(storedModel);
-          const savedProfile = parseProfile(storedProfile);
-          const savedMemories = parseApprovedMemories(storedMemories);
+    void (async () => {
+      const [
+        settingsResult,
+        modelResult,
+        conversationResult,
+        profileResult,
+        memoriesResult,
+      ] = await Promise.all([
+        readStartupValue(() => AsyncStorage.getItem(SETTINGS_KEY), null),
+        readStartupValue(() => AsyncStorage.getItem(MODEL_KEY), null),
+        readStartupValue(
+          () => migratePlaintextRecord(SECURE_CONVERSATION_KEY, CONVERSATION_KEY),
+          null,
+        ),
+        readStartupValue(
+          () => migratePlaintextRecord(SECURE_PROFILE_KEY, PROFILE_KEY),
+          null,
+        ),
+        readStartupValue(() => readSecureRecord(SECURE_MEMORIES_KEY), null),
+      ]);
 
-          setSettings(nextSettings);
-          setProfile(savedProfile);
-          setMemories(savedMemories);
-          memoriesRef.current = savedMemories;
-          setSavedTurnCount(savedTurns.length);
-          setTurns(nextSettings.saveConversations ? savedTurns : []);
-          let activeModelUri: string | null = null;
-          if (savedModel && Platform.OS !== "web") {
-            const file = await FileSystem.getInfoAsync(savedModel.uri);
-            if (file.exists) {
-              setLocalModel(savedModel);
-              activeModelUri = savedModel.uri;
-              setEngineStatus("no-model");
-            } else {
-              await AsyncStorage.removeItem(MODEL_KEY);
-            }
-          }
-          await cleanupUnusedModelFiles(activeModelUri);
-          setSettingsReady(true);
-          setIsConversationReady(true);
-        },
-      )
-      .catch(() => {
-        if (!isMounted) return;
+      if (!isMounted) return;
+
+      let nextSettings = DEFAULT_SETTINGS;
+      let savedTurns: ConversationTurn[] = [];
+      let savedModel: LocalModel | null = null;
+      let savedProfile = DEFAULT_PROFILE;
+      let savedMemories: ReturnType<typeof parseApprovedMemories> = [];
+      try {
+        nextSettings = parseSettings(settingsResult.value);
+        savedTurns = parseTurns(conversationResult.value);
+        savedModel = parseModel(modelResult.value);
+        savedProfile = parseProfile(profileResult.value);
+        savedMemories = parseApprovedMemories(memoriesResult.value);
+      } catch {
         setStorageError(
-          "Secure local memory could not be opened. Prior data was preserved. Do not clear app data; restart the app or restore access to this device’s Android Keystore.",
+          "Some saved local data could not be read. Chat, memory, and voice controls remain available with safe defaults.",
         );
-        setSettingsReady(true);
-        setIsConversationReady(true);
-      });
+      }
+
+      setSettings(nextSettings);
+      setProfile(savedProfile);
+      setMemories(savedMemories);
+      memoriesRef.current = savedMemories;
+      setSavedTurnCount(savedTurns.length);
+      setTurns(nextSettings.saveConversations ? savedTurns : []);
+      let activeModelUri: string | null = null;
+      if (savedModel && Platform.OS !== "web") {
+        try {
+          const file = await FileSystem.getInfoAsync(savedModel.uri);
+          if (file.exists) {
+            setLocalModel(savedModel);
+            activeModelUri = savedModel.uri;
+            setEngineStatus("no-model");
+          } else {
+            await AsyncStorage.removeItem(MODEL_KEY);
+          }
+        } catch {
+          setStorageError(
+            "The saved model could not be checked. Chat, memory, and voice controls remain available.",
+          );
+        }
+      }
+      await cleanupUnusedModelFiles(activeModelUri).catch(() => undefined);
+      if (
+        settingsResult.failed ||
+        modelResult.failed ||
+        conversationResult.failed ||
+        profileResult.failed ||
+        memoriesResult.failed
+      ) {
+        setStorageError(
+          "Some local data could not be opened. Chat, memory, and voice controls remain available; affected values are unavailable.",
+        );
+      }
+      setSettingsReady(true);
+      setIsConversationReady(true);
+    })();
 
     return () => {
       isMounted = false;
@@ -582,9 +625,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       conversation: SECURE_CONVERSATION_KEY,
       profile: SECURE_PROFILE_KEY,
       memories: SECURE_MEMORIES_KEY,
-    }).then((usage) => {
-      if (isMounted) setStorageUsage(usage);
-    });
+    })
+      .then((usage) => {
+        if (isMounted) setStorageUsage(usage);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setStorageUsage((previous) => previous ?? createUnavailableLocalStorageUsage());
+      });
     return () => {
       isMounted = false;
     };

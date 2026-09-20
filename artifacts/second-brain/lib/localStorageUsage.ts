@@ -45,6 +45,20 @@ const unavailableMetric = (): StorageMetric => ({
   status: 'unavailable',
 });
 
+export function createUnavailableLocalStorageUsage(): LocalStorageUsage {
+  return {
+    total: unavailableMetric(),
+    activeModel: unavailableMetric(),
+    reclaimableModels: { ...unavailableMetric(), fileCount: 0 },
+    conversations: unavailableMetric(),
+    memories: unavailableMetric(),
+    settingsAndProfile: unavailableMetric(),
+    appFiles: unavailableMetric(),
+    temporaryFiles: unavailableMetric(),
+    freeDevice: unavailableMetric(),
+  };
+}
+
 function estimatedMetric(bytes: number): StorageMetric {
   return { bytes, status: 'estimated' };
 }
@@ -224,31 +238,75 @@ async function measureSecureStorageValue(key: string): Promise<StorageMetric> {
   }
 }
 
+async function measureSafely<T>(
+  operation: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch {
+    return fallback;
+  }
+}
+
 export async function measureLocalStorageUsage(
   activeModelUri: string | null,
   keys: LocalStorageUsageKeys,
 ): Promise<LocalStorageUsage> {
-  const [modelFiles, appFiles, temporaryFiles, freeDevice, settings, model, conversations, profile, memories] =
-    await Promise.all([
-      measureModelFiles(activeModelUri),
-      measureDirectory(
-        FileSystem.documentDirectory,
-        FileSystem.documentDirectory
-          ? `${FileSystem.documentDirectory}models`
-          : undefined,
-      ),
-      measureDirectory(FileSystem.cacheDirectory),
-      Platform.OS === 'web'
-        ? Promise.resolve(unavailableMetric())
-        : FileSystem.getFreeDiskStorageAsync()
-            .then((bytes) => measuredMetric(bytes))
-            .catch(() => unavailableMetric()),
-      measureAsyncStorageValue(keys.settings),
-      measureAsyncStorageValue(keys.model),
-      measureSecureStorageValue(keys.conversation),
-      measureSecureStorageValue(keys.profile),
-      measureSecureStorageValue(keys.memories),
-    ]);
+  const [
+    modelFiles,
+    appFiles,
+    temporaryFiles,
+    freeDevice,
+    settings,
+    model,
+    conversations,
+    profile,
+    memories,
+  ] = await Promise.all([
+    measureSafely(
+      () => measureModelFiles(activeModelUri),
+      {
+        activeModel: unavailableMetric(),
+        reclaimableModels: { ...unavailableMetric(), fileCount: 0 },
+      },
+    ),
+    measureSafely(
+      () =>
+        measureDirectory(
+          FileSystem.documentDirectory,
+          FileSystem.documentDirectory
+            ? `${FileSystem.documentDirectory}models`
+            : undefined,
+        ),
+      unavailableMetric(),
+    ),
+    measureSafely(
+      () => measureDirectory(FileSystem.cacheDirectory),
+      unavailableMetric(),
+    ),
+    measureSafely(
+      async () =>
+        Platform.OS === 'web'
+          ? unavailableMetric()
+          : measuredMetric(await FileSystem.getFreeDiskStorageAsync()),
+      unavailableMetric(),
+    ),
+    measureSafely(() => measureAsyncStorageValue(keys.settings), unavailableMetric()),
+    measureSafely(() => measureAsyncStorageValue(keys.model), unavailableMetric()),
+    measureSafely(
+      () => measureSecureStorageValue(keys.conversation),
+      unavailableMetric(),
+    ),
+    measureSafely(
+      () => measureSecureStorageValue(keys.profile),
+      unavailableMetric(),
+    ),
+    measureSafely(
+      () => measureSecureStorageValue(keys.memories),
+      unavailableMetric(),
+    ),
+  ]);
 
   const settingsAndProfile = mergeMetrics(settings, model, profile);
   const trackedMetrics = [

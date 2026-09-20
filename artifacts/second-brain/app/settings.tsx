@@ -184,11 +184,13 @@ function StorageUsageCard({
           <Text
             style={[styles.rowDescription, { color: colors.mutedForeground }]}
           >
-            {usage
-              ? usage.total.bytes === null
-                ? "Some local data could not be measured."
-                : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
-              : "Checking app-managed storage..."}
+            {Platform.OS === "web"
+              ? "Device storage measurements are available in the installed Android app."
+              : usage
+                ? usage.total.bytes === null
+                  ? "Some local data could not be measured."
+                  : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
+                : "Checking app-managed storage..."}
           </Text>
         </View>
         <Pressable
@@ -313,9 +315,11 @@ function StorageUsageCard({
       )}
 
       <Text style={[styles.storageNote, { color: colors.mutedForeground }]}>
-        Secure-store values are estimates because Android encrypts them
-        internally. Inactive model files are identified only; this screen never
-        deletes active models or saved memories.
+        {Platform.OS === "web"
+          ? "The browser preview does not report device disk usage or Android secure-store sizes. Use the installed Android app for those measurements."
+          : "Secure-store values are estimates because Android encrypts them internally."}{" "}
+        Inactive model files are identified only; this screen never deletes
+        active models or saved memories.
       </Text>
       {reclaimMessage && (
         <Text

@@ -5,6 +5,7 @@ const path = require('node:path');
 const React = require('react');
 const TestRenderer = require('react-test-renderer');
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+globalThis.__DEV__ = false;
 
 const colors = {
   background: '#fff',
@@ -53,6 +54,9 @@ let appValue;
 let routerCalls = [];
 let secureStorageValue = null;
 let secureWriteFailure = false;
+let usageSecureFailure = false;
+let usageStorageItems = {};
+let usageFileSystemFailure = false;
 let reminderScheduleResult = {
   notificationId: 'retry-notification',
   notificationState: 'scheduled',
@@ -61,6 +65,58 @@ let reminderScheduleResult = {
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
   if (request === 'react-native') return fakeReactNative;
+  if (request === '@react-native-async-storage/async-storage') {
+    return {
+      getItem: async (key) => {
+        if (usageStorageItems[key] instanceof Error) {
+          throw usageStorageItems[key];
+        }
+        return usageStorageItems[key] ?? null;
+      },
+      setItem: async () => {},
+      removeItem: async () => {},
+    };
+  }
+  if (request.startsWith('expo-file-system')) {
+    return {
+      documentDirectory: '/device/documents/',
+      cacheDirectory: '/device/cache/',
+      getInfoAsync: async () => {
+        if (usageFileSystemFailure) throw new Error('file system unavailable');
+        return { exists: false, isDirectory: false, size: 0 };
+      },
+      readDirectoryAsync: async () => [],
+      getFreeDiskStorageAsync: async () => {
+        if (usageFileSystemFailure) throw new Error('disk measurement denied');
+        return 4096;
+      },
+    };
+  }
+  if (request === 'expo-secure-store') {
+    return {
+      WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'when-unlocked-this-device-only',
+      getItemAsync: async () => null,
+      setItemAsync: async () => {},
+      deleteItemAsync: async () => {},
+    };
+  }
+  if (
+    request === '@/lib/secureLocalStorage' ||
+    request.includes('/lib/secureLocalStorage') ||
+    request === './secureLocalStorage'
+  ) {
+    return {
+      migratePlaintextRecord: async () => secureStorageValue,
+      getSecureRecordStorageBytes: async () => {
+        if (usageSecureFailure) throw new Error('secure store unavailable');
+        return 12;
+      },
+      writeSecureRecord: async (_key, value) => {
+        if (secureWriteFailure) throw new Error('secure storage unavailable');
+        secureStorageValue = value;
+      },
+    };
+  }
   if (request === '@expo/vector-icons') {
     return { Feather: passthrough('Feather') };
   }
@@ -111,15 +167,6 @@ Module._load = function load(request, parent, isMain) {
   }
   if (request === '@/hooks/useColors' || request.endsWith('/hooks/useColors')) {
     return { useColors: () => colors };
-  }
-  if (request === '@/lib/secureLocalStorage' || request.endsWith('/lib/secureLocalStorage')) {
-    return {
-      migratePlaintextRecord: async () => secureStorageValue,
-      writeSecureRecord: async (_key, value) => {
-        if (secureWriteFailure) throw new Error('secure storage unavailable');
-        secureStorageValue = value;
-      },
-    };
   }
   if (request === '@/lib/reminders' || request.endsWith('/lib/reminders')) {
     return {
@@ -528,6 +575,8 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   assert.equal(findByTestId(settingsRenderer, 'offline-speech-setup').props.disabled, true);
   assert.equal(findByTestId(settingsRenderer, 'offline-tts-setup').props.disabled, true);
   assert.match(textContent(settingsRenderer), /installed Android app/);
+  assert.match(textContent(settingsRenderer), /Device storage measurements are available/);
+  assert.match(textContent(settingsRenderer), /does not report device disk usage/);
   await TestRenderer.act(async () => {
     settingsRenderer.unmount();
   });
@@ -551,6 +600,83 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   await TestRenderer.act(async () => {
     homeRenderer.unmount();
   });
+}
+
+async function testStorageMeasurementFailuresStayBestEffort() {
+  const previousPlatform = { ...fakeReactNative.Platform };
+  fakeReactNative.Platform.OS = 'android';
+  fakeReactNative.Platform.Version = 34;
+  usageStorageItems = {
+    '@second-brain/settings-v1': 'settings',
+    '@second-brain/local-model-v1': 'model',
+  };
+  usageSecureFailure = false;
+  usageFileSystemFailure = true;
+
+  const { measureLocalStorageUsage } = require('../lib/localStorageUsage.ts');
+  const partialUsage = await measureLocalStorageUsage(null, {
+    settings: '@second-brain/settings-v1',
+    model: '@second-brain/local-model-v1',
+    conversation: 'conversation',
+    profile: 'profile',
+    memories: 'memories',
+  });
+  assert.equal(partialUsage.total.status, 'partial');
+  assert.equal(partialUsage.appFiles.bytes, null);
+  assert.equal(partialUsage.freeDevice.bytes, null);
+  assert.equal(partialUsage.settingsAndProfile.bytes, 25);
+
+  usageSecureFailure = true;
+  const unavailableSecureUsage = await measureLocalStorageUsage(null, {
+    settings: '@second-brain/settings-v1',
+    model: '@second-brain/local-model-v1',
+    conversation: 'conversation',
+    profile: 'profile',
+    memories: 'memories',
+  });
+  assert.equal(unavailableSecureUsage.conversations.bytes, null);
+  assert.equal(unavailableSecureUsage.memories.bytes, null);
+  assert.equal(unavailableSecureUsage.total.status, 'unavailable');
+  assert.doesNotMatch(JSON.stringify(unavailableSecureUsage), /secure store unavailable/);
+
+  usageSecureFailure = false;
+  usageStorageItems = {};
+  usageFileSystemFailure = false;
+  fakeReactNative.Platform.OS = previousPlatform.OS;
+  fakeReactNative.Platform.Version = previousPlatform.Version;
+}
+
+async function testSettingsStaysUsableWhenStorageIsUnavailable() {
+  appValue = baseAppValue({
+    storageError:
+      'Some local data could not be opened. Chat, memory, and voice controls remain available; affected values are unavailable.',
+  });
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(SettingsScreen));
+  });
+  assert.match(textContent(renderer), /Some local data could not be opened/);
+  assert.ok(findByTestId(renderer, 'offline-speech-setup'));
+  assert.ok(findByTestId(renderer, 'offline-tts-setup'));
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
+function testStorageRefreshFailureKeepsLastSummary() {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../context/AppContext.tsx'),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /setStorageUsage\(\(previous\) => previous \?\? createUnavailableLocalStorageUsage\(\)\)/,
+  );
+  assert.match(
+    source,
+    /measureLocalStorageUsage[\s\S]*?\.catch\(\(\) => \{/,
+  );
 }
 
 async function testCalendarRetryKeepsDateWhenPersistenceFails() {
@@ -755,6 +881,9 @@ async function main() {
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
   await testBrowserVoiceControlsExplainNativeRequirement();
+  await testStorageMeasurementFailuresStayBestEffort();
+  await testSettingsStaysUsableWhenStorageIsUnavailable();
+  testStorageRefreshFailureKeepsLastSummary();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
   await testCalendarReminderSurvivesRestartAndSchedulingFailure();
   await testReminderCandidateRoutesWithExactTime();
