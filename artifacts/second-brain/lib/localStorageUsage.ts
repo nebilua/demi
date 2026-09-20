@@ -20,6 +20,7 @@ export type LocalStorageUsage = {
   reclaimableModels: StorageMetric & { fileCount: number };
   conversations: StorageMetric;
   memories: StorageMetric;
+  privacyState: StorageMetric;
   settingsAndProfile: StorageMetric;
   appFiles: StorageMetric;
   temporaryFiles: StorageMetric;
@@ -38,6 +39,7 @@ export type LocalStorageUsageKeys = {
   conversation: string;
   profile: string;
   memories: string;
+  privacyState: string;
 };
 
 const unavailableMetric = (): StorageMetric => ({
@@ -52,6 +54,7 @@ export function createUnavailableLocalStorageUsage(): LocalStorageUsage {
     reclaimableModels: { ...unavailableMetric(), fileCount: 0 },
     conversations: unavailableMetric(),
     memories: unavailableMetric(),
+    privacyState: unavailableMetric(),
     settingsAndProfile: unavailableMetric(),
     appFiles: unavailableMetric(),
     temporaryFiles: unavailableMetric(),
@@ -263,6 +266,7 @@ export async function measureLocalStorageUsage(
     conversations,
     profile,
     memories,
+    privacyState,
   ] = await Promise.all([
     measureSafely(
       () => measureModelFiles(activeModelUri),
@@ -306,6 +310,10 @@ export async function measureLocalStorageUsage(
       () => measureSecureStorageValue(keys.memories),
       unavailableMetric(),
     ),
+    measureSafely(
+      () => measureSecureStorageValue(keys.privacyState),
+      unavailableMetric(),
+    ),
   ]);
 
   const settingsAndProfile = mergeMetrics(settings, model, profile);
@@ -314,6 +322,7 @@ export async function measureLocalStorageUsage(
     modelFiles.reclaimableModels,
     conversations,
     memories,
+    privacyState,
     settingsAndProfile,
     appFiles,
     temporaryFiles,
@@ -336,6 +345,7 @@ export async function measureLocalStorageUsage(
     reclaimableModels: modelFiles.reclaimableModels,
     conversations,
     memories,
+    privacyState,
     settingsAndProfile,
     appFiles,
     temporaryFiles,

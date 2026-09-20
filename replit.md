@@ -29,6 +29,7 @@ A local-first Android personal assistant for private, natural conversations stor
 - `artifacts/second-brain/app/settings.tsx` — appearance, voice, model, and local-data controls
 - `artifacts/second-brain/lib/offlineLlm.ts` — Android llama.cpp model runtime boundary
 - `artifacts/second-brain/lib/offlineVoice.ts` — Android on-device recognition and verified offline speech boundary
+- `artifacts/second-brain/lib/privacyCapabilities.ts` — named capability model, encrypted agent-state data shape, retention, and audit helpers
 - `artifacts/second-brain/modules/offline-tts` — local Android module that rejects network-backed TTS voices
 - `artifacts/second-brain/constants/colors.ts` — mobile color tokens
 - `artifacts/second-brain/assets/images/icon.png` — app icon
@@ -40,6 +41,8 @@ A local-first Android personal assistant for private, natural conversations stor
 - Real model inference runs through llama.cpp in an installed native Android build after the user imports a compatible GGUF file.
 - Voice input requires Android 13+ on-device recognition and a verified installed offline language pack; Android 12 and older are blocked to prevent network fallback.
 - Spoken replies use only Android voices marked as not requiring a network connection; speaking stays unavailable until such a voice is installed.
+- Privileged actions use an encrypted local capability record. Local capabilities remain account-free; network capabilities are separate and ungranted by default.
+- Settings exposes a global privacy pause, independent capability pause/revoke controls, redacted action history, and capability-state clearing. Secure storage is described as at-rest protection only; it does not claim to encrypt prompts or transient process memory.
 - The product uses Rubik throughout the mobile interface.
 
 ## Product
@@ -50,6 +53,7 @@ A local-first Android personal assistant for private, natural conversations stor
 - Users can dictate editable text offline and listen to or immediately stop locally spoken replies.
 - Users can install/manage Android offline recognition data and choose automatic spoken replies and speaking pace.
 - Users can review the saved message count and clear local history through a cross-platform confirmation flow.
+- Users can inspect and control local privacy capabilities without an account or remote inference.
 - Loading, storage-error, typing, disabled-send, empty, and persisted-chat states are handled.
 
 ## User preferences

@@ -15,6 +15,7 @@
     "test:component-failures": "tsx scripts/test-component-failures.js",
     "test:voice-boundaries": "tsx scripts/test-voice-boundaries.js",
     "test:android-reminders": "tsx scripts/test-android-reminders.js",
+    "test:privacy": "tsx scripts/test-privacy-capabilities.js",
     "validate:android-apk": "node scripts/validate-android-apk.js",
     "serve": "node server/serve.js",
     "test:build-failure": "node scripts/test-static-build.js --failure-check",

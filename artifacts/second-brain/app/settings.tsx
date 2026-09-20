@@ -23,6 +23,15 @@ import { useColors } from "@/hooks/useColors";
 import { formatBytes, RECOMMENDED_MODEL } from "@/lib/offlineLlm";
 import type { LocalStorageUsage, StorageMetric } from "@/lib/localStorageUsage";
 import { voiceMatchesLanguage } from "@/lib/offlineVoice";
+import {
+  CAPABILITY_DEFINITIONS,
+  createDefaultPrivacyState,
+  getCapabilityStatusLabel,
+  type CapabilityApproval,
+  type CapabilityDefinition,
+  type CapabilityId,
+  type PrivacyState,
+} from "@/lib/privacyCapabilities";
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: "system", label: "System" },
@@ -103,6 +112,128 @@ function formatStorageBytes(bytes: number) {
 function storageMetricText(metric: StorageMetric | null | undefined) {
   if (!metric || metric.bytes === null) return "Unavailable";
   return `${formatStorageBytes(metric.bytes)}${metric.status === "estimated" ? " estimated" : ""}`;
+}
+
+function PrivacyCapabilityRow({
+  definition,
+  grant,
+  globalPause,
+  onApprovalChange,
+  colors,
+}: {
+  definition: CapabilityDefinition;
+  grant: PrivacyState["capabilities"][CapabilityId];
+  globalPause: boolean;
+  onApprovalChange: (
+    capabilityId: CapabilityId,
+    approval: CapabilityApproval,
+  ) => void;
+  colors: ReturnType<typeof useColors>;
+}) {
+  const isNetwork = definition.kind === "network";
+  const canChange = !isNetwork || definition.id === "network.model-download";
+  const nextApproval: CapabilityApproval =
+    grant.approval === "approved" ? "paused" : "approved";
+
+  return (
+    <View style={[styles.privacyCapabilityRow, { borderBottomColor: colors.border }]}>
+      <View style={[styles.rowIcon, { backgroundColor: colors.secondary }]}>
+        <Feather
+          name={isNetwork ? "globe" : definition.kind === "system" ? "shield" : "lock"}
+          size={16}
+          color={isNetwork ? colors.mutedForeground : colors.primary}
+        />
+      </View>
+      <View style={styles.rowCopy}>
+        <View style={styles.privacyTitleLine}>
+          <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+            {definition.name}
+          </Text>
+          <Text
+            style={[
+              styles.privacyStatus,
+              {
+                color:
+                  grant.approval === "approved" && !globalPause
+                    ? colors.primary
+                    : colors.mutedForeground,
+              },
+            ]}
+          >
+            {globalPause && !isNetwork
+              ? "Paused globally"
+              : getCapabilityStatusLabel(grant)}
+          </Text>
+        </View>
+        <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+          {definition.purpose}
+        </Text>
+        <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+          Scope: {definition.scope}
+        </Text>
+        <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+          {isNetwork
+            ? definition.id === "network.model-download"
+              ? "Network: required · off by default · only the named model file is downloaded"
+              : "Network: required · off by default · nothing leaves this device"
+            : `Network: ${definition.networkUse === "never" ? "never" : "only with a future explicit approval"}`}
+        </Text>
+        <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+          Approval duration:{" "}
+          {grant.lifetime === "until-revoked"
+            ? "until revoked"
+            : grant.lifetime === "24-hours"
+              ? "24 hours"
+              : grant.lifetime === "7-days"
+                ? "7 days"
+                : "current session"}
+          {definition.requiresDestructiveConfirmation
+            ? " · destructive actions require confirmation"
+            : ""}
+        </Text>
+        {canChange && (
+          <View style={styles.privacyActions}>
+            <Pressable
+              testID={`privacy-${definition.id}-toggle`}
+              accessibilityRole="button"
+              accessibilityLabel={`${nextApproval === "approved" ? "Enable" : "Pause"} ${definition.name}`}
+              onPress={() => onApprovalChange(definition.id, nextApproval)}
+              style={({ pressed }) => [
+                styles.privacyActionButton,
+                { backgroundColor: colors.secondary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.privacyActionText, { color: colors.foreground }]}>
+                {nextApproval === "approved"
+                  ? grant.approval === "revoked" || grant.approval === "expired"
+                    ? "Enable"
+                    : "Resume"
+                  : "Pause"}
+              </Text>
+            </Pressable>
+            {grant.approval !== "revoked" && (
+              <Pressable
+                testID={`privacy-${definition.id}-revoke`}
+                accessibilityRole="button"
+                accessibilityLabel={`Revoke ${definition.name}`}
+                onPress={() => onApprovalChange(definition.id, "revoked")}
+                style={({ pressed }) => [
+                  styles.privacyActionButton,
+                  { borderColor: colors.border, borderWidth: 1 },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.privacyActionText, { color: colors.destructive }]}>
+                  Revoke
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+      </View>
+    </View>
+  );
 }
 
 function StorageUsageRow({
@@ -335,6 +466,12 @@ function StorageUsageCard({
                 colors={colors}
               />
               <StorageUsageRow
+                label="Privacy & agent state"
+                detail="Encrypted grants, traces, and audit events"
+                metric={usage.privacyState}
+                colors={colors}
+              />
+              <StorageUsageRow
                 label="Settings & profile"
                 detail="Local preferences and profile"
                 metric={usage.settingsAndProfile}
@@ -404,6 +541,11 @@ export default function SettingsScreen() {
     profile,
     memories,
     storageProtection,
+    privacyReady,
+    privacyState,
+    setCapabilityApproval,
+    setGlobalPrivacyPause,
+    clearPrivacyState,
     storageError,
     clearConversation,
     localModel,
@@ -456,6 +598,9 @@ export default function SettingsScreen() {
   const [modelReclaimMessage, setModelReclaimMessage] = useState<string | null>(
     null,
   );
+  const [showPrivacyClearConfirm, setShowPrivacyClearConfirm] = useState(false);
+  const [isClearingPrivacy, setIsClearingPrivacy] = useState(false);
+  const safePrivacyState = privacyState ?? createDefaultPrivacyState(0);
 
   const androidApiLevel =
     Platform.OS === "android" && typeof Platform.Version === "number"
@@ -545,6 +690,18 @@ export default function SettingsScreen() {
     }
   }
 
+  async function handleClearPrivacyState() {
+    setIsClearingPrivacy(true);
+    try {
+      await clearPrivacyState?.();
+      setShowPrivacyClearConfirm(false);
+    } catch {
+      // Keep the confirmation open so a failed clear is not reported as success.
+    } finally {
+      setIsClearingPrivacy(false);
+    }
+  }
+
   if (!settingsReady) {
     return (
       <View
@@ -597,6 +754,116 @@ export default function SettingsScreen() {
             </Text>
           </View>
         )}
+        <SectionLabel>Privacy & capabilities</SectionLabel>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.privacyPauseRow}>
+            <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+              <Feather
+                name={safePrivacyState.globalPause ? "pause-circle" : "shield"}
+                size={17}
+                color={safePrivacyState.globalPause ? colors.destructive : colors.primary}
+              />
+            </View>
+            <View style={styles.rowCopy}>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                Pause privileged actions
+              </Text>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                Stop local model, voice, reminder, and future automation actions until resumed.
+              </Text>
+            </View>
+            <Switch
+              testID="privacy-global-pause"
+              value={safePrivacyState.globalPause}
+              onValueChange={(value) => void setGlobalPrivacyPause?.(value)}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                safePrivacyState.globalPause
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
+          </View>
+          <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
+            {privacyReady
+              ? Platform.OS === "android"
+                ? "Capability grants, connector references, schedules, tool traces, and audit events are kept in the Android encrypted local agent record."
+                : "Capability grants, connector references, schedules, tool traces, and audit events are kept in local preview storage here; this preview does not have Android Keystore protection."
+              : "Opening the encrypted local capability record..."}
+          </Text>
+          <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
+            Android secure storage protects saved records at rest. It does not encrypt model prompts or transient process memory while Demi is running.
+          </Text>
+          {CAPABILITY_DEFINITIONS.map((definition, index) => (
+            <PrivacyCapabilityRow
+              key={definition.id}
+              definition={definition}
+              grant={safePrivacyState.capabilities[definition.id]}
+              globalPause={safePrivacyState.globalPause}
+              onApprovalChange={(capabilityId, approval) =>
+                void setCapabilityApproval?.(capabilityId, approval)
+              }
+              colors={colors}
+            />
+          ))}
+          <View style={styles.privacyHistoryHeader}>
+            <View style={styles.rowCopy}>
+              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                Action history
+              </Text>
+              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                Recent capability decisions are recorded without storing raw prompts or secrets.
+              </Text>
+            </View>
+          </View>
+          {safePrivacyState.auditEvents.length === 0 ? (
+            <Text style={[styles.privacyEmpty, { color: colors.mutedForeground }]}>
+              No privileged actions recorded yet.
+            </Text>
+          ) : (
+            safePrivacyState.auditEvents
+              .slice(-5)
+              .reverse()
+              .map((event) => (
+                <View key={event.id} style={styles.privacyHistoryRow}>
+                  <View style={styles.rowCopy}>
+                    <Text style={[styles.privacyHistoryAction, { color: colors.cardForeground }]}>
+                      {event.action}
+                    </Text>
+                    <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+                      {event.summary}
+                    </Text>
+                  </View>
+                  <Text style={[styles.privacyStatus, { color: colors.mutedForeground }]}>
+                    {event.status}
+                  </Text>
+                </View>
+              ))
+          )}
+          <Pressable
+            testID="clear-privacy-state"
+            accessibilityRole="button"
+            onPress={() => setShowPrivacyClearConfirm(true)}
+            style={({ pressed }) => [
+              styles.privacyClearButton,
+              { borderColor: colors.destructive },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Feather name="trash-2" size={14} color={colors.destructive} />
+            <Text style={[styles.privacyActionText, { color: colors.destructive }]}>
+              Clear capability data
+            </Text>
+          </Pressable>
+          <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
+            Clearing removes saved grants, connector references, schedules, traces, and action history. Local-only defaults remain available; network capabilities stay off.
+          </Text>
+        </View>
         <SectionLabel>Personal context</SectionLabel>
         <View
           style={[
@@ -1815,6 +2082,66 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={showPrivacyClearConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isClearingPrivacy) setShowPrivacyClearConfirm(false);
+        }}
+      >
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              backgroundColor: colors.isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.5)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>
+              Clear capability data?
+            </Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              This removes capability grants, connector references, schedules, tool traces, and action history from Demi&apos;s encrypted local record. It does not remove conversations, memories, or models. Network capabilities remain off.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="cancel-clear-privacy-state"
+                disabled={isClearingPrivacy}
+                onPress={() => setShowPrivacyClearConfirm(false)}
+                style={styles.modalButton}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-clear-privacy-state"
+                disabled={isClearingPrivacy}
+                onPress={() => void handleClearPrivacyState()}
+                style={styles.modalButton}
+              >
+                {isClearingPrivacy ? (
+                  <ActivityIndicator size="small" color={colors.destructive} />
+                ) : (
+                  <Text style={[styles.modalButtonText, { color: colors.destructive }]}>
+                    Clear
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <PersonalProfileEditor
         visible={showProfileEditor}
         mode="settings"
@@ -1938,6 +2265,69 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     marginBottom: 2,
+  },
+  privacyPauseRow: { flexDirection: "row", alignItems: "center" },
+  privacyDisclosure: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 12,
+  },
+  privacyCapabilityRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  privacyTitleLine: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 2,
+  },
+  privacyStatus: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  privacyScope: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+  privacyActions: { flexDirection: "row", gap: 8, marginTop: 10 },
+  privacyActionButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 9,
+  },
+  privacyActionText: { fontFamily: "Inter_500Medium", fontSize: 11 },
+  privacyHistoryHeader: { paddingTop: 16 },
+  privacyHistoryRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "transparent",
+  },
+  privacyHistoryAction: { fontFamily: "Inter_500Medium", fontSize: 12 },
+  privacyEmpty: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    paddingVertical: 12,
+  },
+  privacyClearButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    marginTop: 12,
   },
   readinessItem: { paddingVertical: 8 },
   readinessHeader: {

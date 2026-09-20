@@ -68,6 +68,20 @@ import {
   measureLocalStorageUsage,
   type LocalStorageUsage,
 } from "@/lib/localStorageUsage";
+import {
+  appendPrivacyAuditEvent,
+  createDefaultPrivacyState,
+  isCapabilityActive,
+  parsePrivacyState,
+  prunePrivacyState,
+  redactPrivacyText,
+  updateCapabilityGrant,
+  type AgentTrace,
+  type CapabilityApproval,
+  type CapabilityId,
+  type PrivacyAuditEvent,
+  type PrivacyState,
+} from "@/lib/privacyCapabilities";
 
 export type Appearance = "system" | "light" | "dark";
 
@@ -105,6 +119,11 @@ export type ModelCleanupResult = {
   failedFiles: number;
 };
 
+export type PrivacyActionInput = Omit<
+  PrivacyAuditEvent,
+  "id" | "createdAt" | "retentionUntil"
+>;
+
 type AppContextValue = {
   settings: AppSettings;
   settingsReady: boolean;
@@ -120,6 +139,18 @@ type AppContextValue = {
   isThinking: boolean;
   storageError: string | null;
   storageProtection: SecureStorageProtection;
+  privacyReady: boolean;
+  privacyState: PrivacyState;
+  setCapabilityApproval: (
+    capabilityId: CapabilityId,
+    approval: CapabilityApproval,
+  ) => Promise<void>;
+  setGlobalPrivacyPause: (paused: boolean) => Promise<void>;
+  clearPrivacyState: () => Promise<void>;
+  recordPrivacyAction: (event: PrivacyActionInput) => Promise<void>;
+  recordAgentTrace: (
+    trace: Omit<AgentTrace, "id" | "createdAt" | "retentionUntil">,
+  ) => Promise<void>;
   memories: ApprovedMemory[];
   pendingMemoryCandidate: MemoryCandidate | null;
   saveMemoryCandidate: (content?: string) => Promise<void>;
@@ -188,6 +219,7 @@ const PROFILE_KEY = "@second-brain/personal-profile-v1";
 const SECURE_PROFILE_KEY = "profile";
 const SECURE_CONVERSATION_KEY = "conversation";
 const SECURE_MEMORIES_KEY = "approved-memories";
+const SECURE_PRIVACY_STATE_KEY = "privacy-agent-state";
 
 const DEFAULT_SETTINGS: AppSettings = {
   appearance: "system",
@@ -455,6 +487,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const memoriesRef = useRef<ApprovedMemory[]>([]);
   const memoryMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const storageProtection = getSecureStorageProtection();
+  const [privacyReady, setPrivacyReady] = useState(false);
+  const [privacyState, setPrivacyState] = useState<PrivacyState>(
+    createDefaultPrivacyState(),
+  );
   const [localModel, setLocalModel] = useState<LocalModel | null>(null);
   const [engineStatus, setEngineStatus] = useState<
     "unsupported" | "no-model" | "loading" | "ready" | "error"
@@ -508,9 +544,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const offlineVoiceSetupInFlightRef = useRef(false);
   const downloadRunRef = useRef(0);
   const clearConversationInFlightRef = useRef(false);
+  const privacyStateRef = useRef(privacyState);
+  const privacyMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef(settings);
   const storageMeasurementRunRef = useRef(0);
   settingsRef.current = settings;
+  privacyStateRef.current = privacyState;
 
   function refreshStorageUsage() {
     setStorageUsageRefreshing(true);
@@ -544,6 +583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         conversationResult,
         profileResult,
         memoriesResult,
+        privacyResult,
       ] = await Promise.all([
         readStartupValue(() => AsyncStorage.getItem(SETTINGS_KEY), null),
         readStartupValue(() => AsyncStorage.getItem(MODEL_KEY), null),
@@ -556,6 +596,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           null,
         ),
         readStartupValue(() => readSecureRecord(SECURE_MEMORIES_KEY), null),
+        readStartupValue(
+          () => readSecureRecord(SECURE_PRIVACY_STATE_KEY),
+          null,
+        ),
       ]);
 
       if (!isMounted) return;
@@ -565,12 +609,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let savedModel: LocalModel | null = null;
       let savedProfile = DEFAULT_PROFILE;
       let savedMemories: ReturnType<typeof parseApprovedMemories> = [];
+      let savedPrivacyState = createDefaultPrivacyState();
       try {
         nextSettings = parseSettings(settingsResult.value);
         savedTurns = parseTurns(conversationResult.value);
         savedModel = parseModel(modelResult.value);
         savedProfile = parseProfile(profileResult.value);
         savedMemories = parseApprovedMemories(memoriesResult.value);
+        savedPrivacyState = parsePrivacyState(privacyResult.value);
       } catch {
         setStorageError(
           "Some saved local data could not be read. Chat, memory, and voice controls remain available with safe defaults.",
@@ -581,6 +627,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setProfile(savedProfile);
       setMemories(savedMemories);
       memoriesRef.current = savedMemories;
+      setPrivacyState(savedPrivacyState);
+      privacyStateRef.current = savedPrivacyState;
       setSavedTurnCount(savedTurns.length);
       setTurns(nextSettings.saveConversations ? savedTurns : []);
       let activeModelUri: string | null = null;
@@ -607,6 +655,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         conversationResult.failed ||
         profileResult.failed ||
         memoriesResult.failed
+        || privacyResult.failed
       ) {
         setStorageError(
           "Some local data could not be opened. Chat, memory, and voice controls remain available; affected values are unavailable.",
@@ -614,6 +663,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       setSettingsReady(true);
       setIsConversationReady(true);
+      setPrivacyReady(true);
     })();
 
     return () => {
@@ -634,6 +684,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       conversation: SECURE_CONVERSATION_KEY,
       profile: SECURE_PROFILE_KEY,
       memories: SECURE_MEMORIES_KEY,
+      privacyState: SECURE_PRIVACY_STATE_KEY,
     })
       .then((usage) => {
         if (!isMounted) return;
@@ -1051,6 +1102,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function downloadRecommendedModel() {
+    if (
+      !privacyReady ||
+      !isCapabilityActive(privacyState, "network.model-download")
+    ) {
+      setDownloadError(
+        privacyState.globalPause
+          ? "Privacy pause is active. Resume privileged actions in Settings before downloading a model."
+          : "Model downloads are off by default. Enable Recommended model download in Settings first.",
+      );
+      setDownloadStatus("error");
+      return;
+    }
+    void recordPrivacyAction({
+      capabilityId: "network.model-download",
+      action: "recommended-model-download",
+      status: "allowed",
+      summary:
+        "A named model file download started; no conversation data was sent.",
+    }).catch(() => undefined);
     if (modelLoadInFlightRef.current || downloadStatus === "downloading")
       return;
     if (Platform.OS === "web") {
@@ -1201,6 +1271,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function startVoiceInput() {
+    if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-input")) {
+      setVoiceInputStatus("error");
+      setVoiceError(
+        privacyState.globalPause
+          ? "Privacy pause is active. Resume privileged actions in Settings before using the microphone."
+          : "Offline voice input is paused or revoked in Settings.",
+      );
+      return;
+    }
+    void recordPrivacyAction({
+      capabilityId: "local.voice-input",
+      action: "offline-voice-input",
+      status: "allowed",
+      summary: "On-device microphone capture started; audio content omitted.",
+    }).catch(() => undefined);
     if (!settings.voiceInputEnabled) {
       setVoiceError("Voice input is turned off in Settings.");
       return;
@@ -1516,6 +1601,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function playVoiceSelfTestSample() {
+    if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-output")) {
+      setVoiceError(
+        privacyState.globalPause
+          ? "Privacy pause is active. Resume privileged actions in Settings before playing a voice sample."
+          : "Offline spoken replies are paused or revoked in Settings.",
+      );
+      return;
+    }
     if (voiceSelfTestSpeechStatus === "speaking") return;
     if (Platform.OS !== "android") {
       setVoiceSelfTestResult({
@@ -1618,6 +1711,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function installOfflineVoiceModel() {
+    if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-input")) {
+      setVoiceError(
+        privacyState.globalPause
+          ? "Privacy pause is active. Resume privileged actions in Settings before changing offline voice setup."
+          : "Offline voice input is paused or revoked in Settings.",
+      );
+      return;
+    }
     if (offlineVoiceSetupInFlightRef.current) return;
     const module = recognitionModuleRef.current;
     if (!module || Platform.OS !== "android") {
@@ -1673,6 +1774,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function speakText(text: string) {
     const trimmedText = text.trim();
     if (!trimmedText) return;
+    if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-output")) {
+      setVoiceError(
+        privacyState.globalPause
+          ? "Privacy pause is active. Resume privileged actions in Settings before speaking a reply."
+          : "Offline spoken replies are paused or revoked in Settings.",
+      );
+      return;
+    }
+    void recordPrivacyAction({
+      capabilityId: "local.voice-output",
+      action: "offline-voice-output",
+      status: "allowed",
+      summary: "Offline speech started; reply content omitted.",
+    }).catch(() => undefined);
     setVoiceError(null);
     await stopLocalSpeech();
 
@@ -1726,6 +1841,111 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (voiceInputStatus === "error") {
       setVoiceInputStatus(voiceInputAvailable ? "idle" : "unavailable");
     }
+  }
+
+  async function persistPrivacyState(nextState: PrivacyState) {
+    const normalized = prunePrivacyState(nextState);
+    try {
+      await writeSecureRecord(SECURE_PRIVACY_STATE_KEY, JSON.stringify(normalized));
+      privacyStateRef.current = normalized;
+      setPrivacyState(normalized);
+      setStorageError(null);
+    } catch {
+      setStorageError(
+        "Privacy controls could not be encrypted and saved. The previous privacy state is unchanged.",
+      );
+      throw new Error("Privacy controls could not be saved on this device.");
+    }
+  }
+
+  function mutatePrivacyState(
+    update: (current: PrivacyState) => PrivacyState,
+  ) {
+    const operation = privacyMutationQueueRef.current.then(() =>
+      persistPrivacyState(update(privacyStateRef.current)),
+    );
+    privacyMutationQueueRef.current = operation.catch(() => undefined);
+    return operation;
+  }
+
+  async function setCapabilityApproval(
+    capabilityId: CapabilityId,
+    approval: CapabilityApproval,
+  ) {
+    await mutatePrivacyState((current) => {
+      const updated = updateCapabilityGrant(current, capabilityId, approval);
+      return appendPrivacyAuditEvent(updated, {
+        capabilityId,
+        action: `capability-${approval}`,
+        status: "completed",
+        summary: `${capabilityId} was ${approval} by the user.`,
+      });
+    });
+  }
+
+  async function setGlobalPrivacyPause(paused: boolean) {
+    await mutatePrivacyState((current) =>
+      appendPrivacyAuditEvent(
+        { ...current, globalPause: paused },
+        {
+          capabilityId: null,
+          action: paused ? "global-pause" : "global-resume",
+          status: "completed",
+          summary: paused
+            ? "All privileged actions were paused by the user."
+            : "The global privacy pause was lifted by the user.",
+        },
+      ),
+    );
+  }
+
+  async function clearPrivacyState() {
+    try {
+      await privacyMutationQueueRef.current.catch(() => undefined);
+      await removeSecureRecord(SECURE_PRIVACY_STATE_KEY);
+      const reset = createDefaultPrivacyState();
+      privacyStateRef.current = reset;
+      setPrivacyState(reset);
+      setStorageError(null);
+    } catch {
+      setStorageError(
+        "Privacy data could not be cleared. Nothing was removed from the previous state.",
+      );
+      throw new Error("Privacy data could not be cleared.");
+    }
+  }
+
+  async function recordPrivacyAction(event: PrivacyActionInput) {
+    await mutatePrivacyState((current) =>
+      appendPrivacyAuditEvent(current, {
+        ...event,
+        summary: redactPrivacyText(event.summary),
+      }),
+    );
+  }
+
+  async function recordAgentTrace(
+    trace: Omit<AgentTrace, "id" | "createdAt" | "retentionUntil">,
+  ) {
+    const now = Date.now();
+    await mutatePrivacyState((current) =>
+      prunePrivacyState(
+        {
+          ...current,
+          traces: [
+            ...current.traces,
+            {
+              ...trace,
+              id: `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+              summary: redactPrivacyText(trace.summary),
+              createdAt: now,
+              retentionUntil: now + 30 * 24 * 60 * 60 * 1000,
+            },
+          ],
+        },
+        now,
+      ),
+    );
   }
 
   async function updateSettings(patch: Partial<AppSettings>) {
@@ -1800,11 +2020,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       !trimmedContent ||
       isThinking ||
       !isConversationReady ||
+      !privacyReady ||
+      !isCapabilityActive(privacyState, "local.inference") ||
       engineStatus !== "ready" ||
       !llamaContextRef.current
     ) {
+      if (
+        trimmedContent &&
+        privacyReady &&
+        !isCapabilityActive(privacyState, "local.inference")
+      ) {
+        void recordPrivacyAction({
+          capabilityId: "local.inference",
+          action: "local-inference",
+          status: "denied",
+          summary: "A local reply was blocked by privacy controls; prompt omitted.",
+        }).catch(() => undefined);
+        setStorageError(
+          privacyState.globalPause
+            ? "Privacy pause is active. Resume privileged actions in Settings before generating a reply."
+            : "Local model inference is paused or revoked in Settings.",
+        );
+      }
       return;
     }
+
+    void recordPrivacyAction({
+      capabilityId: "local.inference",
+      action: "local-inference",
+      status: "allowed",
+      summary: "A local reply started; prompt content omitted.",
+    }).catch(() => undefined);
+    void recordAgentTrace({
+      capabilityId: "local.inference",
+      phase: "input",
+      status: "started",
+      summary: "Local model input accepted; prompt content omitted.",
+    }).catch(() => undefined);
 
     if (settings.hapticsEnabled) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1879,6 +2131,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const completedResponse =
         completedTurns.find((turn) => turn.id === assistantTurn.id)?.content ??
         "";
+      void recordAgentTrace({
+        capabilityId: "local.inference",
+        phase: "output",
+        status: "completed",
+        summary: "Local model output completed; response content omitted.",
+      }).catch(() => undefined);
       if (settings.spokenRepliesEnabled && completedResponse) {
         await speakText(completedResponse);
       }
@@ -1916,6 +2174,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       setTurns(failedTurns);
       await persistTurns(failedTurns);
+      void recordAgentTrace({
+        capabilityId: "local.inference",
+        phase: "output",
+        status: "failed",
+        summary: "Local model output failed; response content omitted.",
+      }).catch(() => undefined);
     } finally {
       setIsThinking(false);
     }
@@ -2085,6 +2349,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isThinking,
       storageError,
       storageProtection,
+      privacyReady,
+      privacyState,
+      setCapabilityApproval,
+      setGlobalPrivacyPause,
+      clearPrivacyState,
+      recordPrivacyAction,
+      recordAgentTrace,
       memories,
       pendingMemoryCandidate,
       saveMemoryCandidate,
@@ -2154,6 +2425,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isThinking,
       storageError,
       storageProtection,
+      privacyReady,
+      privacyState,
       memories,
       pendingMemoryCandidate,
       savedTurnCount,
