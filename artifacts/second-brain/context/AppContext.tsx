@@ -81,7 +81,16 @@ import {
   type CapabilityId,
   type PrivacyAuditEvent,
   type PrivacyState,
+  type ScreenPrivacyPolicy,
 } from "@/lib/privacyCapabilities";
+import {
+  getAccessibilitySnapshot,
+  getScreenAccessStatus,
+  openAccessibilitySettings,
+  requestScreenCapture,
+  stopScreenSession as stopNativeScreenSession,
+  type ScreenAccessStatus,
+} from "@/lib/screenAccess";
 
 export type Appearance = "system" | "light" | "dark";
 
@@ -119,6 +128,19 @@ export type ModelCleanupResult = {
   failedFiles: number;
 };
 
+export type ScreenSession = {
+  status: "idle" | "starting" | "active" | "stopped" | "error";
+  accessibilityText: boolean;
+  screenshot: boolean;
+  selectedResource: {
+    name: string;
+    mimeType: string | null;
+    size: number | null;
+  } | null;
+  protectedContent: boolean;
+  message: string | null;
+};
+
 export type PrivacyActionInput = Omit<
   PrivacyAuditEvent,
   "id" | "createdAt" | "retentionUntil"
@@ -152,6 +174,17 @@ type AppContextValue = {
   recordAgentTrace: (
     trace: Omit<AgentTrace, "id" | "createdAt" | "retentionUntil">,
   ) => Promise<void>;
+  screenAccessStatus: ScreenAccessStatus;
+  screenSession: ScreenSession;
+  refreshScreenAccessStatus: () => Promise<void>;
+  startScreenSession: (options: {
+    accessibilityText: boolean;
+    screenshot: boolean;
+    selectedResource?: ScreenSession["selectedResource"];
+  }) => Promise<boolean>;
+  stopScreenSession: (reason?: string) => Promise<void>;
+  openAccessibilitySettings: () => Promise<void>;
+  updateScreenPolicy: (patch: Partial<ScreenPrivacyPolicy>) => Promise<void>;
   memories: ApprovedMemory[];
   pendingMemoryCandidate: MemoryCandidate | null;
   saveMemoryCandidate: (content?: string) => Promise<void>;
@@ -497,6 +530,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     createDefaultPrivacyState(),
   );
   const [privacyResetVersion, setPrivacyResetVersion] = useState(0);
+  const [screenAccessStatus, setScreenAccessStatus] =
+    useState<ScreenAccessStatus>({
+      platform: "unsupported",
+      mediaProjection: "unavailable",
+      accessibility: "unavailable",
+      activeSource: "none",
+      protectedContent: false,
+      protectedContentState: "unknown",
+      lastStopReason: null,
+    });
+  const [screenSession, setScreenSession] = useState<ScreenSession>({
+    status: "idle",
+    accessibilityText: false,
+    screenshot: false,
+    selectedResource: null,
+    protectedContent: false,
+    message: null,
+  });
   const [localModel, setLocalModel] = useState<LocalModel | null>(null);
   const [engineStatus, setEngineStatus] = useState<
     "unsupported" | "no-model" | "loading" | "ready" | "error"
@@ -551,11 +602,172 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const downloadRunRef = useRef(0);
   const clearConversationInFlightRef = useRef(false);
   const privacyStateRef = useRef(privacyState);
+  const screenSessionRef = useRef(screenSession);
   const privacyMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef(settings);
   const storageMeasurementRunRef = useRef(0);
   settingsRef.current = settings;
   privacyStateRef.current = privacyState;
+  screenSessionRef.current = screenSession;
+
+  async function refreshScreenAccessStatus() {
+    const status = await getScreenAccessStatus();
+    setScreenAccessStatus(status);
+  }
+
+  async function startScreenSession(options: {
+    accessibilityText: boolean;
+    screenshot: boolean;
+    selectedResource?: ScreenSession["selectedResource"];
+  }) {
+    if (!isCapabilityActive(privacyStateRef.current, "device.screen-access")) {
+      setScreenSession((current) => ({
+        ...current,
+        status: "error",
+        message: "Enable Screen access in Settings before starting a session.",
+      }));
+      return false;
+    }
+    if (!options.accessibilityText && !options.screenshot) {
+      setScreenSession((current) => ({
+        ...current,
+        status: "error",
+        message: "Choose accessibility text, a screenshot, or a selected resource.",
+      }));
+      return false;
+    }
+
+    setScreenSession({
+      status: "starting",
+      accessibilityText: false,
+      screenshot: false,
+      selectedResource: options.selectedResource ?? null,
+      protectedContent: false,
+      message: null,
+    });
+
+    try {
+      let status = await getScreenAccessStatus();
+      if (options.accessibilityText && status.accessibility !== "enabled") {
+        setScreenSession({
+          status: "error",
+          accessibilityText: false,
+          screenshot: false,
+          selectedResource: options.selectedResource ?? null,
+          protectedContent: false,
+          message: "Accessibility text is not enabled. Enable Demi in Android Settings first.",
+        });
+        return false;
+      }
+      if (options.screenshot) {
+        const capture = await requestScreenCapture();
+        if (capture.status !== "active") {
+          setScreenSession({
+            status: "error",
+            accessibilityText: false,
+            screenshot: false,
+            selectedResource: options.selectedResource ?? null,
+            protectedContent: false,
+            message: capture.reason ?? "Android did not approve screen capture.",
+          });
+          return false;
+        }
+        status = await getScreenAccessStatus();
+      }
+      const accessibilitySnapshot = options.accessibilityText
+        ? await getAccessibilitySnapshot(privacyStateRef.current.screenPolicy.excludedApps)
+        : null;
+      const nextSession: ScreenSession = {
+        status: "active",
+        accessibilityText:
+          options.accessibilityText &&
+            Boolean(accessibilitySnapshot?.available) &&
+            !accessibilitySnapshot?.excluded,
+        screenshot: options.screenshot && status.mediaProjection === "available",
+        selectedResource: options.selectedResource ?? null,
+        protectedContent: Boolean(
+          status.protectedContent || accessibilitySnapshot?.protectedContent,
+        ),
+        message: "Transient screen data stays on this device and is discarded when the session ends.",
+      };
+      setScreenSession(nextSession);
+      await recordPrivacyAction({
+        capabilityId: "device.screen-access",
+        action: "screen-session-started",
+        status: "allowed",
+        summary: `Screen session started with ${[
+          nextSession.accessibilityText ? "accessibility text" : "",
+          nextSession.screenshot ? "screenshot" : "",
+          nextSession.selectedResource ? "selected resource" : "",
+        ].filter(Boolean).join(", ")}.`,
+      });
+      return true;
+    } catch (error) {
+      setScreenSession((current) => ({
+        ...current,
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "The screen session could not start.",
+      }));
+      return false;
+    }
+  }
+
+  async function stopScreenSession(reason = "user-stopped") {
+    await stopNativeScreenSession(reason);
+    const wasActive =
+      screenSessionRef.current.status === "active" ||
+      screenSessionRef.current.status === "starting";
+    setScreenSession((current) => ({
+      ...current,
+      status: "stopped",
+      accessibilityText: false,
+      screenshot: false,
+      protectedContent: false,
+      message: reason === "app-paused"
+        ? "Session stopped because Demi was paused."
+        : "Session stopped. Transient screen data was discarded.",
+    }));
+    await refreshScreenAccessStatus().catch(() => undefined);
+    if (wasActive) {
+      await recordPrivacyAction({
+        capabilityId: "device.screen-access",
+        action: "screen-session-stopped",
+        status: reason === "user-stopped" ? "completed" : "interrupted",
+        summary: `Screen session stopped: ${reason}.`,
+      });
+    }
+  }
+
+  async function updateScreenPolicy(patch: Partial<ScreenPrivacyPolicy>) {
+    await mutatePrivacyState((current) => ({
+      ...current,
+      screenPolicy: {
+        ...current.screenPolicy,
+        ...patch,
+        excludedApps: patch.excludedApps ?? current.screenPolicy.excludedApps,
+      },
+    }));
+  }
+
+  useEffect(() => {
+    void refreshScreenAccessStatus().catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void refreshScreenAccessStatus().catch(() => undefined);
+        return;
+      }
+      if (
+        screenSessionRef.current.status === "active" ||
+        screenSessionRef.current.status === "starting"
+      ) {
+        void stopScreenSession("app-paused");
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   function refreshStorageUsage() {
     setStorageUsageRefreshing(true);
@@ -1887,6 +2099,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         summary: `${capabilityId} was ${approval} by the user.`,
       });
     });
+    if (
+      capabilityId === "device.screen-access" &&
+      approval !== "approved" &&
+      (screenSessionRef.current.status === "active" ||
+        screenSessionRef.current.status === "starting")
+    ) {
+      await stopScreenSession("capability-revoked");
+    }
   }
 
   async function setGlobalPrivacyPause(paused: boolean) {
@@ -1903,16 +2123,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
       ),
     );
+    if (
+      paused &&
+      (screenSessionRef.current.status === "active" ||
+        screenSessionRef.current.status === "starting")
+    ) {
+      await stopScreenSession("global-privacy-pause");
+    }
   }
 
   async function clearPrivacyState() {
     try {
       await privacyMutationQueueRef.current.catch(() => undefined);
+      await stopNativeScreenSession("privacy-cleared");
       await removeSecureRecord(SECURE_PRIVACY_STATE_KEY);
       await removeSecureRecord("scheduled-jobs");
       const reset = createDefaultPrivacyState();
       privacyStateRef.current = reset;
       setPrivacyState(reset);
+      setScreenSession((current) => ({
+        ...current,
+        status: "stopped",
+        accessibilityText: false,
+        screenshot: false,
+        protectedContent: false,
+        message: "Screen session stopped while privacy data was cleared.",
+      }));
       setPrivacyResetVersion((value) => value + 1);
       setStorageError(null);
     } catch {
@@ -2391,6 +2627,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       clearPrivacyState,
       recordPrivacyAction,
       recordAgentTrace,
+      screenAccessStatus,
+      screenSession,
+      refreshScreenAccessStatus,
+      startScreenSession,
+      stopScreenSession,
+      openAccessibilitySettings,
+      updateScreenPolicy,
       memories,
       pendingMemoryCandidate,
       saveMemoryCandidate,

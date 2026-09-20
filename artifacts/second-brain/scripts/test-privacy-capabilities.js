@@ -25,6 +25,8 @@ async function main() {
     initial.capabilities["network.model-download"].approval,
     "not-granted",
   );
+  assert.equal(initial.screenPolicy.retention, "discard-immediately");
+  assert.deepEqual(initial.screenPolicy.excludedApps, []);
 
   const paused = privacy.updateCapabilityGrant(
     initial,
@@ -108,6 +110,21 @@ async function main() {
     privacy.isCapabilityActive(parsed, "network.remote-inference", now),
     false,
   );
+  const screenPolicyParsed = privacy.parsePrivacyState(
+    JSON.stringify({
+      ...initial,
+      screenPolicy: {
+        retention: "save-only-on-request",
+        excludedApps: ["com.example.bank", "  private app  ", "", 42],
+      },
+    }),
+    now,
+  );
+  assert.equal(screenPolicyParsed.screenPolicy.retention, "save-only-on-request");
+  assert.deepEqual(screenPolicyParsed.screenPolicy.excludedApps, [
+    "com.example.bank",
+    "private app",
+  ]);
 
   console.log("Privacy capability checks passed.");
 }

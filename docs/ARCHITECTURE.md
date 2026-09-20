@@ -66,6 +66,26 @@ ungranted until an explicit future approval flow exists.
 The recommended model download is also represented separately as a network
 capability; users must enable it before a model file is fetched.
 
+## Permissioned screen and device access
+
+`modules/screen-access` is an Android-only Expo module. It has three narrow
+boundaries rather than a generic device-control API:
+
+1. MediaProjection requests Android's consent dialog and feeds a tiny native
+   `ImageReader` only to confirm capture availability. It does not expose a
+   screenshot byte array to JavaScript or write screen pixels to logs.
+2. The declared accessibility service is independently enabled by the user in
+   Android Settings. It reports bounded node availability for the active
+   window, never stores node text, and cannot be enabled by Demi.
+3. The document picker grants one user-selected resource. App-scoped storage,
+   contacts/calendar providers, and ordinary runtime permissions remain
+   separate capabilities and do not imply screen access.
+
+The React context owns an ephemeral session and a persisted screen policy
+(retention and excluded-app rules). Sessions stop on app pause and expose a
+kill switch. Actions that leave the session or open Android settings are
+previewed and confirmed; there is no generic model-facing tap/type primitive.
+
 `AppContext` persists the capability grants, connector references, schedule
 metadata, redacted agent traces, and audit events through
 `secureLocalStorage.ts`. Writes are verified before state changes become

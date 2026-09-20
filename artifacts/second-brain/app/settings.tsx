@@ -820,6 +820,27 @@ export default function SettingsScreen() {
             />
           ))}
           <Pressable
+            testID="open-screen-access"
+            accessibilityRole="button"
+            onPress={() => router.push("/screen-access" as never)}
+            style={({ pressed }) => [
+              styles.privacyToolLink,
+              { borderColor: colors.border },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Feather name="eye" size={15} color={colors.primary} />
+            <View style={styles.rowCopy}>
+              <Text style={[styles.privacyActionText, { color: colors.cardForeground }]}>
+                Open permissioned screen access
+              </Text>
+              <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
+                Start a visible Android session with screenshot, accessibility, or one selected resource.
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+          </Pressable>
+          <Pressable
             testID="open-local-documents"
             accessibilityRole="button"
             onPress={() => router.push({ pathname: "/documents" } as never)}

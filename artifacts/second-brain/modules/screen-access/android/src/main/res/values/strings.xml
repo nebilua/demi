@@ -1,0 +1,4 @@
+<resources>
+  <string name="accessibility_service_label">Demi screen understanding</string>
+  <string name="accessibility_service_description">Reads visible accessibility text only during a user-started Demi session. It does not record or transmit screen content.</string>
+</resources>

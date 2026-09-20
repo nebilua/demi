@@ -67,6 +67,31 @@ describe the exact data that would leave the device before a future feature can
 request approval. Demi does not grant unrestricted device, screen, or connector
 access.
 
+### Permissioned screen access
+
+Screen understanding is a separate, session-only capability. It is not
+provided by ordinary Android runtime permissions and is never enabled silently.
+The session screen shows which of these sources are active:
+
+- **Accessibility text:** only available after the user separately enables
+  Demi's declared accessibility service in Android Settings. The service is
+  scoped to visible node availability and does not log or retain node text.
+- **Screenshot pixels:** requested through Android MediaProjection's
+  user-facing consent dialog. The native bridge downsamples into a private
+  on-device reader, does not return raw pixels to JavaScript, and releases the
+  projection when the session ends, the app is paused, or the kill switch is
+  pressed.
+- **Selected device resource:** granted by Android's document picker one file at
+  a time. Demi does not scan shared storage or other apps' private storage.
+
+Protected windows, password fields, banking content, secure/DRM-protected
+content, and content excluded by the user may be withheld by Android or
+ignored by the session policy. Demi does not bypass those protections. Screen
+processing is local by default, transient data is discarded at session end,
+and no connector or remote model receives screen data without a separate
+future disclosure and confirmation. Opening Android accessibility settings is
+shown as a reversible action preview and requires confirmation.
+
 Opt-in web research is a separate capability. It is off by default and can
 only fetch one public HTTPS URL shown in a per-request consent dialog. Demi
 does not crawl links or silently open a browser. The fetched page is labeled

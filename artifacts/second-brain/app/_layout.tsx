@@ -38,6 +38,10 @@ function RootLayoutNav() {
         options={{ headerShown: false, animation: 'slide_from_right' }}
       />
       <Stack.Screen
+        name="screen-access"
+        options={{ headerShown: false, animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
         name="calendar/index"
         options={{ headerShown: false, animation: 'slide_from_right' }}
       />

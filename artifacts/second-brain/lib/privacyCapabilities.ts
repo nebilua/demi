@@ -260,10 +260,18 @@ export type PrivacyState = {
   version: 1;
   globalPause: boolean;
   capabilities: Record<CapabilityId, CapabilityGrant>;
+  screenPolicy: ScreenPrivacyPolicy;
   connectorReferences: ConnectorReference[];
   schedules: ScheduledJobState[];
   traces: AgentTrace[];
   auditEvents: PrivacyAuditEvent[];
+};
+
+export type ScreenRetention = "discard-immediately" | "save-only-on-request";
+
+export type ScreenPrivacyPolicy = {
+  retention: ScreenRetention;
+  excludedApps: string[];
 };
 
 export const PRIVACY_STATE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -296,6 +304,10 @@ export function createDefaultPrivacyState(now = Date.now()): PrivacyState {
         defaultGrant(definition, now),
       ]),
     ) as Record<CapabilityId, CapabilityGrant>,
+    screenPolicy: {
+      retention: "discard-immediately",
+      excludedApps: [],
+    },
     connectorReferences: [],
     schedules: [],
     traces: [],
@@ -351,6 +363,25 @@ function cleanText(value: unknown, maximum = 180) {
   return typeof value === "string"
     ? value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, maximum)
     : "";
+}
+
+function normalizeScreenPolicy(value: unknown): ScreenPrivacyPolicy {
+  const input =
+    value && typeof value === "object"
+      ? (value as Partial<ScreenPrivacyPolicy>)
+      : {};
+  const retention: ScreenRetention =
+    input.retention === "save-only-on-request"
+      ? "save-only-on-request"
+      : "discard-immediately";
+  const excludedApps = Array.isArray(input.excludedApps)
+    ? input.excludedApps
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => cleanText(item, 80))
+        .filter(Boolean)
+        .slice(0, 20)
+    : [];
+  return { retention, excludedApps };
 }
 
 export function redactPrivacyText(value: string, maximum = 180) {
@@ -415,7 +446,14 @@ export function prunePrivacyState(state: PrivacyState, now = Date.now()): Privac
       };
     }
   }
-  return { ...state, capabilities, auditEvents, traces, schedules };
+  return {
+    ...state,
+    capabilities,
+    screenPolicy: normalizeScreenPolicy(state.screenPolicy),
+    auditEvents,
+    traces,
+    schedules,
+  };
 }
 
 export function parsePrivacyState(value: string | null, now = Date.now()): PrivacyState {
@@ -450,6 +488,7 @@ export function parsePrivacyState(value: string | null, now = Date.now()): Priva
         version: 1,
         globalPause: input.globalPause === true,
         capabilities,
+        screenPolicy: normalizeScreenPolicy(input.screenPolicy),
         connectorReferences: Array.isArray(input.connectorReferences)
           ? input.connectorReferences.slice(0, 20)
           : [],
