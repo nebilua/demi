@@ -174,6 +174,7 @@ type AppContextValue = {
   sendMessage: (content: string) => Promise<void>;
   clearConversation: () => Promise<void>;
   storageUsage: LocalStorageUsage | null;
+  storageUsageRefreshing: boolean;
   refreshStorageUsage: () => void;
   reclaimUnusedModelFiles: () => Promise<ModelCleanupResult>;
   storageDetailsExpanded: boolean;
@@ -445,6 +446,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [storageUsage, setStorageUsage] = useState<LocalStorageUsage | null>(
     null,
   );
+  const [storageUsageRefreshing, setStorageUsageRefreshing] = useState(false);
   const [storageDetailsExpanded, setStorageDetailsExpanded] = useState(false);
   const [storageUsageRefreshToken, setStorageUsageRefreshToken] = useState(0);
   const [memories, setMemories] = useState<ApprovedMemory[]>([]);
@@ -507,9 +509,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const downloadRunRef = useRef(0);
   const clearConversationInFlightRef = useRef(false);
   const settingsRef = useRef(settings);
+  const storageMeasurementRunRef = useRef(0);
   settingsRef.current = settings;
 
   function refreshStorageUsage() {
+    setStorageUsageRefreshing(true);
     setStorageUsageRefreshToken((current) => current + 1);
   }
 
@@ -622,6 +626,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!settingsReady) return;
     let isMounted = true;
+    const measurementRun = storageMeasurementRunRef.current + 1;
+    storageMeasurementRunRef.current = measurementRun;
     void measureLocalStorageUsage(localModel?.uri ?? null, {
       settings: SETTINGS_KEY,
       model: MODEL_KEY,
@@ -630,11 +636,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       memories: SECURE_MEMORIES_KEY,
     })
       .then((usage) => {
-        if (isMounted) setStorageUsage(usage);
+        if (!isMounted) return;
+        setStorageUsage(usage);
+        if (measurementRun === storageMeasurementRunRef.current) {
+          setStorageUsageRefreshing(false);
+        }
       })
       .catch(() => {
         if (!isMounted) return;
         setStorageUsage((previous) => previous ?? createUnavailableLocalStorageUsage());
+        if (measurementRun === storageMeasurementRunRef.current) {
+          setStorageUsageRefreshing(false);
+        }
       });
     return () => {
       isMounted = false;
@@ -2126,6 +2139,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sendMessage,
       clearConversation,
       storageUsage,
+      storageUsageRefreshing,
       refreshStorageUsage,
       reclaimUnusedModelFiles,
       storageDetailsExpanded,
@@ -2164,6 +2178,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSelfTestRunning,
       voiceSelfTestSpeechStatus,
       storageUsage,
+      storageUsageRefreshing,
       storageDetailsExpanded,
     ],
   );

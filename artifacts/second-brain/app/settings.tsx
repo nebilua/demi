@@ -149,6 +149,7 @@ function StorageUsageCard({
   modelOperationInProgress,
   detailsExpanded,
   onDetailsExpandedChange,
+  isRefreshing,
 }: {
   usage: LocalStorageUsage | null;
   colors: ReturnType<typeof useColors>;
@@ -159,6 +160,7 @@ function StorageUsageCard({
   modelOperationInProgress: boolean;
   detailsExpanded: boolean;
   onDetailsExpandedChange: (expanded: boolean) => void;
+  isRefreshing: boolean;
 }) {
   const canReclaim =
     Platform.OS !== "web" &&
@@ -227,7 +229,13 @@ function StorageUsageCard({
           <Pressable
             testID="refresh-storage-usage"
             accessibilityRole="button"
-            accessibilityLabel="Refresh local storage usage"
+            accessibilityLabel={
+              isRefreshing
+                ? "Refreshing local storage usage"
+                : "Refresh local storage usage"
+            }
+            accessibilityState={{ disabled: isRefreshing }}
+            disabled={isRefreshing}
             onPress={onRefresh}
             style={({ pressed }) => [
               styles.refreshButton,
@@ -235,7 +243,15 @@ function StorageUsageCard({
               pressed && styles.pressed,
             ]}
           >
-            <Feather name="refresh-cw" size={15} color={colors.foreground} />
+            {isRefreshing ? (
+              <ActivityIndicator
+                testID="storage-refresh-indicator"
+                size="small"
+                color={colors.foreground}
+              />
+            ) : (
+              <Feather name="refresh-cw" size={15} color={colors.foreground} />
+            )}
           </Pressable>
         )}
       </View>
@@ -423,6 +439,7 @@ export default function SettingsScreen() {
     openVoiceSettings,
     dismissVoiceError,
     storageUsage,
+    storageUsageRefreshing,
     refreshStorageUsage,
     reclaimUnusedModelFiles,
     storageDetailsExpanded,
@@ -666,6 +683,7 @@ export default function SettingsScreen() {
           reclaimMessage={modelReclaimMessage}
           detailsExpanded={storageDetailsExpanded}
           onDetailsExpandedChange={setStorageDetailsExpanded}
+          isRefreshing={storageUsageRefreshing}
           modelOperationInProgress={
             modelSetupStatus !== "idle" ||
             (downloadStatus !== "idle" && downloadStatus !== "error")

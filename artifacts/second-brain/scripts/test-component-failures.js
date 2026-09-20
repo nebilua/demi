@@ -236,13 +236,19 @@ function StorageRefreshHarness({ SettingsScreen, refreshPromise }) {
     appValue.storageDetailsExpanded ?? false,
   );
   const [usage, setUsage] = React.useState(appValue.storageUsage ?? null);
+  const [refreshing, setRefreshing] = React.useState(false);
   appValue = {
     ...appValue,
     storageDetailsExpanded: expanded,
     setStorageDetailsExpanded: setExpanded,
     storageUsage: usage,
+    storageUsageRefreshing: refreshing,
     refreshStorageUsage: () => {
-      void refreshPromise.then(setUsage).catch(() => {});
+      setRefreshing(true);
+      void refreshPromise
+        .then(setUsage)
+        .catch(() => {})
+        .finally(() => setRefreshing(false));
     },
   };
   return React.createElement(SettingsScreen);
@@ -302,6 +308,7 @@ function baseAppValue(overrides = {}) {
     storageProtection: 'secure',
     storageError: null,
     storageUsage: null,
+    storageUsageRefreshing: false,
     storageDetailsExpanded: false,
     setStorageDetailsExpanded: () => {},
     refreshStorageUsage: () => {},
@@ -557,6 +564,17 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     await findByTestId(renderer, 'refresh-storage-usage').props.onPress();
   });
   assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityLabel,
+    'Refreshing local storage usage',
+  );
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityState
+      .disabled,
+    true,
+  );
+  assert.ok(findByTestId(renderer, 'storage-refresh-indicator'));
+  assert.ok(findByTestId(renderer, 'reclaim-model-files'));
+  assert.equal(
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
       .expanded,
     true,
@@ -572,6 +590,19 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     true,
   );
   assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityLabel,
+    'Refresh local storage usage',
+  );
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityState
+      .disabled,
+    false,
+  );
+  assert.equal(
+    renderer.root.findAllByProps({ testID: 'storage-refresh-indicator' }).length,
+    0,
+  );
   assert.match(textContent(renderer), /128 B tracked on this device/);
   assert.doesNotMatch(textContent(renderer), /64 B tracked on this device/);
   await TestRenderer.act(async () => {
@@ -594,6 +625,12 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'refresh-storage-usage').props.onPress();
   });
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityLabel,
+    'Refreshing local storage usage',
+  );
+  assert.ok(findByTestId(renderer, 'storage-refresh-indicator'));
+  assert.ok(findByTestId(renderer, 'reclaim-model-files'));
   failedRefresh.reject(new Error('storage refresh failed'));
   await TestRenderer.act(async () => {
     await Promise.resolve();
@@ -605,6 +642,14 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     true,
   );
   assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityLabel,
+    'Refresh local storage usage',
+  );
+  assert.equal(
+    renderer.root.findAllByProps({ testID: 'storage-refresh-indicator' }).length,
+    0,
+  );
   assert.match(textContent(renderer), /64 B tracked on this device/);
   await TestRenderer.act(async () => {
     renderer.unmount();
