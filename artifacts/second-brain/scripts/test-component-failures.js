@@ -516,6 +516,7 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
     renderer.unmount();
   });
 
+  appValue = baseAppValue();
   await TestRenderer.act(async () => {
     renderer = TestRenderer.create(
       React.createElement(SettingsSessionHarness, { SettingsScreen }),
@@ -523,11 +524,42 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
   });
   assert.equal(
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
-    true,
+    false,
+  );
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityLabel,
+    'Local storage, show details',
   );
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
+}
+
+function assertStorageDetailsAreSessionOnly() {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../context/AppContext.tsx'),
+    'utf8',
+  );
+  const startupEffectStart = source.indexOf('  useEffect(() => {');
+  const startupEffectEnd = source.indexOf(
+    '  useEffect(() => {',
+    startupEffectStart + 1,
+  );
+  const startupEffect = source.slice(startupEffectStart, startupEffectEnd);
+
+  assert.match(
+    source,
+    /const \[storageDetailsExpanded, setStorageDetailsExpanded\] = useState\(false\);/,
+  );
+  assert.doesNotMatch(startupEffect, /storageDetailsExpanded/);
+  assert.doesNotMatch(
+    source,
+    /AsyncStorage\.(?:getItem|setItem|removeItem)\([^)]*(?:storageDetailsExpanded|STORAGE_DETAILS)/,
+  );
+}
+
+async function testStorageDetailsResetForFreshProviderSession() {
+  assertStorageDetailsAreSessionOnly();
 }
 
 async function testStorageRefreshKeepsDetailsAndSummary() {
@@ -1151,6 +1183,7 @@ async function main() {
   await testSettingsFailureKeepsControlledValue();
   await testModelReclaimFailureKeepsConfirmationOpen();
   await testStorageDetailsPersistAcrossSettingsVisits();
+  await testStorageDetailsResetForFreshProviderSession();
   await testStorageRefreshKeepsDetailsAndSummary();
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
