@@ -156,6 +156,7 @@ function StorageUsageCard({
   reclaimMessage: string | null;
   modelOperationInProgress: boolean;
 }) {
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const canReclaim =
     Platform.OS !== "web" &&
     !modelOperationInProgress &&
@@ -170,170 +171,201 @@ function StorageUsageCard({
       ]}
     >
       <View style={styles.storageHeader}>
-        <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
-          <Feather
-            name="hard-drive"
-            size={17}
-            color={colors.accentForeground}
-          />
-        </View>
-        <View style={styles.rowCopy}>
-          <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-            Local storage
-          </Text>
-          <Text
-            style={[styles.rowDescription, { color: colors.mutedForeground }]}
-          >
-            {Platform.OS === "web"
-              ? "Device storage measurements are available in the installed Android app."
-              : usage
-                ? usage.total.bytes === null
-                  ? "Some local data could not be measured."
-                  : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
-                : "Checking app-managed storage..."}
-          </Text>
-        </View>
         <Pressable
+          testID="toggle-storage-details"
           accessibilityRole="button"
-          accessibilityLabel="Refresh local storage usage"
-          onPress={onRefresh}
+          accessibilityLabel={
+            detailsExpanded
+              ? "Hide local storage details"
+              : "Show local storage details"
+          }
+          accessibilityState={{ expanded: detailsExpanded }}
+          onPress={() => setDetailsExpanded((expanded) => !expanded)}
           style={({ pressed }) => [
-            styles.refreshButton,
-            { backgroundColor: colors.secondary },
+            styles.storageHeaderToggle,
             pressed && styles.pressed,
           ]}
         >
-          <Feather name="refresh-cw" size={15} color={colors.foreground} />
+          <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+            <Feather
+              name="hard-drive"
+              size={17}
+              color={colors.accentForeground}
+            />
+          </View>
+          <View style={styles.rowCopy}>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              Local storage
+            </Text>
+            <Text
+              style={[styles.rowDescription, { color: colors.mutedForeground }]}
+            >
+              {Platform.OS === "web"
+                ? "Device storage measurements are available in the installed Android app."
+                : usage
+                  ? usage.total.bytes === null
+                    ? "Some local data could not be measured."
+                    : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
+                  : "Checking app-managed storage..."}
+            </Text>
+          </View>
+          <Feather
+            name={detailsExpanded ? "chevron-up" : "chevron-down"}
+            size={18}
+            color={colors.mutedForeground}
+          />
         </Pressable>
+        {detailsExpanded && (
+          <Pressable
+            testID="refresh-storage-usage"
+            accessibilityRole="button"
+            accessibilityLabel="Refresh local storage usage"
+            onPress={onRefresh}
+            style={({ pressed }) => [
+              styles.refreshButton,
+              { backgroundColor: colors.secondary },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Feather name="refresh-cw" size={15} color={colors.foreground} />
+          </Pressable>
+        )}
       </View>
 
-      {usage && (
-        <View style={styles.storageRows}>
-          <StorageUsageRow
-            label="Active model"
-            metric={usage.activeModel}
-            colors={colors}
-          />
-          <StorageUsageRow
-            label="Reclaimable model files"
-            detail={
-              usage.reclaimableModels.bytes === null
-                ? "Active model is never included"
-                : usage.reclaimableModels.fileCount === 0
-                  ? "No inactive model files found"
-                  : `${usage.reclaimableModels.fileCount} inactive file${usage.reclaimableModels.fileCount === 1 ? "" : "s"} · active model excluded`
-            }
-            metric={usage.reclaimableModels}
-            colors={colors}
-          />
-          {canReclaim && usage && (
-            <Pressable
-              testID="reclaim-model-files"
-              accessibilityRole="button"
-              accessibilityLabel="Reclaim inactive model files"
-              disabled={isReclaiming}
-              onPress={onReclaim}
-              style={({ pressed }) => [
-                styles.storageAction,
-                { borderColor: colors.border },
-                pressed && styles.pressed,
-              ]}
-            >
-              {isReclaiming ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Feather name="trash-2" size={14} color={colors.primary} />
-              )}
-              <View style={styles.rowCopy}>
-                <Text
-                  style={[styles.storageActionTitle, { color: colors.primary }]}
-                >
-                  Reclaim inactive model files
-                </Text>
-                <Text
-                  style={[
-                    styles.storageRowDetail,
-                    { color: colors.mutedForeground },
+      {detailsExpanded && (
+        <>
+          {usage && (
+            <View style={styles.storageRows}>
+              <StorageUsageRow
+                label="Active model"
+                metric={usage.activeModel}
+                colors={colors}
+              />
+              <StorageUsageRow
+                label="Reclaimable model files"
+                detail={
+                  usage.reclaimableModels.bytes === null
+                    ? "Active model is never included"
+                    : usage.reclaimableModels.fileCount === 0
+                      ? "No inactive model files found"
+                      : `${usage.reclaimableModels.fileCount} inactive file${usage.reclaimableModels.fileCount === 1 ? "" : "s"} · active model excluded`
+                }
+                metric={usage.reclaimableModels}
+                colors={colors}
+              />
+              {canReclaim && usage && (
+                <Pressable
+                  testID="reclaim-model-files"
+                  accessibilityRole="button"
+                  accessibilityLabel="Reclaim inactive model files"
+                  disabled={isReclaiming}
+                  onPress={onReclaim}
+                  style={({ pressed }) => [
+                    styles.storageAction,
+                    { borderColor: colors.border },
+                    pressed && styles.pressed,
                   ]}
                 >
-                  Remove about{" "}
-                  {formatStorageBytes(usage.reclaimableModels.bytes ?? 0)} while
-                  keeping the active model and memories
-                </Text>
-              </View>
-              <Feather
-                name="chevron-right"
-                size={16}
-                color={colors.mutedForeground}
+                  {isReclaiming ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Feather name="trash-2" size={14} color={colors.primary} />
+                  )}
+                  <View style={styles.rowCopy}>
+                    <Text
+                      style={[
+                        styles.storageActionTitle,
+                        { color: colors.primary },
+                      ]}
+                    >
+                      Reclaim inactive model files
+                    </Text>
+                    <Text
+                      style={[
+                        styles.storageRowDetail,
+                        { color: colors.mutedForeground },
+                      ]}
+                    >
+                      Remove about{" "}
+                      {formatStorageBytes(usage.reclaimableModels.bytes ?? 0)}{" "}
+                      while keeping the active model and memories
+                    </Text>
+                  </View>
+                  <Feather
+                    name="chevron-right"
+                    size={16}
+                    color={colors.mutedForeground}
+                  />
+                </Pressable>
+              )}
+              <StorageUsageRow
+                label="Conversations"
+                detail="Encrypted local record"
+                metric={usage.conversations}
+                colors={colors}
               />
-            </Pressable>
+              <StorageUsageRow
+                label="Memories"
+                detail="Encrypted local record"
+                metric={usage.memories}
+                colors={colors}
+              />
+              <StorageUsageRow
+                label="Settings & profile"
+                detail="Local preferences and profile"
+                metric={usage.settingsAndProfile}
+                colors={colors}
+              />
+              <StorageUsageRow
+                label="App files"
+                detail="Files outside model storage"
+                metric={usage.appFiles}
+                colors={colors}
+              />
+              <StorageUsageRow
+                label="Temporary files"
+                detail="Cache files that the OS may reclaim"
+                metric={usage.temporaryFiles}
+                colors={colors}
+              />
+              <View
+                style={[styles.storageDivider, { backgroundColor: colors.border }]}
+              />
+              <StorageUsageRow
+                label="Free device storage"
+                detail={
+                  usage.freeDevice.bytes === null
+                    ? "Unavailable in browser preview"
+                    : "Reported by the device"
+                }
+                metric={usage.freeDevice}
+                colors={colors}
+              />
+            </View>
           )}
-          <StorageUsageRow
-            label="Conversations"
-            detail="Encrypted local record"
-            metric={usage.conversations}
-            colors={colors}
-          />
-          <StorageUsageRow
-            label="Memories"
-            detail="Encrypted local record"
-            metric={usage.memories}
-            colors={colors}
-          />
-          <StorageUsageRow
-            label="Settings & profile"
-            detail="Local preferences and profile"
-            metric={usage.settingsAndProfile}
-            colors={colors}
-          />
-          <StorageUsageRow
-            label="App files"
-            detail="Files outside model storage"
-            metric={usage.appFiles}
-            colors={colors}
-          />
-          <StorageUsageRow
-            label="Temporary files"
-            detail="Cache files that the OS may reclaim"
-            metric={usage.temporaryFiles}
-            colors={colors}
-          />
-          <View
-            style={[styles.storageDivider, { backgroundColor: colors.border }]}
-          />
-          <StorageUsageRow
-            label="Free device storage"
-            detail={
-              usage.freeDevice.bytes === null
-                ? "Unavailable in browser preview"
-                : "Reported by the device"
-            }
-            metric={usage.freeDevice}
-            colors={colors}
-          />
-        </View>
-      )}
 
-      <Text style={[styles.storageNote, { color: colors.mutedForeground }]}>
-        {Platform.OS === "web"
-          ? "The browser preview does not report device disk usage or Android secure-store sizes. Use the installed Android app for those measurements."
-          : "Secure-store values are estimates because Android encrypts them internally."}{" "}
-        Inactive model files are identified only; this screen never deletes
-        active models or saved memories.
-      </Text>
-      {reclaimMessage && (
-        <Text
-          style={[
-            styles.storageNote,
-            {
-              color: reclaimMessage.includes("could not")
-                ? colors.destructive
-                : colors.primary,
-            },
-          ]}
-        >
-          {reclaimMessage}
-        </Text>
+          <Text style={[styles.storageNote, { color: colors.mutedForeground }]}>
+            {Platform.OS === "web"
+              ? "The browser preview does not report device disk usage or Android secure-store sizes. Use the installed Android app for those measurements."
+              : "Secure-store values are estimates because Android encrypts them internally."}{" "}
+            Inactive model files are identified only; this screen never deletes
+            active models or saved memories.
+          </Text>
+          {reclaimMessage && (
+            <Text
+              style={[
+                styles.storageNote,
+                {
+                  color: reclaimMessage.includes("could not")
+                    ? colors.destructive
+                    : colors.primary,
+                },
+              ]}
+            >
+              {reclaimMessage}
+            </Text>
+          )}
+        </>
       )}
     </View>
   );
@@ -1834,6 +1866,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   storageHeader: { flexDirection: "row", alignItems: "center" },
+  storageHeaderToggle: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   storageRows: { marginTop: 16, gap: 12 },
   storageRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   storageRowLabel: {
