@@ -19,6 +19,7 @@ import {
 } from "react-native-safe-area-context";
 import { PersonalProfileEditor } from "@/components/PersonalProfileEditor";
 import { useApp, useChat, type Appearance } from "@/context/AppContext";
+import { useLocalDataTransfer } from "@/context/LocalDataTransferContext";
 import { useColors } from "@/hooks/useColors";
 import { formatBytes, RECOMMENDED_MODEL } from "@/lib/offlineLlm";
 import type { LocalStorageUsage, StorageMetric } from "@/lib/localStorageUsage";
@@ -659,6 +660,15 @@ export default function SettingsScreen() {
     setStorageDetailsExpanded,
   } = useApp();
   const { clearConversation } = useChat();
+  const {
+    status: localDataTransferStatus,
+    message: localDataTransferMessage,
+    importSummary: localDataImportSummary,
+    exportLocalData,
+    chooseImportFile,
+    confirmImport,
+    cancelTransfer,
+  } = useLocalDataTransfer();
   const colors = useColors(settings.appearance);
   const insets = useSafeAreaInsets();
 
@@ -679,6 +689,8 @@ export default function SettingsScreen() {
   const [localVoiceExpanded, setLocalVoiceExpanded] = useState(false);
   const [advancedPreferencesExpanded, setAdvancedPreferencesExpanded] =
     useState(false);
+  const [localRecoveryExpanded, setLocalRecoveryExpanded] = useState(false);
+  const [showImportConfirm, setShowImportConfirm] = useState(false);
   const safePrivacyState = privacyState ?? createDefaultPrivacyState(0);
 
   const androidApiLevel =
@@ -1262,6 +1274,113 @@ export default function SettingsScreen() {
               (downloadStatus !== "idle" && downloadStatus !== "error")
             }
           />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          sectionTestID="settings-group-local-recovery"
+          icon="download"
+          title="Local recovery"
+          summary="Export or replace the supported data stored on this device"
+          expanded={localRecoveryExpanded}
+          onToggle={() => setLocalRecoveryExpanded((expanded) => !expanded)}
+        >
+          <View
+            style={[
+              styles.card,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
+              Export creates a verified JSON package without uploading anything.
+              It includes conversations, approved memories, your profile, important
+              dates, research documents, and scheduled work.
+            </Text>
+            <Text
+              style={[
+                styles.readinessDesc,
+                { color: colors.mutedForeground, marginTop: 8 },
+              ]}
+            >
+              Model files, Android Keystore keys, privacy/audit records, notification
+              registrations, credentials, and connector secrets are never included.
+              Import replaces those supported categories only.
+            </Text>
+            <View style={styles.downloadActions}>
+              <Pressable
+                testID="export-local-data"
+                accessibilityRole="button"
+                accessibilityLabel="Export local data"
+                disabled={localDataTransferStatus === "exporting" || localDataTransferStatus === "importing"}
+                onPress={() => void exportLocalData()}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  { backgroundColor: colors.primary },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>
+                  Export local data
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="import-local-data"
+                accessibilityRole="button"
+                accessibilityLabel="Choose a local data export to import"
+                disabled={localDataTransferStatus === "exporting" || localDataTransferStatus === "importing"}
+                onPress={async () => {
+                  await chooseImportFile();
+                  setShowImportConfirm(true);
+                }}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>
+                  Import package
+                </Text>
+              </Pressable>
+            </View>
+            {(localDataTransferStatus === "exporting" ||
+              localDataTransferStatus === "importing") && (
+              <View style={styles.transferStatus}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.readinessDesc, { color: colors.mutedForeground, flex: 1 }]}>
+                  {localDataTransferMessage ?? "Working with local data…"}
+                </Text>
+                <Pressable
+                  testID="cancel-local-data-transfer"
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel local data transfer"
+                  onPress={cancelTransfer}
+                  style={styles.modalButton}
+                >
+                  <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>
+                    Cancel
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+            {localDataTransferMessage &&
+              localDataTransferStatus !== "exporting" &&
+              localDataTransferStatus !== "importing" && (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={[
+                    styles.transferMessage,
+                    {
+                      color:
+                        localDataTransferStatus === "error"
+                          ? colors.destructive
+                          : colors.mutedForeground,
+                    },
+                  ]}
+                >
+                  {localDataTransferMessage}
+                </Text>
+              )}
+          </View>
         </CollapsibleSection>
 
         <CollapsibleSection
@@ -2363,6 +2482,88 @@ export default function SettingsScreen() {
       </Modal>
 
       <Modal
+        visible={
+          showImportConfirm &&
+          localDataTransferStatus === "awaiting-confirmation" &&
+          localDataImportSummary !== null
+        }
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowImportConfirm(false);
+          cancelTransfer();
+        }}
+      >
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              backgroundColor: colors.isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.5)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>
+              Replace local data?
+            </Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              This verified package will replace the supported local categories.
+              Model files, privacy state, audit history, credentials, and device
+              keys are not touched.
+            </Text>
+            {localDataImportSummary && (
+              <Text style={[styles.modalBody, { color: colors.cardForeground }]}>
+                {localDataImportSummary.conversations} conversations ·{" "}
+                {localDataImportSummary.memories} memories ·{" "}
+                {localDataImportSummary.importantDates} important dates ·{" "}
+                {localDataImportSummary.research} research documents ·{" "}
+                {localDataImportSummary.scheduledJobs} scheduled jobs
+                {"\n"}Profile: {localDataImportSummary.profile ? "included" : "empty"} ·{" "}
+                {localDataImportSummary.bytes.toLocaleString()} bytes verified
+              </Text>
+            )}
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="cancel-import-local-data"
+                accessibilityRole="button"
+                accessibilityLabel="Cancel local data import"
+                onPress={() => {
+                  setShowImportConfirm(false);
+                  cancelTransfer();
+                }}
+                style={styles.modalButton}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.mutedForeground }]}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-import-local-data"
+                accessibilityRole="button"
+                accessibilityLabel="Confirm replace local data"
+                onPress={() => {
+                  setShowImportConfirm(false);
+                  void confirmImport();
+                }}
+                style={styles.modalButton}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.primary }]}>
+                  Replace
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={showRemoveModelConfirm}
         transparent
         animationType="fade"
@@ -2855,6 +3056,18 @@ const styles = StyleSheet.create({
   },
   downloadMeta: { fontFamily: "Inter_400Regular", fontSize: 12 },
   downloadActions: { flexDirection: "row", gap: 8, marginTop: 12 },
+  transferStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14,
+  },
+  transferMessage: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 14,
+  },
   primaryButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,

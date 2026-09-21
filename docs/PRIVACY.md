@@ -50,6 +50,31 @@ The device-bound encryption material is never placed in AsyncStorage. Existing
 plaintext records are removed only after an encrypted copy is written and read
 back successfully.
 
+### Local recovery export
+
+Settings provides a user-started local recovery export. The verified,
+versioned JSON package contains only the supported recoverable records: saved
+conversation turns, approved memories, the personal profile, important dates,
+the encrypted research library, and scheduled work. Android lets the user
+choose a destination through the system document flow; the browser preview
+downloads the package locally. Demi does not upload the package.
+
+Import validates the format, size, record limits, duplicate IDs, record
+shapes, and SHA-256 integrity before asking for confirmation. Confirmation
+replaces those supported categories as a transaction; a private on-device
+journal restores the previous records if a write, verification, storage, or
+cancellation step fails. Imported reminders and scheduled work receive new
+device-local notification state rather than reusing notification registrations
+from another device. A completed import is read back and reported as verified.
+
+The package never contains GGUF model binaries, Android Keystore or other
+device-bound encryption keys, privacy capability grants, raw audit events or
+runtime traces, notification registrations, credentials, connector secrets, or
+cloud provider secrets. Because the export is portable and not separately
+encrypted by Demi, save it only where you trust the storage and treat anyone
+with access to the file as able to read the included records. A lost or reset
+device-bound key still cannot be recovered through an account or cloud backup.
+
 The browser preview does not have Android Keystore protection. It labels this
 state as local preview storage and does not claim device encryption.
 The preview is not evidence that Android secure storage, native voice, model

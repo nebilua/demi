@@ -34,6 +34,7 @@ type ScheduledJobsContextValue = {
   dismissError: () => void;
   findJob: (id: string) => ScheduledJob | undefined;
   formatNextRun: (job: ScheduledJob) => string;
+  reloadStoredData: () => Promise<void>;
 };
 
 const ScheduledJobsContext = createContext<ScheduledJobsContextValue | null>(null);
@@ -135,6 +136,21 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
     await writeSecureRecord(SECURE_JOBS_KEY, JSON.stringify(next));
     jobsRef.current = next;
     setJobs(next);
+    setError(null);
+  }
+
+  async function reloadStoredData() {
+    const value = await readSecureRecord(SECURE_JOBS_KEY);
+    const now = Date.now();
+    const loaded = normalizeScheduledJobs(value, now).map((job) => ({
+      ...job,
+      results: job.results.filter(
+        (result) =>
+          result.finishedAt >= now - job.retentionDays * 24 * 60 * 60 * 1000,
+      ),
+    }));
+    jobsRef.current = loaded;
+    setJobs(loaded);
     setError(null);
   }
 
@@ -501,6 +517,7 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
       dismissError: () => setError(null),
       findJob: (id: string) => jobs.find((job) => job.id === id),
       formatNextRun: (job: ScheduledJob) => formatJobRun(job.nextRunAt),
+      reloadStoredData,
     }),
     [jobs, isReady, isRunning, error],
   );

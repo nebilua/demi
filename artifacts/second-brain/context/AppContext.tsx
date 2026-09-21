@@ -203,6 +203,7 @@ type AppContextValue = {
   archiveMemory: (id: string, archived: boolean) => Promise<void>;
   deleteMemory: (id: string) => Promise<void>;
   savedTurnCount: number;
+  reloadRecoverableData: () => Promise<void>;
   localModel: LocalModel | null;
   deviceCompatibility: DeviceCompatibility;
   engineStatus: "unsupported" | "no-model" | "loading" | "ready" | "error";
@@ -2887,6 +2888,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
+  async function reloadRecoverableData() {
+    const [conversationValue, profileValue, memoriesValue] = await Promise.all([
+      readSecureRecord(SECURE_CONVERSATION_KEY),
+      readSecureRecord(SECURE_PROFILE_KEY),
+      readSecureRecord(SECURE_MEMORIES_KEY),
+    ]);
+    const nextTurns = parseTurns(conversationValue).slice(-MAX_CONVERSATION_TURNS);
+    const nextProfile = parseProfile(profileValue);
+    const nextMemories = parseApprovedMemories(memoriesValue);
+    turnsRef.current = nextTurns;
+    memoriesRef.current = nextMemories;
+    setTurns(nextTurns);
+    setSavedTurnCount(nextTurns.length);
+    setProfile(nextProfile);
+    setMemories(nextMemories);
+    setStorageError(null);
+  }
+
   const value = useMemo(
     () => ({
       settings,
@@ -2919,6 +2938,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       archiveMemory,
       deleteMemory,
       savedTurnCount,
+      reloadRecoverableData,
       localModel,
       deviceCompatibility,
       engineStatus,

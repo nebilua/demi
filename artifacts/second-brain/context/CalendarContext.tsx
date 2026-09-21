@@ -15,6 +15,7 @@ import {
 } from '@/lib/reminders';
 import {
   migratePlaintextRecord,
+  readSecureRecord,
   writeSecureRecord,
 } from '@/lib/secureLocalStorage';
 import { useApp } from '@/context/AppContext';
@@ -33,6 +34,7 @@ type CalendarContextValue = {
   deleteReminder: (id: string) => Promise<void>;
   findReminder: (id: string) => DateReminder | undefined;
   dismissError: () => void;
+  reloadStoredData: () => Promise<void>;
 };
 
 const STORAGE_KEY = '@second-brain/date-reminders-v1';
@@ -142,6 +144,13 @@ export function CalendarProvider({
       mounted = false;
     };
   }, [privacyReady]);
+
+  async function reloadStoredData() {
+    const value = await readSecureRecord(SECURE_STORAGE_KEY);
+    const loaded = parseReminders(value);
+    setReminders(loaded);
+    setError(null);
+  }
 
   async function persist(next: DateReminder[]) {
     try {
@@ -329,6 +338,7 @@ export function CalendarProvider({
       findReminder: (id: string) =>
         reminders.find((item) => item.id === id),
       dismissError: () => setError(null),
+      reloadStoredData,
     }),
     [reminders, upcomingReminders, isReady, error],
   );

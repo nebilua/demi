@@ -9,6 +9,7 @@ import { CalendarProvider } from '@/context/CalendarContext';
 import { ToolProvider } from '@/context/ToolContext';
 import { ResearchProvider } from '@/context/ResearchContext';
 import { ScheduledJobsProvider } from '@/context/ScheduledJobsContext';
+import { LocalDataTransferProvider } from '@/context/LocalDataTransferContext';
 import {
   SpaceGrotesk_400Regular,
   SpaceGrotesk_500Medium,
@@ -112,7 +113,9 @@ export default function RootLayout() {
                   <ToolProvider>
                     <ResearchProvider>
                       <ScheduledJobsProvider>
-                        <RootLayoutNav />
+                        <LocalDataTransferProvider>
+                          <RootLayoutNav />
+                        </LocalDataTransferProvider>
                       </ScheduledJobsProvider>
                     </ResearchProvider>
                   </ToolProvider>

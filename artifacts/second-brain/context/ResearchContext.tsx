@@ -37,6 +37,7 @@ type ResearchContextValue = {
   error: string | null;
   routeLabel: string | null;
   storageReady: boolean;
+  reloadStoredData: () => Promise<void>;
 };
 
 const ResearchContext = createContext<ResearchContextValue | null>(null);
@@ -103,6 +104,12 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
   async function persist(next: ResearchDocument[]) {
     await writeSecureRecord(RESEARCH_LIBRARY_KEY, JSON.stringify(next));
     setDocuments(next);
+  }
+
+  async function reloadStoredData() {
+    const value = await readSecureRecord(RESEARCH_LIBRARY_KEY);
+    setDocuments(parseLibrary(value));
+    setError(null);
   }
 
   async function pickDocuments() {
@@ -335,6 +342,7 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
       error,
       routeLabel,
       storageReady,
+      reloadStoredData,
     }),
     [documents, selectedIds, answer, passages, busy, error, routeLabel, storageReady, privacyReady, privacyState],
   );

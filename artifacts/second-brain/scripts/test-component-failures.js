@@ -165,6 +165,22 @@ Module._load = function load(request, parent, isMain) {
   if (request === '@/context/AppContext' || request.endsWith('/context/AppContext')) {
     return { useApp: () => appValue, useChat: () => appValue };
   }
+  if (
+    request === '@/context/LocalDataTransferContext' ||
+    request.endsWith('/context/LocalDataTransferContext')
+  ) {
+    return {
+      useLocalDataTransfer: () => ({
+        status: 'idle',
+        message: null,
+        importSummary: null,
+        exportLocalData: async () => {},
+        chooseImportFile: async () => {},
+        confirmImport: async () => {},
+        cancelTransfer: () => {},
+      }),
+    };
+  }
   if (request === '@/hooks/useColors' || request.endsWith('/hooks/useColors')) {
     return { useColors: () => colors };
   }
