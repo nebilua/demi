@@ -17,6 +17,7 @@
     "test:android-reminders": "tsx scripts/test-android-reminders.js",
     "test:scheduled-jobs": "tsx scripts/test-scheduled-jobs.js",
     "test:privacy": "tsx scripts/test-privacy-capabilities.js",
+    "test:cloud-fallback": "tsx scripts/test-cloud-fallback.js",
     "test:tool-registry": "tsx scripts/test-tool-registry.js",
     "test:sandbox-code": "tsx scripts/test-sandbox-code.js",
     "test:research": "tsx scripts/test-research.js",

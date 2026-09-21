@@ -66,7 +66,9 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
   const {
     privacyReady,
     privacyState,
+    engineStatus,
     runLocalInference,
+    runCloudFallback,
     recordPrivacyAction,
     recordAgentTrace,
   } = useApp();
@@ -241,16 +243,47 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
         setRouteLabel("No network · interpretation ran on the on-device model");
       }
       setPassages(evidence);
-      const result = await runLocalInference(buildResearchPrompt(normalizedQuery, evidence, mode), (token) => {
-        if (operation === operationRef.current) setAnswer((current) => `${current ?? ""}${token}`);
-      });
+       let usedCloudFallback = false;
+       let result: string;
+       try {
+         result = await runLocalInference(buildResearchPrompt(normalizedQuery, evidence, mode), (token) => {
+           if (operation === operationRef.current) setAnswer((current) => `${current ?? ""}${token}`);
+         });
+       } catch (localError) {
+         if (
+           engineStatus === "ready" &&
+           !(localError instanceof Error && /out of memory|allocation|failed to (create context|load model)|native offline engine|browser preview/i.test(localError.message))
+         ) {
+           throw localError;
+         }
+         usedCloudFallback = true;
+         result = await runCloudFallback(
+           "research",
+           engineStatus === "ready" ? "local-runtime-failure" : "local-engine-unavailable",
+           normalizedQuery,
+           controller.signal,
+         );
+         setRouteLabel("Cloud fallback · only the redacted research question was sent; local evidence stayed on this device");
+       }
       if (operation !== operationRef.current) return;
       setAnswer(result);
       await recordPrivacyAction({
-        capabilityId: mode === "web" ? "network.web-research" : "local.files",
-        action: mode === "web" ? "web-research-completed" : "local-research-completed",
+         capabilityId: usedCloudFallback
+           ? "network.remote-inference"
+           : mode === "web"
+             ? "network.web-research"
+             : "local.files",
+         action: usedCloudFallback
+           ? "cloud-research-completed"
+           : mode === "web"
+             ? "web-research-completed"
+             : "local-research-completed",
         status: "completed",
-        summary: mode === "web" ? "Web research completed; raw web content was not saved." : "Local research completed from selected encrypted documents.",
+         summary: usedCloudFallback
+           ? "Cloud research completed from the bounded question; local evidence and raw source content stayed on this device."
+           : mode === "web"
+             ? "Web research completed; raw web content was not saved."
+             : "Local research completed from selected encrypted documents.",
       });
     } catch (caught) {
       if (controller.signal.aborted) {

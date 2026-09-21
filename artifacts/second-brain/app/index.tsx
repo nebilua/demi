@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, type ConversationTurn } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
+import { isCapabilityActive } from '@/lib/privacyCapabilities';
 
 function MessageBubble({ item }: { item: ConversationTurn }) {
   const { settings } = useApp();
@@ -56,6 +57,8 @@ export default function DemiScreen() {
   const {
     settings,
     settingsReady,
+    privacyReady,
+    privacyState,
     profile,
     turns,
     isConversationReady,
@@ -73,6 +76,7 @@ export default function DemiScreen() {
     stopSpeaking,
     sendMessage,
     storageError,
+    cloudFallbackActivity,
     voiceError,
     pendingMemoryCandidate,
     saveMemoryCandidate,
@@ -91,7 +95,14 @@ export default function DemiScreen() {
   const isProcessingVoice = voiceInputStatus === 'checking' || voiceInputStatus === 'processing';
 
   const visibleTurns = useMemo(() => [...turns].reverse(), [turns]);
-  const canSend = draft.trim().length > 0 && !isThinking && isConversationReady && engineStatus === 'ready';
+  const cloudFallbackEnabled =
+    privacyReady &&
+    isCapabilityActive(privacyState, 'network.remote-inference');
+  const canSend =
+    draft.trim().length > 0 &&
+    !isThinking &&
+    isConversationReady &&
+    (engineStatus === 'ready' || cloudFallbackEnabled);
 
   useEffect(() => {
     if (!voiceTranscript) return;
@@ -263,6 +274,11 @@ export default function DemiScreen() {
               <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
                 {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : wasStopped ? 'Stopped' : draft ? 'Draft ready' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
               </Text>
+              {cloudFallbackActivity && (
+                <Text style={[styles.setupText, { color: colors.mutedForeground }]}>
+                  {cloudFallbackActivity.message}
+                </Text>
+              )}
 
               {setupNeeded && !isListening && !isThinking && (
                 <Pressable
@@ -298,7 +314,7 @@ export default function DemiScreen() {
               placeholderTextColor={colors.mutedForeground}
               multiline
               maxLength={1200}
-              editable={isConversationReady && engineStatus === 'ready'}
+              editable={isConversationReady && (engineStatus === 'ready' || cloudFallbackEnabled)}
               style={[styles.input, { color: colors.cardForeground }]}
               onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
               blurOnSubmit={false}

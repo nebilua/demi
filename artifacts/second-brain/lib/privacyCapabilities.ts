@@ -172,9 +172,9 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
   },
   {
     id: "network.remote-inference",
-    name: "Remote AI inference",
-    purpose: "Send an explicitly approved prompt to a remote inference provider.",
-    scope: "Only the prompt and context shown in a future approval screen.",
+    name: "Cloud fallback",
+    purpose: "Allow a server-managed cloud provider to answer only when local inference cannot run.",
+    scope: "The current bounded chat or research input only; no profile, memories, history, files, contacts, or screen content.",
     kind: "network",
     dataSensitivity: "sensitive",
     networkUse: "required",

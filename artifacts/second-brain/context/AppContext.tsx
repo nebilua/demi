@@ -84,6 +84,16 @@ import {
   type ScreenPrivacyPolicy,
 } from "@/lib/privacyCapabilities";
 import {
+  CloudInferenceError,
+  getCloudFallbackPermission,
+  isFallbackEligibleLocalFailure,
+  requestCloudInference,
+  type CloudFallbackActivity,
+  type CloudFallbackReason,
+  type CloudProgress,
+  type CloudTask,
+} from "@/lib/cloudFallback";
+import {
   getAccessibilitySnapshot,
   getScreenAccessStatus,
   openAccessibilitySettings,
@@ -237,6 +247,13 @@ type AppContextValue = {
   openVoiceSettings: () => Promise<void>;
   dismissVoiceError: () => void;
   sendMessage: (content: string) => Promise<void>;
+  cloudFallbackActivity: CloudFallbackActivity | null;
+  runCloudFallback: (
+    task: CloudTask,
+    reason: CloudFallbackReason,
+    userInput: string,
+    signal?: AbortSignal,
+  ) => Promise<string>;
   runLocalInference: (
     prompt: string,
     onToken?: (token: string) => void,
@@ -530,6 +547,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     createDefaultPrivacyState(),
   );
   const [privacyResetVersion, setPrivacyResetVersion] = useState(0);
+  const [cloudFallbackActivity, setCloudFallbackActivity] =
+    useState<CloudFallbackActivity | null>(null);
   const [screenAccessStatus, setScreenAccessStatus] =
     useState<ScreenAccessStatus>({
       platform: "unsupported",
@@ -2192,6 +2211,108 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
+  async function runCloudFallback(
+    task: CloudTask,
+    reason: CloudFallbackReason,
+    userInput: string,
+    signal?: AbortSignal,
+  ) {
+    const permission = getCloudFallbackPermission(privacyState, privacyReady);
+    if (!permission.allowed) {
+      const message =
+        permission.reason === "privacy-paused"
+          ? "Privacy pause is active. Cloud fallback is blocked."
+          : permission.reason === "local-inference-blocked"
+            ? "Local inference is paused or revoked. Cloud fallback is blocked too."
+            : "Cloud fallback is off or not ready. Enable it in Settings before sending data off device.";
+      setCloudFallbackActivity({ task, status: "blocked", message });
+      await recordPrivacyAction({
+        capabilityId: "network.remote-inference",
+        action: "cloud-fallback",
+        status: "denied",
+        summary: "Cloud fallback was blocked by privacy capabilities; input omitted.",
+      }).catch(() => undefined);
+      throw new CloudInferenceError(message, "blocked");
+    }
+
+    const updateActivity = (status: CloudProgress) => {
+      const messages: Record<CloudProgress, string> = {
+        "checking-provider": "Checking the configured cloud provider…",
+        "provider-unavailable": "Cloud fallback is enabled, but its provider is unavailable.",
+        "sending-minimized-request": "Sending only the bounded task input to the cloud provider…",
+        "receiving-response": "Receiving the cloud response…",
+        completed: "Cloud fallback completed. No local context was uploaded.",
+        cancelled: "Cloud fallback was cancelled. The local path is still available.",
+        "timed-out": "Cloud fallback timed out. The local path is still available.",
+        quota: "Cloud provider quota is unavailable. The local path is still available.",
+        failed: "Cloud fallback failed. The local path is still available.",
+        blocked: "Cloud fallback is blocked by privacy controls.",
+      };
+      setCloudFallbackActivity({ task, status, message: messages[status] });
+    };
+
+    updateActivity("checking-provider");
+    await recordPrivacyAction({
+      capabilityId: "network.remote-inference",
+      action: "cloud-fallback",
+      status: "allowed",
+      summary: `Cloud fallback started for ${task}; only bounded, redacted task input may leave the device.`,
+    });
+    try {
+      const output = await requestCloudInference(
+        {
+          task,
+          reason,
+          input: userInput,
+        },
+        { signal, onProgress: updateActivity },
+      );
+      await recordPrivacyAction({
+        capabilityId: "network.remote-inference",
+        action: "cloud-fallback",
+        status: "completed",
+        summary: `Cloud fallback completed for ${task}; raw request and provider credentials were not stored.`,
+      });
+      await recordAgentTrace({
+        capabilityId: "network.remote-inference",
+        phase: "output",
+        status: "completed",
+        summary: `Cloud fallback completed for ${task}; response content omitted.`,
+      }).catch(() => undefined);
+      return output;
+    } catch (error) {
+      const cloudError =
+        error instanceof CloudInferenceError
+          ? error
+          : new CloudInferenceError(
+              "Cloud fallback failed. The local path is still available.",
+              "failed",
+            );
+      updateActivity(cloudError.status);
+      await recordPrivacyAction({
+        capabilityId: "network.remote-inference",
+        action: "cloud-fallback",
+        status:
+          cloudError.status === "cancelled"
+            ? "cancelled"
+            : cloudError.status === "timed-out"
+              ? "interrupted"
+              : "failed",
+        summary: `Cloud fallback ${cloudError.status} for ${task}; request content omitted.`,
+      }).catch(() => undefined);
+      await recordAgentTrace({
+        capabilityId: "network.remote-inference",
+        phase: "output",
+        status:
+          cloudError.status === "cancelled" || cloudError.status === "timed-out"
+            ? "interrupted"
+            : "failed",
+        summary: `Cloud fallback ${cloudError.status} for ${task}; response content omitted.`,
+      }).catch(() => undefined);
+      throw cloudError;
+    }
+  }
+
   async function updateSettings(patch: Partial<AppSettings>) {
     const nextSettings = { ...settings, ...patch };
 
@@ -2260,14 +2381,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function sendMessage(content: string) {
     const trimmedContent = content.trim();
+    const localAvailable =
+      privacyReady &&
+      isCapabilityActive(privacyState, "local.inference") &&
+      engineStatus === "ready" &&
+      Boolean(llamaContextRef.current);
+    const cloudAvailable =
+      privacyReady &&
+      isCapabilityActive(privacyState, "network.remote-inference");
     if (
       !trimmedContent ||
       isThinking ||
       !isConversationReady ||
       !privacyReady ||
       !isCapabilityActive(privacyState, "local.inference") ||
-      engineStatus !== "ready" ||
-      !llamaContextRef.current
+      (!localAvailable && !cloudAvailable)
     ) {
       if (
         trimmedContent &&
@@ -2285,22 +2413,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? "Privacy pause is active. Resume privileged actions in Settings before generating a reply."
             : "Local model inference is paused or revoked in Settings.",
         );
+      } else if (trimmedContent && !localAvailable && !cloudAvailable) {
+        setStorageError(
+          "Load the local model first, or enable Cloud fallback in Settings.",
+        );
       }
       return;
     }
 
-    void recordPrivacyAction({
-      capabilityId: "local.inference",
-      action: "local-inference",
-      status: "allowed",
-      summary: "A local reply started; prompt content omitted.",
-    }).catch(() => undefined);
-    void recordAgentTrace({
-      capabilityId: "local.inference",
-      phase: "input",
-      status: "started",
-      summary: "Local model input accepted; prompt content omitted.",
-    }).catch(() => undefined);
+    if (localAvailable) {
+      setCloudFallbackActivity(null);
+      void recordPrivacyAction({
+        capabilityId: "local.inference",
+        action: "local-inference",
+        status: "allowed",
+        summary: "A local reply started; prompt content omitted.",
+      }).catch(() => undefined);
+      void recordAgentTrace({
+        capabilityId: "local.inference",
+        phase: "input",
+        status: "started",
+        summary: "Local model input accepted; prompt content omitted.",
+      }).catch(() => undefined);
+    }
 
     if (settings.hapticsEnabled) {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -2329,36 +2464,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       let streamedContent = "";
-      const finalContent = await streamCompletion(
-        llamaContextRef.current,
-        withUserTurn.map((turn) => ({
-          role: turn.role,
-          content: turn.content,
-        })),
-        (token) => {
-          streamedContent += token;
-          setTurns((currentTurns) =>
-            currentTurns.map((turn) =>
-              turn.id === assistantTurn.id
-                ? { ...turn, content: streamedContent }
-                : turn,
-            ),
+      let finalContent: string;
+      if (localAvailable && llamaContextRef.current) {
+        try {
+          finalContent = await streamCompletion(
+            llamaContextRef.current,
+            withUserTurn.map((turn) => ({
+              role: turn.role,
+              content: turn.content,
+            })),
+            (token) => {
+              streamedContent += token;
+              setTurns((currentTurns) =>
+                currentTurns.map((turn) =>
+                  turn.id === assistantTurn.id
+                    ? { ...turn, content: streamedContent }
+                    : turn,
+                ),
+              );
+            },
+            {
+              displayName: profile.displayName,
+              context: profile.context,
+              memories: selectRelevantMemories(
+                memories,
+                trimmedContent,
+                6,
+                withUserTurn
+                  .slice(-6)
+                  .map((turn) => `${turn.role}: ${turn.content}`)
+                  .join("\n"),
+              ),
+            },
           );
-        },
-        {
-          displayName: profile.displayName,
-          context: profile.context,
-          memories: selectRelevantMemories(
-            memories,
+        } catch (localError) {
+          if (!cloudAvailable || !isFallbackEligibleLocalFailure(localError)) {
+            throw localError;
+          }
+          finalContent = await runCloudFallback(
+            "chat",
+            "local-runtime-failure",
             trimmedContent,
-            6,
-            withUserTurn
-              .slice(-6)
-              .map((turn) => `${turn.role}: ${turn.content}`)
-              .join("\n"),
-          ),
-        },
-      );
+          );
+        }
+      } else {
+        finalContent = await runCloudFallback(
+          "chat",
+          "local-engine-unavailable",
+          trimmedContent,
+        );
+      }
       const completedTurns = withAssistantTurn.map((turn) =>
         turn.id === assistantTurn.id
           ? {
@@ -2391,7 +2546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setPendingMemoryCandidate(conversationalReminder);
       }
       try {
-        if (!conversationalReminder && !hasReminderIntent) {
+        if (!conversationalReminder && !hasReminderIntent && llamaContextRef.current) {
           const rawCandidate = await proposeMemoryCandidate(
             llamaContextRef.current,
             trimmedContent,
@@ -2686,6 +2841,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openVoiceSettings,
       dismissVoiceError,
       sendMessage,
+      cloudFallbackActivity,
+      runCloudFallback,
       runLocalInference,
       clearConversation,
       storageUsage,
@@ -2707,6 +2864,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       privacyReady,
       privacyState,
       privacyResetVersion,
+      cloudFallbackActivity,
       memories,
       pendingMemoryCandidate,
       savedTurnCount,

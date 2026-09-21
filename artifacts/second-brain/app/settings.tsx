@@ -198,7 +198,8 @@ function PrivacyCapabilityRow({
     !isNetwork ||
     definition.id === "network.model-download" ||
     definition.id === "network.connectors" ||
-    definition.id === "network.web-research";
+    definition.id === "network.web-research" ||
+    definition.id === "network.remote-inference";
   const nextApproval: CapabilityApproval =
     grant.approval === "approved" ? "paused" : "approved";
 
@@ -244,6 +245,8 @@ function PrivacyCapabilityRow({
               ? "Network: required · off by default · only the named model file is downloaded"
               : isWebResearch
                 ? "Network: required · only one user-approved public URL is fetched"
+                : definition.id === "network.remote-inference"
+                  ? "Network: required · only after local failure or device limits · server-managed provider"
               : "Network: required · off by default · nothing leaves this device"
             : `Network: ${definition.networkUse === "never" ? "never" : "only with a future explicit approval"}`}
         </Text>
