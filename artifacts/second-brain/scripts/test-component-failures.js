@@ -1009,6 +1009,88 @@ async function testVoiceStartClearsDraftBeforeRecognition() {
   assert.equal(findByTestId(renderer, 'chat-input').props.value, '');
 }
 
+async function testDictationStaysEditableUntilExplicitSend() {
+  let sent = 0;
+  appValue = baseAppValue({
+    voiceTranscript: 'recognized phrase',
+    clearVoiceTranscript: () => {},
+    sendMessage: async (message) => {
+      sent += 1;
+      assert.equal(message, 'edited phrase');
+    },
+  });
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+  });
+  assert.equal(sent, 0);
+  const input = findByTestId(renderer, 'chat-input');
+  assert.equal(input.props.value, 'recognized phrase');
+  assert.equal(
+    findByTestId(renderer, 'demi-voice-circle').props.accessibilityLabel,
+    'Review dictation draft',
+  );
+  await TestRenderer.act(async () => {
+    await input.props.onChangeText('edited phrase');
+  });
+  await TestRenderer.act(async () => {
+    await findByProps(renderer, { accessibilityLabel: 'Send message' }).props.onPress();
+  });
+  assert.equal(sent, 1);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
+async function testEmptyDictationDoesNotSendAnything() {
+  let sent = 0;
+  appValue = baseAppValue({
+    voiceTranscript: '',
+    sendMessage: async () => {
+      sent += 1;
+    },
+  });
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'keyboard-toggle').props.onPress();
+  });
+  assert.equal(findByTestId(renderer, 'chat-input').props.value, '');
+  assert.equal(sent, 0);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
+function findByProps(renderer, props) {
+  return renderer.root.findByProps(props);
+}
+
+function testVoiceLifecycleGuardsLateRecognition() {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../context/AppContext.tsx'),
+    'utf8',
+  );
+  assert.match(source, /voiceRecognitionRunRef/);
+  assert.match(source, /clearRecognitionSubscriptions/);
+  assert.match(source, /if \(runId !== voiceRecognitionRunRef\.current\) return/);
+  assert.match(source, /event\.error === "aborted"/);
+  assert.match(source, /voiceRecognitionRunRef\.current \+= 1/);
+  assert.match(source, /const runId = voiceRecognitionRunRef\.current \+ 1/);
+  assert.match(source, /setVoiceTranscript\(""\);[\s\S]*setVoiceInputStatus\("idle"\)/);
+  assert.doesNotMatch(
+    fs.readFileSync(path.join(__dirname, '../app/index.tsx'), 'utf8'),
+    /voiceInputStatus === 'idle'[\s\S]*handleSend\(\)/,
+  );
+}
+
 async function testBrowserVoiceControlsExplainNativeRequirement() {
   routerCalls = [];
   appValue = baseAppValue();
@@ -1338,6 +1420,9 @@ async function main() {
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
+  await testDictationStaysEditableUntilExplicitSend();
+  await testEmptyDictationDoesNotSendAnything();
+  testVoiceLifecycleGuardsLateRecognition();
   await testBrowserVoiceControlsExplainNativeRequirement();
   await testStorageMeasurementFailuresStayBestEffort();
   await testSettingsStaysUsableWhenStorageIsUnavailable();

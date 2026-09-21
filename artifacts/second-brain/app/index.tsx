@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -99,7 +99,6 @@ export default function DemiScreen() {
   const [memoryDraft, setMemoryDraft] = useState('');
   const [memorySaveError, setMemorySaveError] = useState<string | null>(null);
   const [isSavingMemory, setIsSavingMemory] = useState(false);
-  const sendingVoiceRef = useRef(false);
 
   const isListening = voiceInputStatus === 'listening';
   const isProcessingVoice = voiceInputStatus === 'checking' || voiceInputStatus === 'processing';
@@ -118,6 +117,8 @@ export default function DemiScreen() {
   useEffect(() => {
     if (!voiceTranscript) return;
     setDraft(voiceTranscript);
+    setShowKeyboard(true);
+    setWasStopped(false);
     clearVoiceTranscript();
   }, [clearVoiceTranscript, voiceTranscript]);
 
@@ -133,11 +134,7 @@ export default function DemiScreen() {
     const message = draft.trim();
     setDraft('');
     setShowKeyboard(false);
-    try {
-      await sendMessage(message);
-    } finally {
-      sendingVoiceRef.current = false;
-    }
+    await sendMessage(message);
   }
 
   // Setup text for the single prompt
@@ -167,20 +164,17 @@ export default function DemiScreen() {
     }
     if (isListening || isProcessingVoice) {
       setWasStopped(true);
-      stopVoiceInput();
+      if (isProcessingVoice) {
+        cancelVoiceInput();
+      } else {
+        stopVoiceInput();
+      }
       return;
     }
     setWasStopped(false);
     setDraft('');
     void startVoiceInput();
   }
-
-  useEffect(() => {
-    if (voiceInputStatus === 'idle' && draft.trim().length > 0 && !isThinking && isConversationReady && engineStatus === 'ready' && !showKeyboard && !sendingVoiceRef.current) {
-      sendingVoiceRef.current = true;
-      void handleSend();
-    }
-  }, [voiceInputStatus, draft, isThinking, isConversationReady, engineStatus, showKeyboard]);
 
   const circleSize = Math.max(
     132,
@@ -256,8 +250,10 @@ export default function DemiScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={
                   isListening ? "Stop listening" :
+                  isProcessingVoice ? "Cancel transcription" :
                   isSpeaking ? "Stop speaking" :
                   isThinking ? "Thinking" :
+                  draft ? "Review dictation draft" :
                   setupNeeded ? "Open settings for setup" : "Start voice input"
                 }
                 onPress={handleVoiceInput}
@@ -284,8 +280,11 @@ export default function DemiScreen() {
                 )}
               </Pressable>
 
-              <Text style={[styles.statusText, { color: colors.mutedForeground }]}>
-                {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : wasStopped ? 'Stopped' : draft ? 'Draft ready' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
+              <Text
+                accessibilityLiveRegion="polite"
+                style={[styles.statusText, { color: colors.mutedForeground }]}
+              >
+                {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : draft ? 'Draft ready — review before sending' : wasStopped ? 'Dictation canceled' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
               </Text>
               {cloudFallbackActivity && (
                 <Text style={[styles.setupText, { color: colors.mutedForeground }]}>
@@ -314,6 +313,8 @@ export default function DemiScreen() {
         {showKeyboard ? (
           <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close message composer"
               onPress={() => setShowKeyboard(false)}
               style={({ pressed }) => [styles.closeKeyboardButton, pressed && styles.pressed]}
             >
@@ -321,6 +322,7 @@ export default function DemiScreen() {
             </Pressable>
             <TextInput
               testID="chat-input"
+              accessibilityLabel="Message draft"
               value={draft}
               onChangeText={setDraft}
               placeholder="Type to Demi..."
@@ -335,6 +337,7 @@ export default function DemiScreen() {
             />
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Send message"
               onPress={handleSend}
               disabled={!canSend}
               style={({ pressed }) => [
@@ -354,6 +357,8 @@ export default function DemiScreen() {
           <View style={styles.bottomBar}>
              <Pressable
               testID="keyboard-toggle"
+              accessibilityRole="button"
+              accessibilityLabel="Open message composer"
               onPress={() => setShowKeyboard(true)}
               style={({ pressed }) => [styles.keyboardToggle, pressed && styles.pressed]}
              >

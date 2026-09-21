@@ -621,6 +621,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deviceCompatibility = useMemo(() => getDeviceCompatibility(), []);
   const llamaContextRef = useRef<LlamaContext | null>(null);
   const recognitionModuleRef = useRef<RecognitionModule | null>(null);
+  const recognitionSubscriptionsRef = useRef<Array<{ remove: () => void }>>([]);
+  const voiceRecognitionRunRef = useRef(0);
+  const voiceRecognitionActiveRef = useRef(false);
   const recognitionServicePackageRef = useRef<string | undefined>(undefined);
   const voiceSelfTestActiveRef = useRef(false);
   const voiceSelfTestCancelRef = useRef<(() => void) | null>(null);
@@ -652,6 +655,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   privacyStateRef.current = privacyState;
   screenSessionRef.current = screenSession;
   turnsRef.current = turns;
+
+  function clearRecognitionSubscriptions() {
+    recognitionSubscriptionsRef.current.forEach((subscription) => {
+      subscription.remove();
+    });
+    recognitionSubscriptionsRef.current = [];
+  }
 
   async function refreshScreenAccessStatus() {
     const status = await getScreenAccessStatus();
@@ -996,7 +1006,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   useEffect(() => {
-    let isMounted = true;
     void refreshOfflineVoices();
 
     const module = getRecognitionModule();
@@ -1004,7 +1013,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!module) {
       setVoiceInputStatus("unavailable");
       return () => {
-        isMounted = false;
         void stopLocalSpeech();
       };
     }
@@ -1024,49 +1032,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
     );
 
-    const subscriptions = [
-      module.addListener("start", () => {
-        if (voiceSelfTestActiveRef.current) return;
-        setVoiceInputStatus("listening");
-        setVoiceError(null);
-      }),
-      module.addListener(
-        "result",
-        (event: ExpoSpeechRecognitionResultEvent) => {
-          if (voiceSelfTestActiveRef.current) return;
-          const transcript = event.results[0]?.transcript?.trim();
-          if (transcript) setVoiceTranscript(transcript);
-          if (event.isFinal) setVoiceInputStatus("processing");
-        },
-      ),
-      module.addListener("end", () => {
-        if (voiceSelfTestActiveRef.current) return;
-        setVoiceInputStatus((current) =>
-          current === "unavailable" || current === "needs-model"
-            ? current
-            : "idle",
-        );
-      }),
-      module.addListener("error", (event) => {
-        if (voiceSelfTestActiveRef.current) return;
-        if (event.error === "aborted") {
-          setVoiceInputStatus("idle");
-          return;
-        }
-        const needsModel =
-          event.error === "language-not-supported" ||
-          event.error === "service-not-allowed" ||
-          event.error === "network";
-        setVoiceInputStatus(needsModel ? "needs-model" : "error");
-        setVoiceError(voiceErrorMessage(event));
-      }),
-    ];
-
     return () => {
-      isMounted = false;
+      voiceRecognitionRunRef.current += 1;
+      voiceRecognitionActiveRef.current = false;
+      clearRecognitionSubscriptions();
       voiceSelfTestCancelRef.current?.();
       appStateSubscription.remove();
-      subscriptions.forEach((subscription) => subscription.remove());
       try {
         module.abort();
       } catch {
@@ -1553,6 +1524,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function startVoiceInput() {
+    const runId = voiceRecognitionRunRef.current + 1;
+    voiceRecognitionRunRef.current = runId;
+    voiceRecognitionActiveRef.current = false;
+    clearRecognitionSubscriptions();
+    setVoiceTranscript("");
+
     if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-input")) {
       setVoiceInputStatus("error");
       setVoiceError(
@@ -1600,6 +1577,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const permission = await module.requestPermissionsAsync();
+      if (runId !== voiceRecognitionRunRef.current) return;
       if (!permission.granted) {
         setVoiceInputStatus("error");
         setVoiceError(
@@ -1611,6 +1589,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const offlineLocaleInstalled = await refreshVoiceAvailability(module);
+      if (runId !== voiceRecognitionRunRef.current) return;
       if (!offlineLocaleInstalled) {
         setVoiceInputStatus("needs-model");
         setVoiceError(
@@ -1620,8 +1599,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       setVoiceInputAvailable(true);
-      setVoiceTranscript("");
       setVoiceInputStatus("checking");
+      const subscriptions = [
+        module.addListener("start", () => {
+          if (runId !== voiceRecognitionRunRef.current) return;
+          setVoiceInputStatus("listening");
+          setVoiceError(null);
+        }),
+        module.addListener(
+          "result",
+          (event: ExpoSpeechRecognitionResultEvent) => {
+            if (runId !== voiceRecognitionRunRef.current) return;
+            const transcript = event.results[0]?.transcript?.trim();
+            if (transcript) setVoiceTranscript(transcript);
+            if (event.isFinal) setVoiceInputStatus("processing");
+          },
+        ),
+        module.addListener("end", () => {
+          if (runId !== voiceRecognitionRunRef.current) return;
+          voiceRecognitionActiveRef.current = false;
+          clearRecognitionSubscriptions();
+          setVoiceInputStatus((current) =>
+            current === "unavailable" || current === "needs-model"
+              ? current
+              : "idle",
+          );
+        }),
+        module.addListener("error", (event) => {
+          if (runId !== voiceRecognitionRunRef.current) return;
+          voiceRecognitionActiveRef.current = false;
+          clearRecognitionSubscriptions();
+          if (event.error === "aborted") {
+            setVoiceTranscript("");
+            setVoiceInputStatus("idle");
+            return;
+          }
+          const needsModel =
+            event.error === "language-not-supported" ||
+            event.error === "service-not-allowed" ||
+            event.error === "network";
+          setVoiceTranscript("");
+          setVoiceInputStatus(needsModel ? "needs-model" : "error");
+          setVoiceError(voiceErrorMessage(event));
+        }),
+      ];
+      recognitionSubscriptionsRef.current = subscriptions;
+      voiceRecognitionActiveRef.current = true;
+      if (runId !== voiceRecognitionRunRef.current) {
+        clearRecognitionSubscriptions();
+        voiceRecognitionActiveRef.current = false;
+        return;
+      }
       module.start({
         lang: settings.voiceLanguage,
         interimResults: true,
@@ -1632,6 +1660,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         androidRecognitionServicePackage: recognitionServicePackageRef.current,
       });
     } catch (error) {
+      if (runId !== voiceRecognitionRunRef.current) return;
+      voiceRecognitionActiveRef.current = false;
+      clearRecognitionSubscriptions();
+      setVoiceTranscript("");
       setVoiceInputStatus("error");
       setVoiceError(
         error instanceof Error
@@ -1643,15 +1675,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function stopVoiceInput() {
     const module = recognitionModuleRef.current;
-    if (!module) return;
+    if (!module || !voiceRecognitionActiveRef.current) {
+      cancelVoiceInput();
+      return;
+    }
     setVoiceInputStatus("processing");
     module.stop();
   }
 
   function cancelVoiceInput() {
+    voiceRecognitionRunRef.current += 1;
+    voiceRecognitionActiveRef.current = false;
+    clearRecognitionSubscriptions();
     const module = recognitionModuleRef.current;
-    if (!module) return;
-    module.abort();
+    try {
+      module?.abort();
+    } catch {
+      // The recognizer may already be inactive.
+    }
     setVoiceTranscript("");
     setVoiceInputStatus("idle");
     setVoiceError(null);

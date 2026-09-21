@@ -493,6 +493,13 @@ async function main() {
   assert.match(homeScreen, /save-memory-candidate/);
   assert.match(homeScreen, /review-date-candidate/);
   assert.match(homeScreen, /pathname: '\/calendar\/edit'/);
+  assert.doesNotMatch(homeScreen, /voiceInputStatus === 'idle'[\s\S]*handleSend\(\)/);
+  assert.match(homeScreen, /Draft ready — review before sending/);
+  assert.match(homeScreen, /accessibilityLabel="Message draft"/);
+  assert.match(homeScreen, /accessibilityLabel="Send message"/);
+  assert.match(appContext, /voiceRecognitionRunRef/);
+  assert.match(appContext, /clearRecognitionSubscriptions/);
+  assert.match(appContext, /if \(runId !== voiceRecognitionRunRef\.current\) return/);
   const memoriesScreen = fs.readFileSync(
     path.resolve(__dirname, '../app/memories.tsx'),
     'utf8',
