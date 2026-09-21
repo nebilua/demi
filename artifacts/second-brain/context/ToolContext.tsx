@@ -1,7 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import React, { createContext, useContext, useMemo, useRef, useState } from "react";
-import { useApp } from "@/context/AppContext";
+import { useApp, useChat } from "@/context/AppContext";
 import {
   createToolPreflight,
   validateToolInput,
@@ -54,10 +54,10 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
   const {
     privacyReady,
     privacyState,
-    runLocalInference,
     recordPrivacyAction,
     recordAgentTrace,
   } = useApp();
+  const { runLocalInference } = useChat();
   const [selectedDocument, setSelectedDocument] = useState<SelectedDocument | null>(null);
   const [documentResult, setDocumentResult] = useState<string | null>(null);
   const [documentBusy, setDocumentBusy] = useState(false);

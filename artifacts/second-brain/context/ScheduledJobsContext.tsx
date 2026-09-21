@@ -1,6 +1,6 @@
 import { AppState } from 'react-native';
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useApp } from '@/context/AppContext';
+import { useApp, useChat } from '@/context/AppContext';
 import { useCalendar } from '@/context/CalendarContext';
 import { isCapabilityActive } from '@/lib/privacyCapabilities';
 import {
@@ -86,11 +86,11 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
     privacyState,
     privacyResetVersion,
     memories,
-    runLocalInference,
     engineStatus,
     recordPrivacyAction,
     recordAgentTrace,
   } = useApp();
+  const { runLocalInference } = useChat();
   const { upcomingReminders } = useCalendar();
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const jobsRef = useRef<ScheduledJob[]>([]);

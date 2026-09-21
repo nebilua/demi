@@ -18,7 +18,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { PersonalProfileEditor } from "@/components/PersonalProfileEditor";
-import { useApp, type Appearance } from "@/context/AppContext";
+import { useApp, useChat, type Appearance } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { formatBytes, RECOMMENDED_MODEL } from "@/lib/offlineLlm";
 import type { LocalStorageUsage, StorageMetric } from "@/lib/localStorageUsage";
@@ -619,7 +619,6 @@ export default function SettingsScreen() {
     setGlobalPrivacyPause,
     clearPrivacyState,
     storageError,
-    clearConversation,
     localModel,
     deviceCompatibility,
     engineStatus,
@@ -659,6 +658,7 @@ export default function SettingsScreen() {
     storageDetailsExpanded,
     setStorageDetailsExpanded,
   } = useApp();
+  const { clearConversation } = useChat();
   const colors = useColors(settings.appearance);
   const insets = useSafeAreaInsets();
 

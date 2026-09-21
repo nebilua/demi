@@ -163,7 +163,7 @@ Module._load = function load(request, parent, isMain) {
     return { KeyboardAwareScrollViewCompat: passthrough('KeyboardAwareScrollViewCompat') };
   }
   if (request === '@/context/AppContext' || request.endsWith('/context/AppContext')) {
-    return { useApp: () => appValue };
+    return { useApp: () => appValue, useChat: () => appValue };
   }
   if (request === '@/hooks/useColors' || request.endsWith('/hooks/useColors')) {
     return { useColors: () => colors };

@@ -61,6 +61,7 @@ import {
 import {
   MAX_CONVERSATION_TURNS,
   MAX_MEMORIES,
+  MAX_MEMORIES_IN_PROMPT,
   MODEL_STORAGE_SAFETY_MARGIN_BYTES,
 } from "@/lib/localLimits";
 import {
@@ -101,6 +102,10 @@ import {
   stopScreenSession as stopNativeScreenSession,
   type ScreenAccessStatus,
 } from "@/lib/screenAccess";
+import {
+  recordRuntimeEvent,
+  startRuntimeMetric,
+} from "@/lib/runtimeDiagnostics";
 
 export type Appearance = "system" | "light" | "dark";
 
@@ -166,9 +171,6 @@ type AppContextValue = {
   ) => Promise<void>;
   skipProfile: () => Promise<void>;
   clearProfile: () => Promise<void>;
-  turns: ConversationTurn[];
-  isConversationReady: boolean;
-  isThinking: boolean;
   storageError: string | null;
   storageProtection: SecureStorageProtection;
   privacyReady: boolean;
@@ -196,9 +198,6 @@ type AppContextValue = {
   openAccessibilitySettings: () => Promise<void>;
   updateScreenPolicy: (patch: Partial<ScreenPrivacyPolicy>) => Promise<void>;
   memories: ApprovedMemory[];
-  pendingMemoryCandidate: MemoryCandidate | null;
-  saveMemoryCandidate: (content?: string) => Promise<void>;
-  rejectMemoryCandidate: () => void;
   updateMemory: (id: string, content: string) => Promise<void>;
   updateMemoryAliases: (id: string, aliases: string[]) => Promise<void>;
   archiveMemory: (id: string, archived: boolean) => Promise<void>;
@@ -246,7 +245,6 @@ type AppContextValue = {
   stopSpeaking: () => Promise<void>;
   openVoiceSettings: () => Promise<void>;
   dismissVoiceError: () => void;
-  sendMessage: (content: string) => Promise<void>;
   cloudFallbackActivity: CloudFallbackActivity | null;
   runCloudFallback: (
     task: CloudTask,
@@ -254,17 +252,27 @@ type AppContextValue = {
     userInput: string,
     signal?: AbortSignal,
   ) => Promise<string>;
-  runLocalInference: (
-    prompt: string,
-    onToken?: (token: string) => void,
-  ) => Promise<string>;
-  clearConversation: () => Promise<void>;
   storageUsage: LocalStorageUsage | null;
   storageUsageRefreshing: boolean;
   refreshStorageUsage: () => void;
   reclaimUnusedModelFiles: () => Promise<ModelCleanupResult>;
   storageDetailsExpanded: boolean;
   setStorageDetailsExpanded: (expanded: boolean) => void;
+};
+
+export type ChatContextValue = {
+  turns: ConversationTurn[];
+  isConversationReady: boolean;
+  isThinking: boolean;
+  pendingMemoryCandidate: MemoryCandidate | null;
+  saveMemoryCandidate: (content?: string) => Promise<void>;
+  rejectMemoryCandidate: () => void;
+  sendMessage: (content: string) => Promise<void>;
+  runLocalInference: (
+    prompt: string,
+    onToken?: (token: string) => void,
+  ) => Promise<string>;
+  clearConversation: () => Promise<void>;
 };
 
 const SETTINGS_KEY = "@second-brain/settings-v1";
@@ -293,7 +301,10 @@ const DEFAULT_PROFILE: PersonalProfile = {
   onboardingCompleted: false,
 };
 
+const STREAM_UI_UPDATE_INTERVAL_MS = 50;
+
 const AppContext = createContext<AppContextValue | null>(null);
+const ChatContext = createContext<ChatContextValue | null>(null);
 
 function createId() {
   return `${Date.now().toString()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -625,9 +636,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const privacyMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef(settings);
   const storageMeasurementRunRef = useRef(0);
+  const turnsRef = useRef<ConversationTurn[]>([]);
+  const streamUpdateRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    turnId: string | null;
+    content: string;
+    run: number;
+  }>({ timer: null, turnId: null, content: "", run: 0 });
+  const memorySuggestionRunRef = useRef(0);
+  const memorySuggestionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   settingsRef.current = settings;
   privacyStateRef.current = privacyState;
   screenSessionRef.current = screenSession;
+  turnsRef.current = turns;
 
   async function refreshScreenAccessStatus() {
     const status = await getScreenAccessStatus();
@@ -812,6 +835,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+    const finishStartupMetricOnce = startRuntimeMetric("startup.local-data");
+    let startupMetricFinished = false;
+    const finishStartupMetric = (details?: Record<string, string | number | boolean>) => {
+      if (startupMetricFinished) return;
+      startupMetricFinished = true;
+      finishStartupMetricOnce(details);
+    };
 
     void (async () => {
       const [
@@ -901,10 +931,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSettingsReady(true);
       setIsConversationReady(true);
       setPrivacyReady(true);
+      finishStartupMetric({
+        savedTurns: savedTurns.length,
+        savedMemories: savedMemories.length,
+      });
     })();
 
     return () => {
       isMounted = false;
+      finishStartupMetric();
+      if (streamUpdateRef.current.timer) {
+        clearTimeout(streamUpdateRef.current.timer);
+        streamUpdateRef.current.timer = null;
+      }
+      if (memorySuggestionTimerRef.current) {
+        clearTimeout(memorySuggestionTimerRef.current);
+        memorySuggestionTimerRef.current = null;
+      }
+      memorySuggestionRunRef.current += 1;
       void llamaContextRef.current?.release();
       llamaContextRef.current = null;
     };
@@ -2314,14 +2358,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function updateSettings(patch: Partial<AppSettings>) {
+    const finishMetric = startRuntimeMetric("settings.update");
     const nextSettings = { ...settings, ...patch };
 
     try {
       await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(nextSettings));
       setSettings(nextSettings);
       setStorageError(null);
+      finishMetric({ changedKeys: Object.keys(patch).length });
     } catch {
       setStorageError("Settings could not be saved on this device.");
+      finishMetric({ failed: true });
     }
   }
 
@@ -2364,6 +2411,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function persistTurns(nextTurns: ConversationTurn[]) {
     if (!settings.saveConversations) return;
+    const finishMetric = startRuntimeMetric("conversation.persist", {
+      turnCount: Math.min(nextTurns.length, MAX_CONVERSATION_TURNS),
+    });
 
     try {
       await writeSecureRecord(
@@ -2372,11 +2422,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       setSavedTurnCount(Math.min(nextTurns.length, MAX_CONVERSATION_TURNS));
       setStorageError(null);
+      finishMetric();
     } catch {
       setStorageError(
         "This message is visible now, but could not be saved locally.",
       );
+      finishMetric({ failed: true });
     }
+  }
+
+  function commitTurns(nextTurns: ConversationTurn[]) {
+    turnsRef.current = nextTurns;
+    setTurns(nextTurns);
+  }
+
+  function cancelStreamUpdate() {
+    if (streamUpdateRef.current.timer) {
+      clearTimeout(streamUpdateRef.current.timer);
+    }
+    streamUpdateRef.current.timer = null;
+    streamUpdateRef.current.turnId = null;
+    streamUpdateRef.current.content = "";
+  }
+
+  function flushStreamUpdate() {
+    const { turnId, content } = streamUpdateRef.current;
+    if (!turnId) return;
+    commitTurns(
+      turnsRef.current.map((turn) =>
+        turn.id === turnId ? { ...turn, content } : turn,
+      ),
+    );
+    streamUpdateRef.current.timer = null;
+    recordRuntimeEvent("conversation.stream-render", {
+      contentLength: content.length,
+    });
+  }
+
+  function scheduleStreamUpdate(turnId: string, content: string) {
+    streamUpdateRef.current.turnId = turnId;
+    streamUpdateRef.current.content = content;
+    if (streamUpdateRef.current.timer) return;
+    const run = streamUpdateRef.current.run;
+    streamUpdateRef.current.timer = setTimeout(() => {
+      if (run !== streamUpdateRef.current.run) return;
+      flushStreamUpdate();
+    }, STREAM_UI_UPDATE_INTERVAL_MS);
   }
 
   async function sendMessage(content: string) {
@@ -2447,11 +2538,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       content: trimmedContent,
       createdAt: Date.now(),
     };
-    const withUserTurn = [...turns, userTurn];
+    const withUserTurn = [...turnsRef.current, userTurn];
 
-    setTurns(withUserTurn);
+    commitTurns(withUserTurn);
     setIsThinking(true);
-    await persistTurns(withUserTurn);
+    memorySuggestionRunRef.current += 1;
+    if (memorySuggestionTimerRef.current) {
+      clearTimeout(memorySuggestionTimerRef.current);
+      memorySuggestionTimerRef.current = null;
+    }
 
     const assistantTurn: ConversationTurn = {
       id: createId(),
@@ -2460,7 +2555,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
     const withAssistantTurn = [...withUserTurn, assistantTurn];
-    setTurns(withAssistantTurn);
+    commitTurns(withAssistantTurn);
+    streamUpdateRef.current.run += 1;
+    const streamRun = streamUpdateRef.current.run;
+    const finishInferenceMetric = startRuntimeMetric("inference.reply", {
+      promptLength: trimmedContent.length,
+    });
 
     try {
       let streamedContent = "";
@@ -2475,13 +2575,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             })),
             (token) => {
               streamedContent += token;
-              setTurns((currentTurns) =>
-                currentTurns.map((turn) =>
-                  turn.id === assistantTurn.id
-                    ? { ...turn, content: streamedContent }
-                    : turn,
-                ),
-              );
+              if (streamRun === streamUpdateRef.current.run) {
+                scheduleStreamUpdate(assistantTurn.id, streamedContent);
+              }
             },
             {
               displayName: profile.displayName,
@@ -2489,7 +2585,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               memories: selectRelevantMemories(
                 memories,
                 trimmedContent,
-                6,
+                  MAX_MEMORIES_IN_PROMPT,
                 withUserTurn
                   .slice(-6)
                   .map((turn) => `${turn.role}: ${turn.content}`)
@@ -2525,8 +2621,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           : turn,
       );
-      setTurns(completedTurns);
+      cancelStreamUpdate();
+      commitTurns(completedTurns);
       await persistTurns(completedTurns);
+      finishInferenceMetric({
+        responseLength: completedTurns.at(-1)?.content.length ?? 0,
+      });
       const completedResponse =
         completedTurns.find((turn) => turn.id === assistantTurn.id)?.content ??
         "";
@@ -2536,33 +2636,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         status: "completed",
         summary: "Local model output completed; response content omitted.",
       }).catch(() => undefined);
-      if (settings.spokenRepliesEnabled && completedResponse) {
-        await speakText(completedResponse);
-      }
       const conversationalReminder =
         parseConversationalReminder(trimmedContent);
       const hasReminderIntent = hasConversationalReminderIntent(trimmedContent);
       if (conversationalReminder) {
         setPendingMemoryCandidate(conversationalReminder);
       }
-      try {
-        if (!conversationalReminder && !hasReminderIntent && llamaContextRef.current) {
-          const rawCandidate = await proposeMemoryCandidate(
-            llamaContextRef.current,
-            trimmedContent,
-            completedResponse,
+      if (settings.spokenRepliesEnabled && completedResponse) {
+        void speakText(completedResponse).catch(() => undefined);
+      }
+      if (
+        !conversationalReminder &&
+        !hasReminderIntent &&
+        llamaContextRef.current &&
+        memories.length < MAX_MEMORIES
+      ) {
+        const suggestionRun = memorySuggestionRunRef.current;
+        memorySuggestionTimerRef.current = setTimeout(() => {
+          memorySuggestionTimerRef.current = null;
+          if (suggestionRun !== memorySuggestionRunRef.current) return;
+          const finishMemoryMetric = startRuntimeMetric(
+            "inference.memory-candidate",
+            { promptLength: trimmedContent.length },
           );
-          const candidate = parseMemoryCandidate(
-            rawCandidate,
-            memories,
-            trimmedContent,
-          );
-          if (candidate) setPendingMemoryCandidate(candidate);
-        }
-      } catch {
-        // Suggestions are optional and must never interrupt the conversation.
+          void (async () => {
+            try {
+              const rawCandidate = await proposeMemoryCandidate(
+                llamaContextRef.current!,
+                trimmedContent,
+                completedResponse,
+              );
+              const candidate = parseMemoryCandidate(
+                rawCandidate,
+                memories,
+                trimmedContent,
+              );
+              if (
+                candidate &&
+                suggestionRun === memorySuggestionRunRef.current
+              ) {
+                setPendingMemoryCandidate(candidate);
+              }
+              finishMemoryMetric({
+                candidateFound: Boolean(candidate),
+              });
+            } catch {
+              finishMemoryMetric({ failed: true });
+              // Suggestions are optional and must never interrupt the conversation.
+            }
+          })();
+        }, 0);
       }
     } catch (error) {
+      cancelStreamUpdate();
       const failedTurns = withAssistantTurn.map((turn) =>
         turn.id === assistantTurn.id
           ? {
@@ -2571,8 +2697,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           : turn,
       );
-      setTurns(failedTurns);
+      commitTurns(failedTurns);
       await persistTurns(failedTurns);
+      finishInferenceMetric({ failed: true });
       void recordAgentTrace({
         capabilityId: "local.inference",
         phase: "output",
@@ -2621,7 +2748,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     clearConversationInFlightRef.current = true;
     try {
       await removeSecureRecord(SECURE_CONVERSATION_KEY);
-      setTurns([]);
+      commitTurns([]);
       setSavedTurnCount(0);
       setStorageError(null);
     } catch {
@@ -2769,9 +2896,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveProfile,
       skipProfile,
       clearProfile,
-      turns,
-      isConversationReady,
-      isThinking,
       storageError,
       storageProtection,
       privacyReady,
@@ -2790,9 +2914,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openAccessibilitySettings,
       updateScreenPolicy,
       memories,
-      pendingMemoryCandidate,
-      saveMemoryCandidate,
-      rejectMemoryCandidate: () => setPendingMemoryCandidate(null),
       updateMemory,
       updateMemoryAliases,
       archiveMemory,
@@ -2840,11 +2961,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       stopSpeaking,
       openVoiceSettings,
       dismissVoiceError,
-      sendMessage,
       cloudFallbackActivity,
       runCloudFallback,
-      runLocalInference,
-      clearConversation,
       storageUsage,
       storageUsageRefreshing,
       refreshStorageUsage,
@@ -2856,9 +2974,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       settings,
       settingsReady,
       profile,
-      turns,
-      isConversationReady,
-      isThinking,
       storageError,
       storageProtection,
       privacyReady,
@@ -2866,7 +2981,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       privacyResetVersion,
       cloudFallbackActivity,
       memories,
-      pendingMemoryCandidate,
       savedTurnCount,
       localModel,
       deviceCompatibility,
@@ -2894,13 +3008,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  const chatValue = useMemo<ChatContextValue>(
+    () => ({
+      turns,
+      isConversationReady,
+      isThinking,
+      pendingMemoryCandidate,
+      saveMemoryCandidate,
+      rejectMemoryCandidate: () => setPendingMemoryCandidate(null),
+      sendMessage,
+      runLocalInference,
+      clearConversation,
+    }),
+    [
+      turns,
+      isConversationReady,
+      isThinking,
+      pendingMemoryCandidate,
+      settings,
+      privacyReady,
+      privacyState,
+      engineStatus,
+      profile,
+      memories,
+    ],
+  );
+
+  return (
+    <AppContext.Provider value={value}>
+      <ChatContext.Provider value={chatValue}>{children}</ChatContext.Provider>
+    </AppContext.Provider>
+  );
 }
 
 export function useApp() {
   const context = useContext(AppContext);
   if (!context) {
     throw new Error("useApp must be used inside AppProvider");
+  }
+  return context;
+}
+
+export function useChat() {
+  const context = useContext(ChatContext);
+  if (!context) {
+    throw new Error("useChat must be used inside AppProvider");
   }
   return context;
 }

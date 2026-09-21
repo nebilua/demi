@@ -19,13 +19,19 @@ import {
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
-import { useApp, type ConversationTurn } from '@/context/AppContext';
+import { useApp, useChat, type Appearance, type ConversationTurn } from '@/context/AppContext';
 import { useColors } from '@/hooks/useColors';
 import { isCapabilityActive } from '@/lib/privacyCapabilities';
+import { recordRuntimeEvent } from '@/lib/runtimeDiagnostics';
 
-function MessageBubble({ item }: { item: ConversationTurn }) {
-  const { settings } = useApp();
-  const colors = useColors(settings.appearance);
+const MessageBubble = React.memo(function MessageBubble({
+  item,
+  appearance,
+}: {
+  item: ConversationTurn;
+  appearance: Appearance;
+}) {
+  const colors = useColors(appearance);
   const isUser = item.role === 'user';
 
   return (
@@ -49,7 +55,9 @@ function MessageBubble({ item }: { item: ConversationTurn }) {
       </View>
     </View>
   );
-}
+}, (previous, next) =>
+  previous.item === next.item && previous.appearance === next.appearance
+);
 
 export default function DemiScreen() {
   const router = useRouter();
@@ -60,9 +68,6 @@ export default function DemiScreen() {
     privacyReady,
     privacyState,
     profile,
-    turns,
-    isConversationReady,
-    isThinking,
     localModel,
     engineStatus,
     modelSetupStatus,
@@ -74,14 +79,19 @@ export default function DemiScreen() {
     cancelVoiceInput,
     clearVoiceTranscript,
     stopSpeaking,
-    sendMessage,
     storageError,
     cloudFallbackActivity,
     voiceError,
+  } = useApp();
+  const {
+    turns,
+    isConversationReady,
+    isThinking,
+    sendMessage,
     pendingMemoryCandidate,
     saveMemoryCandidate,
     rejectMemoryCandidate,
-  } = useApp();
+  } = useChat();
   const colors = useColors(settings.appearance);
   const [draft, setDraft] = useState('');
   const [showKeyboard, setShowKeyboard] = useState(false);
@@ -94,6 +104,7 @@ export default function DemiScreen() {
   const isListening = voiceInputStatus === 'listening';
   const isProcessingVoice = voiceInputStatus === 'checking' || voiceInputStatus === 'processing';
 
+  recordRuntimeEvent('chat.render', { turnCount: turns.length });
   const visibleTurns = useMemo(() => [...turns].reverse(), [turns]);
   const cloudFallbackEnabled =
     privacyReady &&
@@ -229,7 +240,9 @@ export default function DemiScreen() {
                 data={visibleTurns}
                 inverted
                 keyExtractor={(item) => item.id}
-                renderItem={({ item }) => <MessageBubble item={item} />}
+                 renderItem={({ item }) => (
+                   <MessageBubble item={item} appearance={settings.appearance} />
+                 )}
                 contentContainerStyle={styles.messageList}
                 showsVerticalScrollIndicator={false}
                 keyboardDismissMode="interactive"

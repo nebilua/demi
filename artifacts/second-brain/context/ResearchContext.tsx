@@ -2,7 +2,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Platform } from "react-native";
-import { useApp } from "@/context/AppContext";
+import { useApp, useChat } from "@/context/AppContext";
 import { isCapabilityActive } from "@/lib/privacyCapabilities";
 import {
   buildResearchPrompt,
@@ -67,11 +67,11 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
     privacyReady,
     privacyState,
     engineStatus,
-    runLocalInference,
     runCloudFallback,
     recordPrivacyAction,
     recordAgentTrace,
   } = useApp();
+  const { runLocalInference } = useChat();
   const [documents, setDocuments] = useState<ResearchDocument[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [answer, setAnswer] = useState<string | null>(null);
