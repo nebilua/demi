@@ -979,14 +979,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       privacyState: SECURE_PRIVACY_STATE_KEY,
     })
       .then((usage) => {
-        if (!isMounted) return;
+        if (
+          !isMounted ||
+          measurementRun !== storageMeasurementRunRef.current
+        ) {
+          return;
+        }
         setStorageUsage(usage);
         if (measurementRun === storageMeasurementRunRef.current) {
           setStorageUsageRefreshing(false);
         }
       })
       .catch(() => {
-        if (!isMounted) return;
+        if (
+          !isMounted ||
+          measurementRun !== storageMeasurementRunRef.current
+        ) {
+          return;
+        }
         setStorageUsage((previous) => previous ?? createUnavailableLocalStorageUsage());
         if (measurementRun === storageMeasurementRunRef.current) {
           setStorageUsageRefreshing(false);

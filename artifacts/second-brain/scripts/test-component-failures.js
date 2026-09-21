@@ -283,6 +283,37 @@ function StorageRefreshHarness({ SettingsScreen, refreshPromise }) {
   return React.createElement(SettingsScreen);
 }
 
+function StorageRaceHarness({ SettingsScreen, refreshPromises }) {
+  const [expanded, setExpanded] = React.useState(
+    appValue.storageDetailsExpanded ?? false,
+  );
+  const [usage, setUsage] = React.useState(appValue.storageUsage ?? null);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const refreshRunRef = React.useRef(0);
+  appValue = {
+    ...appValue,
+    storageDetailsExpanded: expanded,
+    setStorageDetailsExpanded: setExpanded,
+    storageUsage: usage,
+    storageUsageRefreshing: refreshing,
+    refreshStorageUsage: () => {
+      const refreshRun = refreshRunRef.current + 1;
+      refreshRunRef.current = refreshRun;
+      setRefreshing(true);
+      void refreshPromises[refreshRun - 1]
+        .then((nextUsage) => {
+          if (refreshRun !== refreshRunRef.current) return;
+          setUsage(nextUsage);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (refreshRun === refreshRunRef.current) setRefreshing(false);
+        });
+    },
+  };
+  return React.createElement(SettingsScreen);
+}
+
 async function testProfileSaveFailureKeepsEditorOpen() {
   let closed = false;
   appValue = {
@@ -832,6 +863,69 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     renderer.unmount();
   });
 
+  fakeReactNative.Platform.OS = previousPlatform.OS;
+  fakeReactNative.Platform.Version = previousPlatform.Version;
+}
+
+async function testStorageRefreshRaceKeepsNewestSummary() {
+  const previousPlatform = { ...fakeReactNative.Platform };
+  fakeReactNative.Platform.OS = 'android';
+  fakeReactNative.Platform.Version = 34;
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  const olderRefresh = deferred();
+  const newerRefresh = deferred();
+  appValue = baseAppValue({ storageUsage: storageUsage(64) });
+
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(StorageRaceHarness, {
+        SettingsScreen,
+        refreshPromises: [olderRefresh.promise, newerRefresh.promise],
+      }),
+    );
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+  assert.match(textContent(renderer), /64 B tracked on this device/);
+
+  await TestRenderer.act(async () => {
+    appValue.refreshStorageUsage();
+    appValue.refreshStorageUsage();
+  });
+  newerRefresh.resolve(storageUsage(256));
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.match(textContent(renderer), /256 B tracked on this device/);
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+
+  olderRefresh.resolve(storageUsage(128));
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.match(textContent(renderer), /256 B tracked on this device/);
+  assert.doesNotMatch(textContent(renderer), /128 B tracked on this device/);
+  assert.equal(
+    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
+      .expanded,
+    true,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
   fakeReactNative.Platform.OS = previousPlatform.OS;
   fakeReactNative.Platform.Version = previousPlatform.Version;
 }
@@ -1417,6 +1511,7 @@ async function main() {
   await testStorageDetailsPersistAcrossSettingsVisits();
   await testStorageDetailsResetForFreshProviderSession();
   await testStorageRefreshKeepsDetailsAndSummary();
+  await testStorageRefreshRaceKeepsNewestSummary();
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
