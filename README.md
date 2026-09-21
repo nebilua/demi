@@ -1,5 +1,9 @@
 # Demi
 
+The current Android alpha artifact is `0.1.0-alpha.1` (Android
+`versionCode` 1). This is a local testing release, not a production or store
+release.
+
 Demi is an open-source, local-first Android personal assistant. Its
 default experience keeps conversations, settings, model files, and important
 dates on the device instead of requiring an account or cloud service.
@@ -8,7 +12,9 @@ dates on the device instead of requiring an account or cloud service.
 
 - Runs compatible GGUF language models locally through
   [llama.rn](https://github.com/mybigday/llama.rn)
-- Stores conversation history and settings on-device with AsyncStorage
+- Stores non-sensitive settings and model references with AsyncStorage; on
+  Android, conversations, memories, profiles, important dates, and privacy
+  records use Android Keystore-backed secure storage
 - Supports Android 13+ offline speech recognition when an installed offline
   language pack is available
 - Speaks replies using only Android text-to-speech voices that report no
@@ -32,6 +38,12 @@ Android marks as not requiring a network connection.
 
 See [docs/PRIVACY.md](docs/PRIVACY.md) for the complete boundary and known
 limitations.
+
+The browser and Expo Go previews use local preview storage instead of Android
+Keystore protection. They are useful for interface and persistence checks but
+are not evidence of Android encryption or native voice/model behavior. A
+device-bound key lost through device loss or reset cannot be recovered through
+an account or cloud backup.
 
 ## Requirements
 
@@ -148,6 +160,26 @@ Open the model import action and select a compatible GGUF file separately:
 model weights are not bundled in the APK and must not be redistributed with
 the project. The release APK is arm64-only and cannot be installed on
 unsupported ABIs.
+
+## Android alpha release gate
+
+Run the deterministic workspace portion from the repository root:
+
+```bash
+pnpm run verify:android-alpha
+```
+
+This runs the root typecheck, all mobile regression suites, and every static
+artifact health, reachability, cleanup, lock, and failure-path check. It does
+not imply that a physical Android device was tested. Complete the
+[Android alpha release checklist](docs/ANDROID_ALPHA_RELEASE.md), including
+the APK validator and the device-only evidence, before distributing an alpha
+APK.
+
+The first alpha uses `0.1.0-alpha.1` everywhere the Demi app/package version
+is declared. Android `versionCode` starts at `1` and must increase for every
+new installable artifact, even when the human-readable version is another
+alpha or build metadata revision.
 
 ## Models
 

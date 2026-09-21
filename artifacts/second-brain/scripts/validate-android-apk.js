@@ -26,6 +26,8 @@ const defaultApkPath = path.join(
 
 const expectedNdkVersion = '27.1.12297006';
 const packageName = 'com.secondbrain.localassistant';
+const expectedVersionName = '0.1.0-alpha.1';
+const expectedVersionCode = '1';
 const requiredPermissions = [
   'android.permission.RECORD_AUDIO',
   'android.permission.POST_NOTIFICATIONS',
@@ -230,6 +232,24 @@ function checkApk(apkPath, androidEnvironment) {
     );
   }
   console.log(`  package: ${packageName}`);
+
+  const declaredVersionCode = badging.match(/versionCode='([^']+)'/)?.[1];
+  if (declaredVersionCode !== expectedVersionCode) {
+    fail(
+      `Android version code is ${declaredVersionCode || 'missing'}; expected ` +
+        `${expectedVersionCode} for ${expectedVersionName}.`,
+    );
+  }
+  console.log(`  version code: ${expectedVersionCode}`);
+
+  const declaredVersionName = badging.match(/versionName='([^']+)'/)?.[1];
+  if (declaredVersionName !== expectedVersionName) {
+    fail(
+      `Android version name is ${declaredVersionName || 'missing'}; expected ` +
+        `${expectedVersionName}.`,
+    );
+  }
+  console.log(`  version name: ${expectedVersionName}`);
 
   const permissions = run(
     androidEnvironment.tools.aapt,

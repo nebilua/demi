@@ -52,6 +52,8 @@ back successfully.
 
 The browser preview does not have Android Keystore protection. It labels this
 state as local preview storage and does not claim device encryption.
+The preview is not evidence that Android secure storage, native voice, model
+loading, notifications, or offline behavior works on a physical device.
 
 ## Capability boundary
 

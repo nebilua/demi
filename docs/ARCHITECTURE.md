@@ -5,8 +5,10 @@
 The primary product is the Expo / React Native app in
 `artifacts/second-brain`. AsyncStorage holds non-sensitive settings and model
 references. Conversations, memories, profiles, important dates, and the
-versioned privacy/agent state use the secure-record boundary. The app does not
-require the API server for its default flow.
+versioned privacy/agent state use the secure-record boundary. On Android, that
+boundary is backed by Android Keystore through `expo-secure-store`; in the
+browser preview it falls back to local preview storage without Keystore
+protection. The app does not require the API server for its default flow.
 
 Local language-model inference uses `llama.rn`, an Android bridge around
 llama.cpp. Users import a compatible GGUF model through the device document
@@ -116,4 +118,5 @@ The web and Expo Go previews cannot load the custom Android modules or
 llama.cpp runtime. Their role is interface preview and local storage testing;
 they surface honest unavailable/setup states for native-only capabilities.
 They also label secure records as local preview storage and do not claim that
-Android secure storage protects prompts or transient process memory.
+Android secure storage protects prompts or transient process memory. A lost or
+reset device-bound key cannot be recovered through an account or cloud backup.

@@ -1,6 +1,6 @@
 {
   "name": "second-brain",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha.1",
   "description": "An open-source, local-first Android personal assistant.",
   "license": "MIT",
   "repository": {
@@ -18,9 +18,15 @@
     "test:build-lock": "pnpm --filter @workspace/second-brain run test:build-lock",
     "test:feature-flows": "pnpm --filter @workspace/second-brain run test:feature-flows",
     "test:component-failures": "pnpm --filter @workspace/second-brain run test:component-failures",
+    "test:voice-boundaries": "pnpm --filter @workspace/second-brain run test:voice-boundaries",
     "test:android-reminders": "pnpm --filter @workspace/second-brain run test:android-reminders",
     "test:scheduled-jobs": "pnpm --filter @workspace/second-brain run test:scheduled-jobs",
     "test:privacy": "pnpm --filter @workspace/second-brain run test:privacy",
+    "test:cloud-fallback": "pnpm --filter @workspace/second-brain run test:cloud-fallback",
+    "test:tool-registry": "pnpm --filter @workspace/second-brain run test:tool-registry",
+    "test:sandbox-code": "pnpm --filter @workspace/second-brain run test:sandbox-code",
+    "test:research": "pnpm --filter @workspace/second-brain run test:research",
+    "verify:android-alpha": "pnpm run typecheck && pnpm --filter @workspace/second-brain run verify:android-alpha",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
