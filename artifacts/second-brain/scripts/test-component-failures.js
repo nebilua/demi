@@ -885,6 +885,7 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
       }),
     );
   });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'toggle-storage-details').props.onPress();
   });
@@ -1305,6 +1306,10 @@ function testStorageRefreshFailureKeepsLastSummary() {
   assert.match(
     source,
     /measureLocalStorageUsage[\s\S]*?\.catch\(\(\) => \{/,
+  );
+  assert.match(
+    source,
+    /if \(\s*!isMounted \|\|\s*measurementRun !== storageMeasurementRunRef\.current\s*\)\s*\{\s*return;/,
   );
 }
 
