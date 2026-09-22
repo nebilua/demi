@@ -177,6 +177,17 @@ function storageMetricText(metric: StorageMetric | null | undefined) {
   return `${formatStorageBytes(metric.bytes)}${metric.status === "estimated" ? " estimated" : ""}`;
 }
 
+function formatStorageUpdatedAt(timestamp: number | null | undefined) {
+  if (typeof timestamp !== "number") return null;
+  return new Date(timestamp).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function PrivacyCapabilityRow({
   definition,
   grant,
@@ -464,6 +475,18 @@ function StorageUsageCard({
         <>
           {usage && (
             <View style={styles.storageRows}>
+              {formatStorageUpdatedAt(usage.measuredAt) && (
+                <Text
+                  testID="storage-usage-last-updated"
+                  style={[
+                    styles.storageLastUpdated,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Last updated locally{" "}
+                  {formatStorageUpdatedAt(usage.measuredAt)}
+                </Text>
+              )}
               <StorageUsageRow
                 label="Active model"
                 metric={usage.activeModel}
@@ -2905,6 +2928,11 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 12,
     textAlign: "right",
+  },
+  storageLastUpdated: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    lineHeight: 15,
   },
   storageDivider: { height: 1, marginVertical: 2 },
   storageNote: {

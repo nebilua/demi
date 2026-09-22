@@ -15,6 +15,7 @@ export type StorageMetric = {
 };
 
 export type LocalStorageUsage = {
+  measuredAt: number | null;
   total: StorageMetric;
   activeModel: StorageMetric;
   reclaimableModels: StorageMetric & { fileCount: number };
@@ -49,6 +50,7 @@ const unavailableMetric = (): StorageMetric => ({
 
 export function createUnavailableLocalStorageUsage(): LocalStorageUsage {
   return {
+    measuredAt: null,
     total: unavailableMetric(),
     activeModel: unavailableMetric(),
     reclaimableModels: { ...unavailableMetric(), fileCount: 0 },
@@ -340,6 +342,7 @@ export async function measureLocalStorageUsage(
         : 'measured';
 
   return {
+    measuredAt: Date.now(),
     total: { bytes: totalBytes, status: totalStatus },
     activeModel: modelFiles.activeModel,
     reclaimableModels: modelFiles.reclaimableModels,

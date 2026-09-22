@@ -246,8 +246,9 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function storageUsage(totalBytes) {
+function storageUsage(totalBytes, measuredAt = 1700000000000) {
   return {
+    measuredAt,
     total: { bytes: totalBytes, status: 'measured' },
     activeModel: { bytes: 32, status: 'measured' },
     reclaimableModels: { bytes: 16, status: 'measured', fileCount: 1 },
@@ -258,6 +259,27 @@ function storageUsage(totalBytes) {
     temporaryFiles: { bytes: 1, status: 'measured' },
     freeDevice: { bytes: 1000, status: 'measured' },
   };
+}
+
+function storageUpdatedText(measuredAt) {
+  return `Last updated locally ${new Date(measuredAt).toLocaleString(
+    undefined,
+    {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    },
+  )}`;
+}
+
+function assertStorageUpdated(renderer, measuredAt) {
+  const escapedLabel = storageUpdatedText(measuredAt).replace(
+    /[.*+?^${}()|[\]\\]/g,
+    '\\$&',
+  );
+  assert.match(textContent(renderer), new RegExp(escapedLabel.replace(/ /g, '\\s+')));
 }
 
 function StorageRefreshHarness({ SettingsScreen, refreshPromise }) {
@@ -743,7 +765,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
   const { default: SettingsScreen } = require('../app/settings.tsx');
 
   const initialUsage = storageUsage(64);
-  const refreshedUsage = storageUsage(128);
+  const refreshedUsage = storageUsage(128, 1700000060000);
   const refresh = deferred();
   appValue = baseAppValue({ storageUsage: initialUsage });
 
@@ -766,6 +788,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     true,
   );
   assert.match(textContent(renderer), /64 B tracked on this device/);
+  assertStorageUpdated(renderer, initialUsage.measuredAt);
 
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'refresh-storage-usage').props.onPress();
@@ -812,6 +835,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
   );
   assert.match(textContent(renderer), /128 B tracked on this device/);
   assert.doesNotMatch(textContent(renderer), /64 B tracked on this device/);
+  assertStorageUpdated(renderer, refreshedUsage.measuredAt);
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
@@ -859,6 +883,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     0,
   );
   assert.match(textContent(renderer), /64 B tracked on this device/);
+  assertStorageUpdated(renderer, initialUsage.measuredAt);
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
@@ -874,7 +899,10 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
   const { default: SettingsScreen } = require('../app/settings.tsx');
   const olderRefresh = deferred();
   const newerRefresh = deferred();
-  appValue = baseAppValue({ storageUsage: storageUsage(64) });
+  const initialUsage = storageUsage(64, 1700000000000);
+  const newerUsage = storageUsage(256, 1700000120000);
+  const olderUsage = storageUsage(128, 1700000060000);
+  appValue = baseAppValue({ storageUsage: initialUsage });
 
   let renderer;
   await TestRenderer.act(async () => {
@@ -900,12 +928,13 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
     appValue.refreshStorageUsage();
     appValue.refreshStorageUsage();
   });
-  newerRefresh.resolve(storageUsage(256));
+  newerRefresh.resolve(newerUsage);
   await TestRenderer.act(async () => {
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.match(textContent(renderer), /256 B tracked on this device/);
+  assertStorageUpdated(renderer, newerUsage.measuredAt);
   assert.equal(
     findByTestId(renderer, 'refresh-storage-usage').props.accessibilityState
       .disabled,
@@ -921,7 +950,7 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
     true,
   );
 
-  olderRefresh.resolve(storageUsage(128));
+  olderRefresh.resolve(olderUsage);
   await TestRenderer.act(async () => {
     await Promise.resolve();
     await Promise.resolve();
