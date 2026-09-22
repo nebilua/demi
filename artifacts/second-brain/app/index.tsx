@@ -186,7 +186,10 @@ export default function DemiScreen() {
     <KeyboardAvoidingView
       behavior="padding"
       keyboardVerticalOffset={0}
-      style={[styles.screen, { backgroundColor: colors.background }]}
+      style={[
+        styles.screen,
+        { minHeight: height, minWidth: width, backgroundColor: colors.background },
+      ]}
     >
       <StatusBar style={colors.isDark ? 'light' : 'dark'} />
       <SafeAreaView
