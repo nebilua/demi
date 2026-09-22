@@ -810,6 +810,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         void refreshScreenAccessStatus().catch(() => undefined);
+        refreshStorageUsage();
         return;
       }
       if (

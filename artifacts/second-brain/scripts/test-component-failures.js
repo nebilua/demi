@@ -907,6 +907,15 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
   });
   assert.match(textContent(renderer), /256 B tracked on this device/);
   assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityState
+      .disabled,
+    false,
+  );
+  assert.equal(
+    renderer.root.findAllByProps({ testID: 'storage-refresh-indicator' }).length,
+    0,
+  );
+  assert.equal(
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
       .expanded,
     true,
@@ -919,6 +928,15 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
   });
   assert.match(textContent(renderer), /256 B tracked on this device/);
   assert.doesNotMatch(textContent(renderer), /128 B tracked on this device/);
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityState
+      .disabled,
+    false,
+  );
+  assert.equal(
+    renderer.root.findAllByProps({ testID: 'storage-refresh-indicator' }).length,
+    0,
+  );
   assert.equal(
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
       .expanded,
@@ -1313,6 +1331,28 @@ function testStorageRefreshFailureKeepsLastSummary() {
   );
 }
 
+function testStorageRefreshesWhenAppReturnsToForeground() {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../context/AppContext.tsx'),
+    'utf8',
+  );
+  const storageLifecycleStart = source.indexOf(
+    'const subscription = AppState.addEventListener("change"',
+  );
+  const storageLifecycleEnd = source.indexOf(
+    '  });',
+    storageLifecycleStart,
+  );
+  assert.ok(storageLifecycleStart >= 0);
+  assert.ok(storageLifecycleEnd > storageLifecycleStart);
+  const storageLifecycle = source.slice(
+    storageLifecycleStart,
+    storageLifecycleEnd,
+  );
+  assert.match(storageLifecycle, /if \(state === "active"\)/);
+  assert.match(storageLifecycle, /refreshStorageUsage\(\);/);
+}
+
 async function testCalendarRetryKeepsDateWhenPersistenceFails() {
   secureStorageValue = JSON.stringify([
     {
@@ -1527,6 +1567,7 @@ async function main() {
   await testStorageMeasurementFailuresStayBestEffort();
   await testSettingsStaysUsableWhenStorageIsUnavailable();
   testStorageRefreshFailureKeepsLastSummary();
+  testStorageRefreshesWhenAppReturnsToForeground();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
   await testCalendarReminderSurvivesRestartAndSchedulingFailure();
   await testReminderCandidateRoutesWithExactTime();
