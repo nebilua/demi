@@ -41,6 +41,7 @@ const requiredNativeClassFragments = [
     fragment: 'expo/modules/speechrecognition/ExpoSpeechRecognitionModule',
   },
 ];
+const maxDexBytes = 64 * 1024 * 1024;
 
 function fail(message) {
   console.error(`\nAPK validation failed: ${message}`);
@@ -101,7 +102,8 @@ function findSdkTool(sdkPath, toolName) {
   if (fs.existsSync(buildToolsDir)) {
     const versions = fs
       .readdirSync(buildToolsDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      // Nix's composed SDK exposes version directories as symlinks.
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
       .map((entry) => entry.name)
       .sort()
       .reverse();
@@ -239,9 +241,21 @@ function printPreflight(androidEnvironment) {
 
 function buildApk(androidEnvironment) {
   console.log('Building arm64 release APK with the documented constrained flags...');
-  run('pnpm', ['exec', 'expo', 'prebuild', '--platform', 'android'], {
-    env: androidEnvironment.env,
-  });
+  const packageJsonPath = path.join(projectDir, 'package.json');
+  const originalPackageJson = fs.readFileSync(packageJsonPath);
+  const restorePackageJson = () => {
+    fs.writeFileSync(packageJsonPath, originalPackageJson);
+  };
+  process.once('exit', restorePackageJson);
+  run(
+    'pnpm',
+    ['exec', 'expo', 'prebuild', '--platform', 'android', '--no-install'],
+    {
+      env: androidEnvironment.env,
+    },
+  );
+  restorePackageJson();
+  process.removeListener('exit', restorePackageJson);
   run(
     './gradlew',
     [
@@ -352,7 +366,9 @@ function checkApk(apkPath, androidEnvironment) {
   }
   for (const requiredClass of requiredNativeClassFragments) {
     const found = dexEntries.some((entry) => {
-      const result = spawnSync('unzip', ['-p', apkPath, entry]);
+      const result = spawnSync('unzip', ['-p', apkPath, entry], {
+        maxBuffer: maxDexBytes,
+      });
       return (
         result.status === 0 &&
         Buffer.isBuffer(result.stdout) &&
@@ -415,6 +431,7 @@ if (require.main === module) {
 module.exports = {
   expectedNdkVersion,
   expectedPlatform,
+  findSdkTool,
   readReleaseIdentity,
   findSdkCandidates,
   isAndroidSdk,
