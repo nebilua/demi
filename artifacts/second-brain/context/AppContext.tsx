@@ -971,6 +971,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let isMounted = true;
     const measurementRun = storageMeasurementRunRef.current + 1;
     storageMeasurementRunRef.current = measurementRun;
+    setStorageUsageRefreshing(true);
     void measureLocalStorageUsage(localModel?.uri ?? null, {
       settings: SETTINGS_KEY,
       model: MODEL_KEY,
@@ -1058,6 +1059,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       offlineVoiceSetupInFlightRef.current = false;
     };
   }, []);
+
+  // Re-check after persisted settings finish loading and whenever the
+  // selected language changes. Without this, changing languages could leave
+  // the readiness indicators showing the previous locale until the app was
+  // backgrounded and resumed.
+  useEffect(() => {
+    if (!settingsReady) return;
+    void refreshOfflineVoices();
+    void refreshVoiceAvailability();
+  }, [settingsReady, settings.voiceLanguage]);
 
   async function refreshOfflineVoices() {
     setOfflineVoicesLoading(true);

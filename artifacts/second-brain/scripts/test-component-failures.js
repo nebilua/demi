@@ -596,6 +596,36 @@ async function testSettingsFailureKeepsControlledValue() {
   );
 }
 
+async function testVoiceErrorsExposeAccessibleRetry() {
+  let refreshCalls = 0;
+  let dismissCalls = 0;
+  appValue = baseAppValue({
+    voiceError: 'No verified offline Android voice is installed.',
+    refreshOfflineVoices: async () => {
+      refreshCalls += 1;
+    },
+    dismissVoiceError: () => {
+      dismissCalls += 1;
+    },
+  });
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(SettingsScreen));
+  });
+  await expandSettingsGroup(renderer, 'settings-group-local-voice');
+  const status = renderer.root.findByProps({ accessibilityRole: 'alert' });
+  assert.match(status.props.children[0].props.children, /No verified offline/);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'refresh-offline-voice-status').props.onPress();
+  });
+  assert.equal(dismissCalls, 1);
+  assert.equal(refreshCalls, 1);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
 async function testModelReclaimFailureKeepsConfirmationOpen() {
   let reclaimCalls = 0;
   let refreshCalls = 0;
@@ -970,6 +1000,89 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
     findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
       .expanded,
     true,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+  fakeReactNative.Platform.OS = previousPlatform.OS;
+  fakeReactNative.Platform.Version = previousPlatform.Version;
+}
+
+function testStorageMeasurementWaitsForProcessRestore() {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../context/AppContext.tsx'),
+    'utf8',
+  );
+  const startupEffectStart = source.indexOf('  useEffect(() => {');
+  const measurementEffectStart = source.indexOf(
+    '  useEffect(() => {\n    if (!settingsReady) return;',
+  );
+  const setReady = source.indexOf('setSettingsReady(true);', startupEffectStart);
+  const startupCleanup = source.indexOf(
+    'await cleanupUnusedModelFiles(activeModelUri)',
+    startupEffectStart,
+  );
+  assert.ok(startupEffectStart >= 0);
+  assert.ok(measurementEffectStart > startupEffectStart);
+  assert.ok(startupCleanup > startupEffectStart);
+  assert.ok(setReady > startupCleanup);
+  assert.match(
+    source.slice(measurementEffectStart, measurementEffectStart + 700),
+    /if \(!settingsReady\) return;[\s\S]*setStorageUsageRefreshing\(true\);[\s\S]*measureLocalStorageUsage/,
+  );
+}
+
+async function testForegroundReturnRefreshRaceKeepsNewestSummary() {
+  const previousPlatform = { ...fakeReactNative.Platform };
+  fakeReactNative.Platform.OS = 'android';
+  fakeReactNative.Platform.Version = 34;
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  const foregroundRefresh = deferred();
+  const manualRefresh = deferred();
+  const initialUsage = storageUsage(64, 1700000000000);
+  const foregroundUsage = storageUsage(192, 1700000180000);
+  const manualUsage = storageUsage(256, 1700000240000);
+  appValue = baseAppValue({ storageUsage: initialUsage });
+
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(StorageRaceHarness, {
+        SettingsScreen,
+        refreshPromises: [foregroundRefresh.promise, manualRefresh.promise],
+      }),
+    );
+  });
+  await expandSettingsGroup(renderer, 'settings-group-device-footprint');
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
+  });
+
+  await TestRenderer.act(async () => {
+    // The first refresh represents AppState returning to active; the second
+    // represents the user refreshing while that foreground scan is pending.
+    appValue.refreshStorageUsage();
+    appValue.refreshStorageUsage();
+  });
+  manualRefresh.resolve(manualUsage);
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.match(textContent(renderer), /256 B tracked on this device/);
+  assertStorageUpdated(renderer, manualUsage.measuredAt);
+
+  foregroundRefresh.resolve(foregroundUsage);
+  await TestRenderer.act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.match(textContent(renderer), /256 B tracked on this device/);
+  assert.doesNotMatch(textContent(renderer), /192 B tracked on this device/);
+  assert.equal(
+    findByTestId(renderer, 'refresh-storage-usage').props.accessibilityState
+      .disabled,
+    false,
   );
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -1581,11 +1694,14 @@ async function main() {
   await testSettingsNavigationGroupsRemainReachable();
   await testModelRemovalRequiresConfirmation();
   await testSettingsFailureKeepsControlledValue();
+  await testVoiceErrorsExposeAccessibleRetry();
   await testModelReclaimFailureKeepsConfirmationOpen();
   await testStorageDetailsPersistAcrossSettingsVisits();
   await testStorageDetailsResetForFreshProviderSession();
   await testStorageRefreshKeepsDetailsAndSummary();
   await testStorageRefreshRaceKeepsNewestSummary();
+  testStorageMeasurementWaitsForProcessRestore();
+  await testForegroundReturnRefreshRaceKeepsNewestSummary();
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();

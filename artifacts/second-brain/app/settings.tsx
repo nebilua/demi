@@ -2003,14 +2003,55 @@ export default function SettingsScreen() {
             )}
           </View>
           {(voiceError || voiceSetupMessage) && (
-            <Text
-              style={[
-                styles.errorText,
-                { color: colors.destructive, marginTop: 10 },
-              ]}
+            <View
+              accessibilityLiveRegion="polite"
+              accessibilityRole={voiceError ? "alert" : "text"}
+              style={styles.voiceStatusMessage}
             >
-              {voiceError || voiceSetupMessage}
-            </Text>
+              <Text
+                style={[
+                  styles.errorText,
+                  {
+                    color: voiceError
+                      ? colors.destructive
+                      : colors.mutedForeground,
+                    marginTop: 10,
+                  },
+                ]}
+              >
+                {voiceError || voiceSetupMessage}
+              </Text>
+              {voiceError && (
+                <Pressable
+                  testID="refresh-offline-voice-status"
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry offline voice checks"
+                  onPress={() => {
+                    dismissVoiceError();
+                    if (voiceInputStatus === "needs-model") {
+                      void installOfflineVoiceModel();
+                    } else {
+                      void refreshOfflineVoices();
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.voiceRetryButton,
+                    { borderColor: colors.border },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Feather name="refresh-cw" size={14} color={colors.primary} />
+                  <Text
+                    style={[
+                      styles.voiceRetryText,
+                      { color: colors.primary },
+                    ]}
+                  >
+                    Retry voice checks
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           )}
           {voiceInputStatus === "needs-model" &&
             !voiceError &&
@@ -3051,6 +3092,19 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 12,
   },
+  voiceStatusMessage: { marginTop: 2 },
+  voiceRetryButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 8,
+  },
+  voiceRetryText: { fontFamily: "Inter_500Medium", fontSize: 12 },
   voiceOptions: { gap: 8, marginTop: 12 },
   voiceSelfTest: { marginTop: 16, padding: 12, borderRadius: 14 },
   selfTestActions: { flexDirection: "row", gap: 8, marginTop: 12 },
