@@ -723,7 +723,7 @@ export default function SettingsScreen() {
   const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
   const canSetupSpeech =
     Platform.OS === "android" &&
-    !voiceInputAvailable &&
+    voiceInputStatus === "needs-model" &&
     !requiresNewerAndroid &&
     !voiceSetupInProgress;
   const canSetupSpokenReplies =

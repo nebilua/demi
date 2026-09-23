@@ -2089,6 +2089,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setVoiceSetupMessage(null);
     setVoiceInputStatus("checking");
     try {
+      if (
+        !module.isRecognitionAvailable() ||
+        !module.supportsOnDeviceRecognition()
+      ) {
+        setVoiceInputStatus("unavailable");
+        setVoiceSetupMessage(
+          "No private on-device speech recognizer is available. Install or enable Speech Services by Google, then tap Retry voice checks.",
+        );
+        return;
+      }
+      const services = module.getSpeechRecognitionServices();
+      if (services.length === 0) {
+        setVoiceInputStatus("unavailable");
+        setVoiceSetupMessage(
+          "Android has no speech recognition service enabled. Install or enable Speech Services by Google, then tap Retry voice checks.",
+        );
+        return;
+      }
       const result = await module.androidTriggerOfflineModelDownload({
         locale: settings.voiceLanguage,
       });
