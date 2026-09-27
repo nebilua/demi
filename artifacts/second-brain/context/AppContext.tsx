@@ -10,7 +10,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { AppState, Platform } from "react-native";
+import { AppState, PermissionsAndroid, Platform } from "react-native";
 import type { LlamaContext } from "llama.rn";
 import {
   formatBytes,
@@ -24,16 +24,21 @@ import {
   type RuntimeDetails,
 } from "@/lib/offlineLlm";
 import {
+  cancelLocalRecognition,
+  getVoiceModule,
+  getVoiceReadiness,
   getOfflineVoices,
-  getRecognitionModule,
+  prepareVoiceModels,
   speakLocally,
+  startLocalRecognition,
+  stopLocalRecognition,
   stopLocalSpeech,
-  openLocalVoiceSettings,
   voiceErrorMessage,
   voiceMatchesLanguage,
-  type ExpoSpeechRecognitionResultEvent,
   type OfflineVoice,
-  type RecognitionModule,
+  type OfflineVoiceModule,
+  type RecognitionResultEvent,
+  type RecognitionStatusEvent,
   type VoiceInputStatus,
   type VoiceSelfTestResult,
   voiceSelfTestDiagnosis,
@@ -226,6 +231,7 @@ type AppContextValue = {
   voiceSelfTestRunning: boolean;
   voiceSelfTestSpeechStatus: "idle" | "speaking";
   runVoiceSelfTest: () => Promise<void>;
+  stopVoiceSelfTest: () => void;
   cancelVoiceSelfTest: () => void;
   playVoiceSelfTestSample: () => Promise<void>;
   stopVoiceSelfTestSample: () => Promise<void>;
@@ -241,10 +247,9 @@ type AppContextValue = {
   stopVoiceInput: () => void;
   cancelVoiceInput: () => void;
   clearVoiceTranscript: () => void;
-  installOfflineVoiceModel: () => Promise<void>;
+  prepareBundledVoiceModels: () => Promise<void>;
   speakText: (text: string) => Promise<void>;
   stopSpeaking: () => Promise<void>;
-  openVoiceSettings: () => Promise<void>;
   dismissVoiceError: () => void;
   cloudFallbackActivity: CloudFallbackActivity | null;
   runCloudFallback: (
@@ -325,10 +330,7 @@ function parseSettings(value: string | null): AppSettings {
       saveConversations: parsed.saveConversations !== false,
       voiceInputEnabled: parsed.voiceInputEnabled !== false,
       spokenRepliesEnabled: parsed.spokenRepliesEnabled !== false,
-      voiceLanguage:
-        typeof parsed.voiceLanguage === "string"
-          ? parsed.voiceLanguage
-          : "en-US",
+      voiceLanguage: "en-US",
       speechRate:
         typeof parsed.speechRate === "number" &&
         parsed.speechRate >= 0.75 &&
@@ -448,6 +450,31 @@ function readableError(error: unknown) {
   }
   if (message) return message;
   return "The model could not be loaded. Choose a smaller compatible GGUF file and try again.";
+}
+
+type MicrophonePermissionStatus = "granted" | "denied" | "blocked";
+
+async function requestMicrophonePermission(): Promise<MicrophonePermissionStatus> {
+  if (Platform.OS !== "android") return "blocked";
+  try {
+    const permission = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      {
+        title: "Allow Demi to use the microphone",
+        message:
+          "Demi records only while you hold the microphone button and transcribes speech on this device.",
+        buttonPositive: "Allow",
+        buttonNegative: "Not now",
+      },
+    );
+    if (permission === PermissionsAndroid.RESULTS.GRANTED) return "granted";
+    if (permission === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      return "blocked";
+    }
+    return "denied";
+  } catch {
+    return "denied";
+  }
 }
 
 async function validateGgufHeader(uri: string) {
@@ -620,19 +647,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const deviceCompatibility = useMemo(() => getDeviceCompatibility(), []);
   const llamaContextRef = useRef<LlamaContext | null>(null);
-  const recognitionModuleRef = useRef<RecognitionModule | null>(null);
+  const voiceModuleRef = useRef<OfflineVoiceModule | null>(null);
   const recognitionSubscriptionsRef = useRef<Array<{ remove: () => void }>>([]);
   const voiceRecognitionRunRef = useRef(0);
   const voiceRecognitionActiveRef = useRef(false);
-  const recognitionServicePackageRef = useRef<string | undefined>(undefined);
+  const voiceTranscriptRef = useRef("");
+  const voiceModelPreparationRef = useRef(false);
   const voiceSelfTestActiveRef = useRef(false);
+  const voiceSelfTestStopRef = useRef<(() => void) | null>(null);
   const voiceSelfTestCancelRef = useRef<(() => void) | null>(null);
   const voiceSelfTestCancelRequestedRef = useRef(false);
   const voiceSelfTestSpeechRunRef = useRef(0);
   const didRestoreModelRef = useRef(false);
   const modelImportInFlightRef = useRef(false);
   const modelLoadInFlightRef = useRef(false);
-  const offlineVoiceSetupInFlightRef = useRef(false);
   const downloadRunRef = useRef(0);
   const clearConversationInFlightRef = useRef(false);
   const privacyStateRef = useRef(privacyState);
@@ -1018,28 +1046,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   useEffect(() => {
-    void refreshOfflineVoices();
-
-    const module = getRecognitionModule();
-    recognitionModuleRef.current = module;
+    const module = getVoiceModule();
+    voiceModuleRef.current = module;
     if (!module) {
       setVoiceInputStatus("unavailable");
+      setVoiceInputAvailable(false);
+      setVoiceOutputAvailable(false);
+      setOfflineVoices([]);
+      setOfflineVoicesLoading(false);
       return () => {
         void stopLocalSpeech();
       };
     }
 
-    void refreshVoiceAvailability(module);
+    void refreshOfflineVoices();
     const appStateSubscription = AppState.addEventListener(
       "change",
       (state) => {
         if (state === "active") {
-          void refreshVoiceAvailability(module);
           void refreshOfflineVoices();
-          if (offlineVoiceSetupInFlightRef.current) {
-            offlineVoiceSetupInFlightRef.current = false;
-            setVoiceSetupInProgress(false);
-          }
         }
       },
     );
@@ -1050,13 +1075,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       clearRecognitionSubscriptions();
       voiceSelfTestCancelRef.current?.();
       appStateSubscription.remove();
-      try {
-        module.abort();
-      } catch {
-        // The recognizer may already be inactive.
-      }
+      void cancelLocalRecognition(voiceRecognitionRunRef.current);
       void stopLocalSpeech();
-      offlineVoiceSetupInFlightRef.current = false;
     };
   }, []);
 
@@ -1067,95 +1087,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!settingsReady) return;
     void refreshOfflineVoices();
-    void refreshVoiceAvailability();
   }, [settingsReady, settings.voiceLanguage]);
 
   async function refreshOfflineVoices() {
     setOfflineVoicesLoading(true);
     try {
-      const voices = await getOfflineVoices();
+      const [readiness, voices] = await Promise.all([
+        getVoiceReadiness(),
+        getOfflineVoices(),
+      ]);
       setOfflineVoices(voices);
+      setVoiceInputAvailable(readiness.inputAvailable);
+      setVoiceInputStatus(
+        readiness.inputAvailable ? "idle" : Platform.OS === "android" ? "needs-model" : "unavailable",
+      );
+      setVoiceSetupMessage(readiness.error);
       setVoiceOutputAvailable(
-        voices.some((voice) =>
+        readiness.outputAvailable &&
+          voices.some((voice) =>
           voiceMatchesLanguage(
             voice.language,
             settingsRef.current.voiceLanguage,
           ),
-        ),
+          ),
       );
-    } catch {
+    } catch (error) {
       setOfflineVoices([]);
+      setVoiceInputAvailable(false);
+      setVoiceInputStatus(
+        Platform.OS === "android" ? "needs-model" : "unavailable",
+      );
+      setVoiceSetupMessage(
+        error instanceof Error
+          ? error.message
+          : "The bundled offline voice models could not be checked.",
+      );
       setVoiceOutputAvailable(false);
     } finally {
       setOfflineVoicesLoading(false);
-    }
-  }
-
-  async function refreshVoiceAvailability(moduleOverride?: RecognitionModule) {
-    const module = moduleOverride ?? recognitionModuleRef.current;
-    if (!module || Platform.OS !== "android") {
-      setVoiceInputAvailable(false);
-      setVoiceInputStatus("unavailable");
-      return false;
-    }
-
-    const androidApiLevel =
-      typeof Platform.Version === "number" ? Platform.Version : 0;
-    if (androidApiLevel < 33) {
-      setVoiceInputAvailable(false);
-      setVoiceInputStatus("unavailable");
-      setVoiceSetupMessage(
-        "Private offline dictation requires Android 13 or newer. Voice input is disabled on this device so audio cannot fall back to a network recognizer.",
-      );
-      return false;
-    }
-
-    try {
-      if (
-        !module.isRecognitionAvailable() ||
-        !module.supportsOnDeviceRecognition()
-      ) {
-        setVoiceInputAvailable(false);
-        setVoiceInputStatus("unavailable");
-        setVoiceSetupMessage(
-          "This device does not provide private on-device speech recognition.",
-        );
-        return false;
-      }
-
-      const services = module.getSpeechRecognitionServices();
-      const onDevicePackage = services.includes("com.google.android.as")
-        ? "com.google.android.as"
-        : undefined;
-      recognitionServicePackageRef.current = onDevicePackage;
-      const { installedLocales } = await module.getSupportedLocales({
-        androidRecognitionServicePackage: onDevicePackage,
-      });
-      const expectedLocale = settingsRef.current.voiceLanguage.toLowerCase();
-      const expectedLanguage = expectedLocale.split("-")[0];
-      const localeInstalled = installedLocales.some((locale) => {
-        const normalized = locale.toLowerCase();
-        return (
-          normalized === expectedLocale ||
-          normalized.split("-")[0] === expectedLanguage
-        );
-      });
-
-      setVoiceInputAvailable(localeInstalled);
-      setVoiceInputStatus(localeInstalled ? "idle" : "needs-model");
-      setVoiceSetupMessage(
-        localeInstalled
-          ? null
-          : `Install the ${settingsRef.current.voiceLanguage} offline language pack before using private voice input.`,
-      );
-      return localeInstalled;
-    } catch {
-      setVoiceInputAvailable(false);
-      setVoiceInputStatus("needs-model");
-      setVoiceSetupMessage(
-        `Demi could not verify an installed ${settingsRef.current.voiceLanguage} offline language pack.`,
-      );
-      return false;
     }
   }
 
@@ -1546,10 +1515,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function startVoiceInput() {
-    const runId = voiceRecognitionRunRef.current + 1;
+    const previousRunId = voiceRecognitionRunRef.current;
+    const runId = previousRunId + 1;
     voiceRecognitionRunRef.current = runId;
     voiceRecognitionActiveRef.current = false;
     clearRecognitionSubscriptions();
+    await cancelLocalRecognition(previousRunId).catch(() => undefined);
+    voiceTranscriptRef.current = "";
     setVoiceTranscript("");
 
     if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-input")) {
@@ -1561,18 +1533,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
       return;
     }
-    void recordPrivacyAction({
-      capabilityId: "local.voice-input",
-      action: "offline-voice-input",
-      status: "allowed",
-      summary: "On-device microphone capture started; audio content omitted.",
-    }).catch(() => undefined);
     if (!settings.voiceInputEnabled) {
       setVoiceError("Voice input is turned off in Settings.");
       return;
     }
 
-    const module = recognitionModuleRef.current;
+    const module = voiceModuleRef.current;
     if (!module) {
       setVoiceInputStatus("unavailable");
       setVoiceError(
@@ -1581,14 +1547,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const androidApiLevel =
-      Platform.OS === "android" && typeof Platform.Version === "number"
-        ? Platform.Version
-        : 0;
-    if (Platform.OS !== "android" || androidApiLevel < 33) {
+    if (Platform.OS !== "android") {
       setVoiceInputStatus("unavailable");
       setVoiceError(
-        "Private offline voice input requires an installed Android 13 or newer build.",
+        "Bundled offline voice input is available in the installed Android app.",
       );
       return;
     }
@@ -1598,72 +1560,75 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await stopSpeaking();
 
     try {
-      const permission = await module.requestPermissionsAsync();
+      const permission = await requestMicrophonePermission();
       if (runId !== voiceRecognitionRunRef.current) return;
-      if (!permission.granted) {
+      if (permission !== "granted") {
         setVoiceInputStatus("error");
         setVoiceError(
-          permission.canAskAgain === false
-            ? "Microphone access is blocked. Open Android Settings to enable it."
+          permission === "blocked"
+            ? "Microphone access is blocked. Enable it for Demi in Android Settings."
             : "Microphone access is required for local voice input.",
         );
         return;
       }
 
-      const offlineLocaleInstalled = await refreshVoiceAvailability(module);
+      const readiness = await getVoiceReadiness();
       if (runId !== voiceRecognitionRunRef.current) return;
-      if (!offlineLocaleInstalled) {
+      if (!readiness.inputAvailable) {
         setVoiceInputStatus("needs-model");
         setVoiceError(
-          `Install the ${settings.voiceLanguage} offline language pack before using private voice input.`,
+          readiness.error ??
+            "The bundled English recognition model is not ready. Prepare the offline voice models in Settings.",
         );
         return;
       }
 
-      setVoiceInputAvailable(true);
       setVoiceInputStatus("checking");
       const subscriptions = [
-        module.addListener("start", () => {
-          if (runId !== voiceRecognitionRunRef.current) return;
-          setVoiceInputStatus("listening");
-          setVoiceError(null);
-        }),
         module.addListener(
-          "result",
-          (event: ExpoSpeechRecognitionResultEvent) => {
+          "recognitionResult",
+          (event: RecognitionResultEvent) => {
             if (runId !== voiceRecognitionRunRef.current) return;
-            const transcript = event.results[0]?.transcript?.trim();
-            if (transcript) setVoiceTranscript(transcript);
+            const transcript = event.transcript.trim();
+            if (transcript) {
+              voiceTranscriptRef.current = transcript;
+              setVoiceTranscript(transcript);
+            }
             if (event.isFinal) setVoiceInputStatus("processing");
           },
         ),
-        module.addListener("end", () => {
-          if (runId !== voiceRecognitionRunRef.current) return;
-          voiceRecognitionActiveRef.current = false;
-          clearRecognitionSubscriptions();
-          setVoiceInputStatus((current) =>
-            current === "unavailable" || current === "needs-model"
-              ? current
-              : "idle",
-          );
-        }),
-        module.addListener("error", (event) => {
-          if (runId !== voiceRecognitionRunRef.current) return;
-          voiceRecognitionActiveRef.current = false;
-          clearRecognitionSubscriptions();
-          if (event.error === "aborted") {
-            setVoiceTranscript("");
-            setVoiceInputStatus("idle");
-            return;
-          }
-          const needsModel =
-            event.error === "language-not-supported" ||
-            event.error === "service-not-allowed" ||
-            event.error === "network";
-          setVoiceTranscript("");
-          setVoiceInputStatus(needsModel ? "needs-model" : "error");
-          setVoiceError(voiceErrorMessage(event));
-        }),
+        module.addListener(
+          "recognitionStatus",
+          (event: RecognitionStatusEvent) => {
+            if (runId !== voiceRecognitionRunRef.current) return;
+            if (event.status === "listening") {
+              setVoiceInputStatus("listening");
+              setVoiceError(null);
+            } else if (event.status === "processing") {
+              setVoiceInputStatus("processing");
+            } else if (event.status === "completed") {
+              voiceRecognitionActiveRef.current = false;
+              clearRecognitionSubscriptions();
+              if (!voiceTranscriptRef.current.trim()) {
+                setVoiceError(
+                  "No speech was detected. Tap the microphone and try again.",
+                );
+                setVoiceInputStatus("error");
+              } else {
+                setVoiceInputStatus("idle");
+              }
+            } else if (event.status === "cancelled") {
+              voiceRecognitionActiveRef.current = false;
+              clearRecognitionSubscriptions();
+              setVoiceInputStatus("idle");
+            } else {
+              voiceRecognitionActiveRef.current = false;
+              clearRecognitionSubscriptions();
+              setVoiceInputStatus("error");
+              setVoiceError(voiceErrorMessage(event.message));
+            }
+          },
+        ),
       ];
       recognitionSubscriptionsRef.current = subscriptions;
       voiceRecognitionActiveRef.current = true;
@@ -1672,19 +1637,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         voiceRecognitionActiveRef.current = false;
         return;
       }
-      module.start({
-        lang: settings.voiceLanguage,
-        interimResults: true,
-        maxAlternatives: 1,
-        continuous: false,
-        requiresOnDeviceRecognition: true,
-        addsPunctuation: true,
-        androidRecognitionServicePackage: recognitionServicePackageRef.current,
-      });
+      await startLocalRecognition(runId);
+      void recordPrivacyAction({
+        capabilityId: "local.voice-input",
+        action: "offline-voice-input",
+        status: "allowed",
+        summary: "On-device microphone capture started; audio content omitted.",
+      }).catch(() => undefined);
     } catch (error) {
       if (runId !== voiceRecognitionRunRef.current) return;
       voiceRecognitionActiveRef.current = false;
       clearRecognitionSubscriptions();
+      voiceTranscriptRef.current = "";
       setVoiceTranscript("");
       setVoiceInputStatus("error");
       setVoiceError(
@@ -1696,38 +1660,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function stopVoiceInput() {
-    const module = recognitionModuleRef.current;
+    const module = voiceModuleRef.current;
     if (!module || !voiceRecognitionActiveRef.current) {
       cancelVoiceInput();
       return;
     }
     setVoiceInputStatus("processing");
-    module.stop();
+    void stopLocalRecognition(voiceRecognitionRunRef.current);
   }
 
   function cancelVoiceInput() {
+    const sessionId = voiceRecognitionRunRef.current;
     voiceRecognitionRunRef.current += 1;
     voiceRecognitionActiveRef.current = false;
     clearRecognitionSubscriptions();
-    const module = recognitionModuleRef.current;
-    try {
-      module?.abort();
-    } catch {
-      // The recognizer may already be inactive.
-    }
+    void cancelLocalRecognition(sessionId);
+    voiceTranscriptRef.current = "";
     setVoiceTranscript("");
     setVoiceInputStatus("idle");
     setVoiceError(null);
   }
 
   function clearVoiceTranscript() {
+    voiceTranscriptRef.current = "";
     setVoiceTranscript("");
   }
 
   async function runVoiceSelfTest() {
     if (voiceSelfTestRunning) return;
 
-    const module = recognitionModuleRef.current;
+    const module = voiceModuleRef.current;
     if (!module || Platform.OS !== "android") {
       setVoiceSelfTestResult({
         kind: "recognition",
@@ -1740,176 +1702,158 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const androidApiLevel =
-      typeof Platform.Version === "number" ? Platform.Version : 0;
-    if (androidApiLevel < 33) {
-      setVoiceSelfTestResult({
-        kind: "recognition",
-        outcome: "recognizer-unavailable",
-        title: "Android 13 or newer is required",
-        detail:
-          "This app only uses the Android on-device recognizer when it can guarantee private recognition.",
-        nextAction: "Use an Android 13+ device for the voice self-test.",
-      });
-      return;
-    }
-
     setVoiceSelfTestRunning(true);
     voiceSelfTestCancelRequestedRef.current = false;
     setVoiceSelfTestResult({
       kind: "recognition",
       outcome: "running",
-      title: "Checking local microphone access",
+      title: "Preparing the bundled speech model",
       detail:
-        "Android will ask for microphone access if it has not been granted.",
-      nextAction: "When listening starts, speak a short phrase.",
+        "Demi runs recognition locally with the model packaged in the app.",
+      nextAction: "When the microphone opens, speak a short phrase.",
     });
     voiceSelfTestActiveRef.current = true;
 
     try {
-      const permission = await module.requestPermissionsAsync();
+      const permission = await requestMicrophonePermission();
       if (voiceSelfTestCancelRequestedRef.current) return;
-      if (!permission.granted) {
+      if (permission !== "granted") {
         setVoiceSelfTestResult({
           kind: "recognition",
           outcome: "permission-denied",
           title: "Microphone permission is off",
           detail: "Android did not grant this app access to the microphone.",
           nextAction:
-            permission.canAskAgain === false
+            permission === "blocked"
               ? "Allow microphone access for Demi in Android Settings, then run the test again."
               : "Allow microphone access when Android asks, then run the test again.",
         });
         return;
       }
 
-      if (
-        !module.isRecognitionAvailable() ||
-        !module.supportsOnDeviceRecognition()
-      ) {
-        setVoiceSelfTestResult({
-          kind: "recognition",
-          outcome: "recognizer-unavailable",
-          title: "On-device recognizer is unavailable",
-          detail:
-            "Android does not have a recognizer that can run this test locally.",
-          nextAction:
-            "Install or enable an on-device speech recognition service, then run the test again.",
-        });
-        return;
-      }
-
-      const services = module.getSpeechRecognitionServices();
-      const onDevicePackage = services.includes("com.google.android.as")
-        ? "com.google.android.as"
-        : undefined;
-      const { installedLocales } = await module.getSupportedLocales({
-        androidRecognitionServicePackage: onDevicePackage,
-      });
+      const readiness = await getVoiceReadiness();
       if (voiceSelfTestCancelRequestedRef.current) return;
-      const expectedLocale = settingsRef.current.voiceLanguage.toLowerCase();
-      const expectedLanguage = expectedLocale.split("-")[0];
-      const localeInstalled = installedLocales.some((locale) => {
-        const normalized = locale.toLowerCase();
-        return (
-          normalized === expectedLocale ||
-          normalized.split("-")[0] === expectedLanguage
-        );
-      });
-      if (!localeInstalled) {
+      if (!readiness.inputAvailable) {
         setVoiceSelfTestResult({
           kind: "recognition",
-          outcome: "offline-language-missing",
-          title: "Offline language data is missing",
-          detail: `Android does not have the ${settingsRef.current.voiceLanguage} recognition pack installed.`,
-          nextAction:
-            "Tap Install offline language pack above, wait for Android to finish, then run the test again.",
+          outcome: "error",
+          title: "Bundled recognition model is unavailable",
+          detail: readiness.error ?? "The bundled English model is not ready.",
+          nextAction: "Prepare the bundled voice models and run the test again.",
         });
         return;
       }
 
+      if (voiceRecognitionActiveRef.current) {
+        const activeSessionId = voiceRecognitionRunRef.current;
+        cancelVoiceInput();
+        await cancelLocalRecognition(activeSessionId).catch(() => undefined);
+      }
+      const sessionId = voiceRecognitionRunRef.current + 1;
+      voiceRecognitionRunRef.current = sessionId;
       await new Promise<void>((resolve) => {
         let transcript = "";
         let settled = false;
         const subscriptions = [
           module.addListener(
-            "result",
-            (event: ExpoSpeechRecognitionResultEvent) => {
-              transcript = event.results[0]?.transcript?.trim() ?? transcript;
+            "recognitionResult",
+            (event: RecognitionResultEvent) => {
+              if (event.sessionId !== sessionId || !event.isFinal) return;
+              transcript = event.transcript.trim();
             },
           ),
-          module.addListener("error", (event) => {
-            finish(voiceSelfTestDiagnosis(event));
-          }),
-          module.addListener("end", () => {
-            if (transcript) {
-              finish({
-                outcome: "passed",
-                title: "Microphone recognition passed",
-                detail: `Android recognized “${transcript}” on this device without sending it to a network service.`,
-                nextAction:
-                  "You can use the microphone button for private voice input.",
-                transcript,
-              });
-            } else {
-              finish({
-                outcome: "error",
-                title: "No speech was detected",
-                detail:
-                  "The microphone opened, but the recognizer did not hear a phrase.",
-                nextAction:
-                  "Tap the test again and speak close to the device microphone.",
-              });
-            }
-          }),
+          module.addListener(
+            "recognitionStatus",
+            (event: RecognitionStatusEvent) => {
+              if (event.sessionId !== sessionId) return;
+              if (event.status === "listening") {
+                setVoiceSelfTestResult({
+                  kind: "recognition",
+                  outcome: "running",
+                  title: "Listening for a short phrase",
+                  detail: "Your voice is transcribed on this device.",
+                  nextAction: "Speak a short phrase, then stop the test.",
+                });
+                return;
+              }
+              if (event.status === "processing") {
+                setVoiceSelfTestResult({
+                  kind: "recognition",
+                  outcome: "running",
+                  title: "Transcribing locally",
+                  detail: "The bundled model is processing the recording.",
+                  nextAction: "Wait for the local transcription to finish.",
+                });
+                return;
+              }
+              if (event.status === "completed" && transcript) {
+                finish({
+                  outcome: "passed",
+                  title: "Microphone recognition passed",
+                  detail: `Demi recognized “${transcript}” with its bundled model. Audio was not sent to a speech service.`,
+                  nextAction:
+                    "You can use the microphone button for private voice input.",
+                  transcript,
+                });
+              } else if (event.status === "completed") {
+                finish({
+                  outcome: "error",
+                  title: "No speech was detected",
+                  detail:
+                    "The microphone opened, but the bundled model did not recognize a phrase.",
+                  nextAction:
+                    "Tap the test again and speak close to the device microphone.",
+                });
+              } else if (event.status === "cancelled") {
+                finish({
+                  outcome: "cancelled",
+                  title: "Microphone test cancelled",
+                  detail: "The local microphone check was cancelled.",
+                  nextAction:
+                    "Run the test again and speak a short phrase when prompted.",
+                });
+              } else if (event.status === "error") {
+                finish(voiceSelfTestDiagnosis(event.message));
+              }
+            },
+          ),
         ];
 
         function finish(diagnosis: Omit<VoiceSelfTestResult, "kind">) {
           if (settled) return;
           settled = true;
           subscriptions.forEach((subscription) => subscription.remove());
+          voiceSelfTestStopRef.current = null;
           voiceSelfTestCancelRef.current = null;
           setVoiceSelfTestResult({ kind: "recognition", ...diagnosis });
           resolve();
         }
 
         voiceSelfTestCancelRef.current = () => {
-          try {
-            module.abort();
-          } catch {
-            // The recognizer may already have stopped.
-          }
+          void cancelLocalRecognition(sessionId);
           finish({
             outcome: "cancelled",
             title: "Microphone test cancelled",
-            detail:
-              "The on-device recognizer stopped before it returned a result.",
+            detail: "The local microphone check was cancelled.",
             nextAction:
               "Run the test again and speak a short phrase when prompted.",
           });
         };
+        voiceSelfTestStopRef.current = () => {
+          void stopLocalRecognition(sessionId);
+        };
 
-        try {
-          module.start({
-            lang: settingsRef.current.voiceLanguage,
-            interimResults: true,
-            maxAlternatives: 1,
-            continuous: false,
-            requiresOnDeviceRecognition: true,
-            addsPunctuation: true,
-            androidRecognitionServicePackage: onDevicePackage,
-          });
-        } catch (error) {
+        void startLocalRecognition(sessionId).catch((error) => {
           finish({
             outcome: "error",
             title: "Microphone test could not start",
             detail:
               error instanceof Error
                 ? error.message
-                : "Android rejected the local recognition request.",
+                : "The bundled recognizer could not start.",
             nextAction: "Close other recording apps and run the test again.",
           });
-        }
+        });
       });
     } catch (error) {
       setVoiceSelfTestResult({
@@ -1919,8 +1863,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         detail:
           error instanceof Error
             ? error.message
-            : "Android could not verify local speech recognition.",
-        nextAction: "Check Android voice settings and run the test again.",
+            : "The bundled model could not verify local speech recognition.",
+        nextAction: "Prepare the bundled voice models and run the test again.",
       });
     } finally {
       voiceSelfTestCancelRef.current = null;
@@ -1942,6 +1886,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         nextAction:
           "Run the test again and speak a short phrase when prompted.",
       });
+    }
+  }
+
+  function stopVoiceSelfTest() {
+    if (voiceSelfTestStopRef.current) {
+      voiceSelfTestStopRef.current();
+    } else {
+      cancelVoiceSelfTest();
     }
   }
 
@@ -1973,8 +1925,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       kind: "tts",
       outcome: "running",
       title: "Playing local speech sample",
-      detail:
-        "This short sample uses the selected language and the verified offline voice fallback.",
+      detail: "This short sample uses the bundled US English Piper voice.",
       nextAction: "Tap Stop sample if you want to end playback early.",
     });
     await stopLocalSpeech();
@@ -1988,10 +1939,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setVoiceSelfTestResult({
         kind: "tts",
         outcome: "error",
-        title: "No verified offline voice is installed",
-        detail: `Android does not have a verified offline voice for ${settingsRef.current.voiceLanguage}.`,
-        nextAction:
-          "Open Android text-to-speech settings, install an offline voice, then try the sample again.",
+        title: "Bundled offline voice is unavailable",
+        detail: `The packaged English voice is not ready for ${settingsRef.current.voiceLanguage}.`,
+        nextAction: "Prepare the bundled voice models, then try again.",
       });
       return;
     }
@@ -2012,7 +1962,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           outcome: "passed",
           title: "Local speech playback passed",
           detail:
-            "The selected language and a verified offline voice played on this device.",
+            "The bundled Piper voice played locally on this device.",
           nextAction: "You can use spoken replies without a network voice.",
         });
       },
@@ -2036,7 +1986,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title: "Local speech playback failed",
           detail: message || "The verified offline voice could not start.",
           nextAction:
-            "Install or enable an offline voice for the selected language in Android Settings, then try again.",
+            "Prepare the bundled voice models and try the sample again.",
         });
       },
     });
@@ -2055,82 +2005,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
-  async function installOfflineVoiceModel() {
-    if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-input")) {
-      setVoiceError(
-        privacyState.globalPause
-          ? "Privacy pause is active. Resume privileged actions in Settings before changing offline voice setup."
-          : "Offline voice input is paused or revoked in Settings.",
-      );
-      return;
-    }
-    if (offlineVoiceSetupInFlightRef.current) return;
-    const module = recognitionModuleRef.current;
+  async function prepareBundledVoiceModels() {
+    if (voiceModelPreparationRef.current) return;
+    const module = voiceModuleRef.current;
     if (!module || Platform.OS !== "android") {
       setVoiceError(
-        "Offline language installation is available in the installed Android build.",
+        "Bundled offline speech models are available in the installed Android build.",
       );
       return;
     }
 
-    const androidApiLevel =
-      typeof Platform.Version === "number" ? Platform.Version : 0;
-    if (androidApiLevel < 33) {
-      setVoiceInputStatus("unavailable");
-      setVoiceError(
-        "Private offline dictation requires Android 13 or newer and is disabled on this device.",
-      );
-      return;
-    }
-
-    offlineVoiceSetupInFlightRef.current = true;
+    voiceModelPreparationRef.current = true;
     setVoiceSetupInProgress(true);
     setVoiceError(null);
-    setVoiceSetupMessage(null);
+    setVoiceSetupMessage("Preparing bundled offline speech models...");
     setVoiceInputStatus("checking");
     try {
-      if (
-        !module.isRecognitionAvailable() ||
-        !module.supportsOnDeviceRecognition()
-      ) {
-        setVoiceInputStatus("unavailable");
-        setVoiceSetupMessage(
-          "No private on-device speech recognizer is available. Install or enable Speech Services by Google, then tap Retry voice checks.",
+      const readiness = await prepareVoiceModels();
+      if (!readiness.ready) {
+        throw new Error(
+          readiness.error ?? "The bundled speech models are not ready.",
         );
-        return;
       }
-      const services = module.getSpeechRecognitionServices();
-      if (services.length === 0) {
-        setVoiceInputStatus("unavailable");
-        setVoiceSetupMessage(
-          "Android has no speech recognition service enabled. Install or enable Speech Services by Google, then tap Retry voice checks.",
-        );
-        return;
-      }
-      const result = await module.androidTriggerOfflineModelDownload({
-        locale: settings.voiceLanguage,
-      });
+      await refreshOfflineVoices();
       setVoiceSetupMessage(
-        result.status === "download_success"
-          ? `${settings.voiceLanguage} offline recognition is installed.`
-          : result.status === "download_scheduled"
-            ? "The offline language download is scheduled. Android may wait for Wi-Fi."
-            : "Android opened the offline language download. Return here when it finishes.",
+        "Bundled US English dictation and spoken replies are ready. No download or speech service is needed.",
       );
-      await refreshVoiceAvailability(module);
-      if (result.status !== "opened_dialog") {
-        offlineVoiceSetupInFlightRef.current = false;
-        setVoiceSetupInProgress(false);
-      }
     } catch (error) {
-      offlineVoiceSetupInFlightRef.current = false;
-      setVoiceSetupInProgress(false);
+      setVoiceInputAvailable(false);
+      setVoiceOutputAvailable(false);
       setVoiceInputStatus("needs-model");
       setVoiceError(
         error instanceof Error
           ? error.message
-          : "The offline language download could not be opened.",
+          : "The bundled offline speech models could not be prepared.",
       );
+    } finally {
+      voiceModelPreparationRef.current = false;
+      setVoiceSetupInProgress(false);
     }
   }
 
@@ -2162,7 +2074,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setVoiceOutputAvailable(languageVoiceAvailable);
     if (!languageVoiceAvailable) {
       setVoiceError(
-        `No verified offline Android voice is installed for ${settings.voiceLanguage}. Add one in device Settings.`,
+        `The bundled offline voice does not support ${settings.voiceLanguage}. Choose English (US) in Settings.`,
       );
       return;
     }
@@ -2186,16 +2098,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function stopSpeaking() {
     await stopLocalSpeech();
     setIsSpeaking(false);
-  }
-
-  async function openVoiceSettings() {
-    try {
-      await openLocalVoiceSettings();
-    } catch {
-      setVoiceError(
-        "Android text-to-speech settings could not be opened from this build. Open Android Settings, then choose Text-to-speech output.",
-      );
-    }
   }
 
   function dismissVoiceError() {
@@ -3042,6 +2944,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSelfTestRunning,
       voiceSelfTestSpeechStatus,
       runVoiceSelfTest,
+      stopVoiceSelfTest,
       cancelVoiceSelfTest,
       playVoiceSelfTestSample,
       stopVoiceSelfTestSample,
@@ -3057,10 +2960,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       stopVoiceInput,
       cancelVoiceInput,
       clearVoiceTranscript,
-      installOfflineVoiceModel,
+      prepareBundledVoiceModels,
       speakText,
       stopSpeaking,
-      openVoiceSettings,
       dismissVoiceError,
       cloudFallbackActivity,
       runCloudFallback,

@@ -16,3 +16,8 @@ android {
     abortOnError false
   }
 }
+
+dependencies {
+  compileOnly files("libs/sherpa-onnx-api.jar")
+  implementation("org.apache.commons:commons-compress:1.27.1")
+}

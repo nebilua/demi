@@ -1,0 +1,2 @@
+artifacts/second-brain/modules/offline-tts/android/src/main/assets/voice-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2 filter=lfs diff=lfs merge=lfs -text
+artifacts/second-brain/modules/offline-tts/android/src/main/assets/voice-models/vits-piper-en_US-ljspeech-medium.tar.bz2 filter=lfs diff=lfs merge=lfs -text

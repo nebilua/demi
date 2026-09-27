@@ -430,8 +430,7 @@ function baseAppValue(overrides = {}) {
     downloadProgress: 0,
     downloadError: null,
     removeModel: async () => {},
-    installOfflineVoiceModel: async () => {},
-    openVoiceSettings: async () => {},
+    prepareBundledVoiceModels: async () => {},
     refreshOfflineVoices: async () => {},
     dismissVoiceError: () => {},
     turns: [],
@@ -600,7 +599,7 @@ async function testVoiceErrorsExposeAccessibleRetry() {
   let refreshCalls = 0;
   let dismissCalls = 0;
   appValue = baseAppValue({
-    voiceError: 'No verified offline Android voice is installed.',
+    voiceError: 'The bundled English voice is not ready.',
     refreshOfflineVoices: async () => {
       refreshCalls += 1;
     },
@@ -615,7 +614,10 @@ async function testVoiceErrorsExposeAccessibleRetry() {
   });
   await expandSettingsGroup(renderer, 'settings-group-local-voice');
   const status = renderer.root.findByProps({ accessibilityRole: 'alert' });
-  assert.match(status.props.children[0].props.children, /No verified offline/);
+  assert.match(
+    status.props.children[0].props.children,
+    /bundled English voice is not ready/i,
+  );
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'refresh-offline-voice-status').props.onPress();
   });
@@ -1336,9 +1338,10 @@ function testVoiceLifecycleGuardsLateRecognition() {
   assert.match(source, /voiceRecognitionRunRef/);
   assert.match(source, /clearRecognitionSubscriptions/);
   assert.match(source, /if \(runId !== voiceRecognitionRunRef\.current\) return/);
-  assert.match(source, /event\.error === "aborted"/);
+  assert.match(source, /event\.status === "cancelled"/);
   assert.match(source, /voiceRecognitionRunRef\.current \+= 1/);
-  assert.match(source, /const runId = voiceRecognitionRunRef\.current \+ 1/);
+  assert.match(source, /const runId = previousRunId \+ 1/);
+  assert.match(source, /await cancelLocalRecognition\(previousRunId\)/);
   assert.match(source, /setVoiceTranscript\(""\);[\s\S]*setVoiceInputStatus\("idle"\)/);
   assert.doesNotMatch(
     fs.readFileSync(path.join(__dirname, '../app/index.tsx'), 'utf8'),

@@ -30,16 +30,34 @@ const requiredPermissions = [
   'android.permission.RECORD_AUDIO',
   'android.permission.POST_NOTIFICATIONS',
 ];
-const requiredNativeEntries = ['lib/arm64-v8a/librnllama.so'];
+const requiredNativeEntries = [
+  'lib/arm64-v8a/librnllama.so',
+  'lib/arm64-v8a/libonnxruntime.so',
+  'lib/arm64-v8a/libsherpa-onnx-jni.so',
+];
 const requiredNativeClassFragments = [
   {
-    label: 'offline TTS module',
-    fragment: 'com/secondbrain/offlinetts/SecondBrainOfflineTtsModule',
+    label: 'bundled offline speech module',
+    fragment: 'com/secondbrain/offlinetts/SecondBrainOfflineVoiceModule',
   },
   {
-    label: 'offline speech recognition module',
-    fragment: 'expo/modules/speechrecognition/ExpoSpeechRecognitionModule',
+    label: 'sherpa-onnx offline recognizer',
+    fragment: 'com/k2fsa/sherpa/onnx/OfflineRecognizer',
   },
+  {
+    label: 'sherpa-onnx offline voice synthesizer',
+    fragment: 'com/k2fsa/sherpa/onnx/OfflineTts',
+  },
+];
+const requiredBundledVoiceAssets = [
+  'assets/voice-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2',
+  'assets/voice-models/vits-piper-en_US-ljspeech-medium.tar.bz2',
+  'assets/THIRD_PARTY_NOTICES.md',
+  'assets/licenses/espeak-ng-GPL-3.0.txt',
+  'assets/licenses/moonshine-MIT.txt',
+  'assets/licenses/onnxruntime-MIT.txt',
+  'assets/licenses/piper-MIT.md',
+  'assets/licenses/sherpa-onnx-Apache-2.0.txt',
 ];
 const maxDexBytes = 64 * 1024 * 1024;
 
@@ -358,6 +376,13 @@ function checkApk(apkPath, androidEnvironment) {
       );
     }
     console.log(`  native module: ${requiredEntry}`);
+  }
+
+  for (const requiredAsset of requiredBundledVoiceAssets) {
+    if (!entries.includes(requiredAsset)) {
+      fail(`bundled offline speech asset is absent: ${requiredAsset}.`);
+    }
+    console.log(`  bundled voice asset: ${requiredAsset}`);
   }
 
   const dexEntries = entries.filter((entry) => /^classes\d*\.dex$/.test(entry));

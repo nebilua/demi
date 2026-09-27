@@ -2,7 +2,7 @@
   "platforms": ["android"],
   "android": {
     "modules": [
-      "com.secondbrain.offlinetts.SecondBrainOfflineTtsModule"
+      "com.secondbrain.offlinetts.SecondBrainOfflineVoiceModule"
     ]
   }
 }

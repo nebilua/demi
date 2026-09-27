@@ -40,10 +40,6 @@ const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ];
-const voiceLanguageOptions = [
-  { value: "en-US", label: "English (US)" },
-  { value: "en-GB", label: "English (UK)" },
-];
 const speechRateOptions = [
   { value: 0.82, label: "Slower" },
   { value: 0.92, label: "Natural" },
@@ -662,7 +658,7 @@ export default function SettingsScreen() {
     voiceSelfTestRunning,
     voiceSelfTestSpeechStatus,
     runVoiceSelfTest,
-    cancelVoiceSelfTest,
+    stopVoiceSelfTest,
     playVoiceSelfTestSample,
     stopVoiceSelfTestSample,
     importModel,
@@ -672,8 +668,7 @@ export default function SettingsScreen() {
     downloadProgress,
     downloadError,
     removeModel,
-    installOfflineVoiceModel,
-    openVoiceSettings,
+    prepareBundledVoiceModels,
     dismissVoiceError,
     storageUsage,
     storageUsageRefreshing,
@@ -716,18 +711,14 @@ export default function SettingsScreen() {
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const safePrivacyState = privacyState ?? createDefaultPrivacyState(0);
 
-  const androidApiLevel =
-    Platform.OS === "android" && typeof Platform.Version === "number"
-      ? Platform.Version
-      : null;
-  const requiresNewerAndroid = androidApiLevel !== null && androidApiLevel < 33;
   const canSetupSpeech =
     Platform.OS === "android" &&
     voiceInputStatus === "needs-model" &&
-    !requiresNewerAndroid &&
     !voiceSetupInProgress;
   const canSetupSpokenReplies =
-    Platform.OS === "android" && !voiceOutputAvailable;
+    Platform.OS === "android" &&
+    !voiceOutputAvailable &&
+    !voiceSetupInProgress;
   const matchingOfflineVoices = offlineVoices.filter((voice) =>
     voiceMatchesLanguage(voice.language, settings.voiceLanguage),
   );
@@ -1733,7 +1724,7 @@ export default function SettingsScreen() {
           sectionTestID="settings-group-local-voice"
           icon="volume-2"
           title="Local voice setup"
-          summary="Speech input, spoken replies, and installed voices"
+          summary="Bundled English dictation and spoken replies"
           expanded={localVoiceExpanded}
           onToggle={() => setLocalVoiceExpanded((expanded) => !expanded)}
         >
@@ -1746,9 +1737,9 @@ export default function SettingsScreen() {
           <Pressable
             testID="offline-speech-setup"
             accessibilityRole={canSetupSpeech ? "button" : undefined}
-            accessibilityLabel="Set up offline speech input"
+            accessibilityLabel="Prepare bundled offline speech input"
             disabled={!canSetupSpeech}
-            onPress={() => void installOfflineVoiceModel()}
+            onPress={() => void prepareBundledVoiceModels()}
             style={({ pressed }) => [
               styles.readinessItem,
               canSetupSpeech && pressed && styles.pressedReadiness,
@@ -1788,12 +1779,10 @@ export default function SettingsScreen() {
               style={[styles.readinessDesc, { color: colors.mutedForeground }]}
             >
               {voiceInputAvailable
-                ? "Offline dictation ready."
+                ? "Bundled US English dictation is ready."
                 : Platform.OS !== "android"
                   ? "Available in the installed Android app."
-                  : requiresNewerAndroid
-                    ? "Requires Android 13+."
-                    : "Install English offline language pack."}
+                  : "Prepare the bundled English recognition model."}
             </Text>
           </Pressable>
 
@@ -1802,9 +1791,9 @@ export default function SettingsScreen() {
           <Pressable
             testID="offline-tts-setup"
             accessibilityRole={canSetupSpokenReplies ? "button" : undefined}
-            accessibilityLabel="Set up offline spoken replies"
+            accessibilityLabel="Prepare bundled offline spoken replies"
             disabled={!canSetupSpokenReplies}
-            onPress={() => void openVoiceSettings()}
+            onPress={() => void prepareBundledVoiceModels()}
             style={({ pressed }) => [
               styles.readinessItem,
               canSetupSpokenReplies && pressed && styles.pressedReadiness,
@@ -1841,10 +1830,10 @@ export default function SettingsScreen() {
               style={[styles.readinessDesc, { color: colors.mutedForeground }]}
             >
               {voiceOutputAvailable
-                ? "Offline TTS ready."
+                ? "Bundled Piper US English voice is ready."
                 : Platform.OS !== "android"
                   ? "Available in the installed Android app."
-                  : "Verify or install an offline TTS voice."}
+                  : "Prepare the bundled English voice."}
             </Text>
           </Pressable>
 
@@ -1857,7 +1846,7 @@ export default function SettingsScreen() {
                     { color: colors.cardForeground },
                   ]}
                 >
-                  Preferred English voice
+                  Bundled English voice
                 </Text>
                 <Text
                   style={[
@@ -1865,13 +1854,12 @@ export default function SettingsScreen() {
                     { color: colors.mutedForeground },
                   ]}
                 >
-                  Automatic matching is used if the selected voice is
-                  unavailable.
+                  The app includes one US English voice; it works without Android speech services.
                 </Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Refresh installed offline voices"
+                accessibilityLabel="Refresh bundled offline voice"
                 onPress={() => void refreshOfflineVoices()}
                 style={({ pressed }) => [
                   styles.refreshButton,
@@ -1893,7 +1881,7 @@ export default function SettingsScreen() {
                 <Text
                   style={[styles.voiceMeta, { color: colors.mutedForeground }]}
                 >
-                  Checking installed offline voices...
+                  Checking bundled offline voice...
                 </Text>
               </View>
             ) : matchingOfflineVoices.length === 0 ? (
@@ -1901,8 +1889,8 @@ export default function SettingsScreen() {
                 style={[styles.voiceMeta, { color: colors.mutedForeground }]}
               >
                 {Platform.OS !== "android"
-                  ? "Verified offline voices are available in the installed Android app."
-                  : `No verified offline ${settings.voiceLanguage} voice is installed. Use Spoken replies above to open Android text-to-speech settings.`}
+                  ? "The bundled voice is available in the installed Android app."
+                  : "The bundled English voice is not ready. Prepare it using Spoken replies above."}
               </Text>
             ) : (
               <View style={styles.voiceOptions}>
@@ -2029,7 +2017,7 @@ export default function SettingsScreen() {
                   onPress={() => {
                     dismissVoiceError();
                     if (voiceInputStatus === "needs-model") {
-                      void installOfflineVoiceModel();
+                      void prepareBundledVoiceModels();
                     } else {
                       void refreshOfflineVoices();
                     }
@@ -2062,8 +2050,8 @@ export default function SettingsScreen() {
                   { color: colors.destructive, marginTop: 10 },
                 ]}
               >
-                Offline {settings.voiceLanguage} speech recognition is not
-                installed. Tap Speech input to start Android setup.
+                Bundled {settings.voiceLanguage} speech models are not ready.
+                Tap Speech input to prepare them on this device.
               </Text>
             )}
           <View
@@ -2108,11 +2096,11 @@ export default function SettingsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={
                     voiceSelfTestRunning
-                      ? "Cancel microphone self-test"
+                      ? "Stop and transcribe microphone test"
                       : "Test microphone recognition"
                   }
                   onPress={() => {
-                    if (voiceSelfTestRunning) cancelVoiceSelfTest();
+                    if (voiceSelfTestRunning) stopVoiceSelfTest();
                     else void runVoiceSelfTest();
                   }}
                   style={({ pressed }) => [
@@ -2128,7 +2116,7 @@ export default function SettingsScreen() {
                         { color: colors.primaryForeground },
                       ]}
                     >
-                      Cancel mic test
+                      Stop and transcribe
                     </Text>
                   ) : (
                     <Text
@@ -2239,43 +2227,14 @@ export default function SettingsScreen() {
             >
               Voice language
             </Text>
-            <View
-              style={[styles.segmented, { backgroundColor: colors.secondary }]}
+            <Text
+              style={[
+                styles.readinessDesc,
+                { color: colors.mutedForeground, marginTop: 6 },
+              ]}
             >
-              {voiceLanguageOptions.map((option) => (
-                <Pressable
-                  key={option.value}
-                  accessibilityRole="radio"
-                  accessibilityState={{
-                    selected: settings.voiceLanguage === option.value,
-                  }}
-                  onPress={() =>
-                    void updateSettings({ voiceLanguage: option.value })
-                  }
-                  style={[
-                    styles.segment,
-                    settings.voiceLanguage === option.value && {
-                      backgroundColor: colors.card,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.segmentText,
-                      {
-                        color:
-                          settings.voiceLanguage === option.value
-                            ? colors.cardForeground
-                            : colors.mutedForeground,
-                      },
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+              English (US) is bundled with the Android app. Other speech languages are not included yet.
+            </Text>
             <Text
               style={[
                 styles.readinessTitle,

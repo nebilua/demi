@@ -13,6 +13,7 @@
     "android": {
       "package": "com.secondbrain.localassistant",
       "versionCode": 1,
+      "permissions": ["android.permission.RECORD_AUDIO"],
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -27,18 +28,7 @@
       "expo-document-picker",
       "expo-notifications",
       "expo-secure-store",
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "Allow Demi to hear your voice while you hold the microphone button.",
-          "speechRecognitionPermission": "Allow Demi to turn your speech into editable text on this device.",
-          "androidSpeechServicePackages": [
-            "com.google.android.googlequicksearchbox",
-            "com.google.android.as",
-            "com.google.android.tts"
-          ]
-        }
-      ],
+      "./modules/offline-tts/app.plugin.js",
       [
         "llama.rn",
         {

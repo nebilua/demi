@@ -431,7 +431,7 @@ async function main() {
     'utf8',
   );
   const offlineTts = fs.readFileSync(
-    path.resolve(__dirname, '../modules/offline-tts/android/src/main/java/com/secondbrain/offlinetts/SecondBrainOfflineTtsModule.kt'),
+    path.resolve(__dirname, '../modules/offline-tts/android/src/main/java/com/secondbrain/offlinetts/SecondBrainOfflineVoiceModule.kt'),
     'utf8',
   );
   assert.match(appContext, /cleanupUnusedModelFiles/);
@@ -442,10 +442,13 @@ async function main() {
   assert.match(appContext, /failedFiles/);
   assert.match(appContext, /remaining\.exists/);
   assert.match(appContext, /MODEL_STORAGE_SAFETY_MARGIN_BYTES/);
-  assert.match(appContext, /requiresOnDeviceRecognition: true/);
+  assert.match(appContext, /requestMicrophonePermission/);
+  assert.match(appContext, /startLocalRecognition/);
   assert.match(offlineVoice, /voiceMatchesLanguage/);
-  assert.match(offlineTts, /isNetworkConnectionRequired/);
-  assert.match(offlineTts, /preferredVoiceId/);
+  assert.match(offlineTts, /OfflineRecognizer/);
+  assert.match(offlineTts, /OfflineTts/);
+  assert.match(offlineTts, /AudioRecord/);
+  assert.doesNotMatch(offlineTts, /TextToSpeech|RecognitionService|com\.google\.android\./);
   assert.match(localStorageUsage, /getFreeDiskStorageAsync/);
   assert.match(localStorageUsage, /reclaimableModels/);
   assert.match(localStorageUsage, /cacheDirectory/);
