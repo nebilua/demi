@@ -47,19 +47,25 @@ invalid output.
 
 ## APK hard gate
 
-With the documented Android SDK, build-tools, and NDK
-`27.1.12297006` available, run:
+The repository provides `android-sdk.nix`, a reproducible Nix shell containing
+Android platforms 35 and 36, build-tools 35.0.0 and 36.0.0, NDK
+`27.1.12297006`, CMake 3.22.1, Java 17, and `unzip`. The filtered package
+commands enter this shell and set `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and
+`ANDROID_NDK_HOME` automatically; no local SDK path configuration is needed.
+Run from the repository root:
 
 ```bash
+pnpm --filter @workspace/second-brain run preflight:android-alpha
 pnpm --filter @workspace/second-brain run validate:android-apk
 ```
 
-The validator performs the constrained arm64 release build unless `SKIP_BUILD=1`
-is set, then checks package identity, microphone and notification permissions,
-arm64-only native libraries including `librnllama.so`, native voice/TTS
-modules, DEX contents, zip alignment, and APK signature. If the SDK or NDK is
-unavailable, record the gate as **blocked**, not passed; do not infer APK
-validity from the JavaScript or browser suites.
+The preflight checks the SDK components before the build. The validator performs
+a single-worker arm64 release build with bounded Gradle and Metro heaps unless
+`SKIP_BUILD=1` is set, then checks package identity, microphone and notification
+permissions, arm64-only native libraries including `librnllama.so`, native
+voice/TTS modules, DEX contents, zip alignment, and APK signature. If the SDK or
+NDK cannot be built or found, record the gate as **blocked**, not passed; do not
+infer APK validity from the JavaScript or browser suites.
 
 ## Physical-device evidence
 

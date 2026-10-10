@@ -399,6 +399,9 @@ importers:
       '@expo-google-fonts/space-grotesk':
         specifier: ^0.4.1
         version: 0.4.1
+      '@expo/config-plugins':
+        specifier: ~57.0.9
+        version: 57.0.9(typescript@6.0.3)
       '@types/base64-js':
         specifier: ^1.5.0
         version: 1.5.0

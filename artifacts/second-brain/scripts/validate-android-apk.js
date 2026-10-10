@@ -26,6 +26,8 @@ const defaultApkPath = path.join(
 
 const expectedNdkVersion = '27.1.12297006';
 const expectedPlatform = 'android-35';
+const expectedBuildToolsVersion = '35.0.0';
+const expectedCmakeVersion = '3.22.1';
 const requiredPermissions = [
   'android.permission.RECORD_AUDIO',
   'android.permission.POST_NOTIFICATIONS',
@@ -209,6 +211,21 @@ function resolveAndroidEnvironment() {
     );
   }
 
+  const buildToolsPath = path.join(sdkPath, 'build-tools', expectedBuildToolsVersion);
+  if (!fs.existsSync(buildToolsPath)) {
+    fail(
+      `Android build-tools ${expectedBuildToolsVersion} not found at ${buildToolsPath}. ` +
+        `Install build-tools ${expectedBuildToolsVersion} before running the constrained arm64 build.`,
+    );
+  }
+  const cmakePath = path.join(sdkPath, 'cmake', expectedCmakeVersion);
+  if (!fs.existsSync(cmakePath)) {
+    fail(
+      `Android CMake ${expectedCmakeVersion} not found at ${cmakePath}. ` +
+        `Install CMake ${expectedCmakeVersion} before running the constrained arm64 build.`,
+    );
+  }
+
   const tools = Object.fromEntries(
     ['aapt', 'zipalign', 'apksigner'].map((toolName) => [
       toolName,
@@ -241,6 +258,8 @@ function resolveAndroidEnvironment() {
       ANDROID_SDK_ROOT: sdkPath,
       ANDROID_NDK_HOME: ndkPath,
       CMAKE_BUILD_PARALLEL_LEVEL: '1',
+      NODE_ENV: 'production',
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --max-old-space-size=1536`.trim(),
     },
   };
 }
@@ -249,6 +268,8 @@ function printPreflight(androidEnvironment) {
   console.log('Android alpha preflight passed:');
   console.log(`  SDK: ${androidEnvironment.sdkPath}`);
   console.log(`  platform: ${androidEnvironment.platform}`);
+  console.log(`  build-tools: ${expectedBuildToolsVersion}`);
+  console.log(`  CMake: ${expectedCmakeVersion}`);
   console.log(`  NDK: ${androidEnvironment.ndkPath}`);
   console.log(
     `  build tools: ${Object.entries(androidEnvironment.tools)
@@ -282,7 +303,8 @@ function buildApk(androidEnvironment) {
       '--console=plain',
       '--max-workers=1',
       '-Dorg.gradle.parallel=false',
-      "-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m",
+      '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m',
+      '-Pkotlin.compiler.execution.strategy=in-process',
       '-PrnllamaBuildFromSource=false',
       '-PreactNativeArchitectures=arm64-v8a',
       '-PrnllamaVariants=rnllama',
@@ -456,6 +478,8 @@ if (require.main === module) {
 module.exports = {
   expectedNdkVersion,
   expectedPlatform,
+  expectedBuildToolsVersion,
+  expectedCmakeVersion,
   findSdkTool,
   readReleaseIdentity,
   findSdkCandidates,
