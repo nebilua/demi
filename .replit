@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -20,7 +20,7 @@ NIXPKGS_ACCEPT_ANDROID_SDK_LICENSE = "1"
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 180000
 
 [nix]
 channel = "stable-25_05"
