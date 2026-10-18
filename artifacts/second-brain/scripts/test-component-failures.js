@@ -20,6 +20,8 @@ const colors = {
   destructive: '#b33',
 };
 
+let windowDimensions = { width: 402, height: 874 };
+
 const passthrough = (name) => (props) =>
   React.createElement(name, props, typeof props.children === 'function'
     ? props.children({ pressed: false })
@@ -46,7 +48,7 @@ const fakeReactNative = {
   Switch: passthrough('Switch'),
   Text: passthrough('Text'),
   TextInput: passthrough('TextInput'),
-  useWindowDimensions: () => ({ width: 402, height: 874 }),
+  useWindowDimensions: () => windowDimensions,
   View: passthrough('View'),
 };
 
@@ -453,6 +455,8 @@ function baseAppValue(overrides = {}) {
 }
 
 async function testSettingsNavigationGroupsRemainReachable() {
+  const previousDimensions = windowDimensions;
+  windowDimensions = { width: 320, height: 640 };
   appValue = baseAppValue();
   const { default: SettingsScreen } = require('../app/settings.tsx');
   let renderer;
@@ -482,7 +486,18 @@ async function testSettingsNavigationGroupsRemainReachable() {
   assert.equal(hasTestId(renderer, 'appearance-option-light'), false);
 
   await expandSettingsGroup(renderer, 'settings-group-privacy');
-  assert.ok(findByTestId(renderer, 'open-screen-access'));
+  const screenAccessLink = findByTestId(renderer, 'open-screen-access');
+  assert.equal(screenAccessLink.props.accessibilityRole, 'button');
+  const screenAccessLinkStyle =
+    typeof screenAccessLink.props.style === 'function'
+      ? screenAccessLink.props.style({ pressed: false })
+      : screenAccessLink.props.style;
+  assert.ok(
+    screenAccessLinkStyle
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.gap === 10),
+  );
   assert.ok(findByTestId(renderer, 'clear-privacy-state'));
 
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
@@ -497,6 +512,16 @@ async function testSettingsNavigationGroupsRemainReachable() {
 
   await expandSettingsGroup(renderer, 'settings-group-advanced-preferences');
   assert.ok(findByTestId(renderer, 'appearance-option-light'));
+  const speechRateLabel = renderer.root
+    .findAllByType('Text')
+    .find((node) => node.children.includes('Spoken reply speed'));
+  assert.ok(speechRateLabel);
+  assert.ok(
+    speechRateLabel.props.style
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.marginBottom === 8),
+  );
   assert.equal(
     findByTestId(renderer, 'appearance-option-light').props.accessibilityRole,
     'radio',
@@ -506,6 +531,20 @@ async function testSettingsNavigationGroupsRemainReachable() {
       .selected,
     true,
   );
+  const renderedTextNodes = renderer.root.findAllByType('Text');
+  const findExactTextIndex = (value) =>
+    renderedTextNodes.reduce(
+      (lastIndex, node, index) =>
+        node.children.includes(value) ? index : lastIndex,
+      -1,
+    );
+  const hapticIndex = findExactTextIndex('Haptic feedback');
+  const appearanceIndex = findExactTextIndex('System');
+  const everydayIndex = findExactTextIndex('Everyday controls');
+  const voiceInputIndex = findExactTextIndex('Offline voice input');
+  assert.ok(hapticIndex < appearanceIndex);
+  assert.ok(appearanceIndex < everydayIndex);
+  assert.ok(everydayIndex < voiceInputIndex);
 
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'clear-conversation-history').props.onPress();
@@ -523,6 +562,46 @@ async function testSettingsNavigationGroupsRemainReachable() {
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
+  windowDimensions = previousDimensions;
+}
+
+async function testHomeSetupCircleFitsCompactStage() {
+  const previousDimensions = windowDimensions;
+  windowDimensions = { width: 320, height: 640 };
+  appValue = baseAppValue({ engineStatus: 'no-model' });
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+
+  const circle = findByTestId(renderer, 'demi-voice-circle');
+  const rawCircleStyle =
+    typeof circle.props.style === 'function'
+      ? circle.props.style({ pressed: false })
+      : circle.props.style;
+  const circleStyle = rawCircleStyle
+    .flat(Infinity)
+    .filter(Boolean)
+    .find((style) => style.width && style.height);
+  assert.ok(circleStyle);
+  assert.equal(circleStyle.width, circleStyle.height);
+  assert.equal(circleStyle.borderRadius * 2, circleStyle.width);
+  assert.equal(circle.props.accessibilityRole, 'button');
+  assert.equal(circle.props.accessibilityLabel, 'Open settings for setup');
+
+  const stage = findByTestId(renderer, 'home-voice-stage');
+  const stageStyle = stage.props.style
+    .flat(Infinity)
+    .filter(Boolean)
+    .find((style) => typeof style.height === 'number');
+  assert.ok(stageStyle);
+  assert.ok(stageStyle.height >= circleStyle.height + 92);
+
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+  windowDimensions = previousDimensions;
 }
 
 async function testModelRemovalRequiresConfirmation() {
@@ -1695,6 +1774,7 @@ function testDownloadCancellationGuardRunsBeforeCommit() {
 async function main() {
   await testProfileSaveFailureKeepsEditorOpen();
   await testSettingsNavigationGroupsRemainReachable();
+  await testHomeSetupCircleFitsCompactStage();
   await testModelRemovalRequiresConfirmation();
   await testSettingsFailureKeepsControlledValue();
   await testVoiceErrorsExposeAccessibleRetry();

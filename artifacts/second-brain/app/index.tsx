@@ -180,7 +180,7 @@ export default function DemiScreen() {
     132,
     Math.min(190, width * 0.42, height * 0.21),
   );
-  const centerStageHeight = circleSize + (setupNeeded ? 78 : 48);
+  const centerStageHeight = circleSize + (setupNeeded ? 92 : 52);
 
   return (
     <KeyboardAvoidingView
@@ -247,7 +247,7 @@ export default function DemiScreen() {
               />
             </View>
 
-            <View style={[styles.centerStage, { height: centerStageHeight }]}>
+            <View testID="home-voice-stage" style={[styles.centerStage, { height: centerStageHeight }]}>
               <Pressable
                 testID="demi-voice-circle"
                 accessibilityRole="button"

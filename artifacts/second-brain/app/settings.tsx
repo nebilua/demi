@@ -2237,7 +2237,7 @@ export default function SettingsScreen() {
             </Text>
             <Text
               style={[
-                styles.readinessTitle,
+                styles.speechRateTitle,
                 { color: colors.cardForeground, marginTop: 14 },
               ]}
             >
@@ -2280,6 +2280,86 @@ export default function SettingsScreen() {
                 </Pressable>
               ))}
             </View>
+          </View>
+        </View>
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          sectionTestID="settings-group-advanced-preferences"
+          icon="sliders"
+          title="Advanced preferences"
+          summary="Appearance and haptic feedback"
+          expanded={advancedPreferencesExpanded}
+          onToggle={() =>
+            setAdvancedPreferencesExpanded((expanded) => !expanded)
+          }
+        >
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <SettingRow
+            icon="smartphone"
+            title="Haptic feedback"
+            description="Light tap on send"
+            noBorder
+          >
+            <Switch
+              value={settings.hapticsEnabled}
+              onValueChange={(v) => updateSettings({ hapticsEnabled: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.hapticsEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
+          </SettingRow>
+        </View>
+        <View
+          style={[
+            styles.appearanceCard,
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <View
+            style={[styles.segmented, { backgroundColor: colors.secondary }]}
+          >
+            {appearanceOptions.map((option) => (
+              <Pressable
+                key={option.value}
+                testID={`appearance-option-${option.value}`}
+                accessibilityRole="radio"
+                accessibilityState={{
+                  selected: settings.appearance === option.value,
+                }}
+                onPress={() => updateSettings({ appearance: option.value })}
+                style={[
+                  styles.segment,
+                  settings.appearance === option.value && {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    {
+                      color:
+                        settings.appearance === option.value
+                          ? colors.cardForeground
+                          : colors.mutedForeground,
+                    },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
           </View>
         </View>
         </CollapsibleSection>
@@ -2340,85 +2420,6 @@ export default function SettingsScreen() {
             />
           </SettingRow>
         </View>
-
-        <CollapsibleSection
-          sectionTestID="settings-group-advanced-preferences"
-          icon="sliders"
-          title="Advanced preferences"
-          summary="Appearance and haptic feedback"
-          expanded={advancedPreferencesExpanded}
-          onToggle={() =>
-            setAdvancedPreferencesExpanded((expanded) => !expanded)
-          }
-        >
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <SettingRow
-            icon="smartphone"
-            title="Haptic feedback"
-            description="Light tap on send"
-            noBorder
-          >
-            <Switch
-              value={settings.hapticsEnabled}
-              onValueChange={(v) => updateSettings({ hapticsEnabled: v })}
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.hapticsEnabled
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-            />
-          </SettingRow>
-        </View>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View
-            style={[styles.segmented, { backgroundColor: colors.secondary }]}
-          >
-            {appearanceOptions.map((option) => (
-              <Pressable
-                key={option.value}
-                testID={`appearance-option-${option.value}`}
-                accessibilityRole="radio"
-                accessibilityState={{
-                  selected: settings.appearance === option.value,
-                }}
-                onPress={() => updateSettings({ appearance: option.value })}
-                style={[
-                  styles.segment,
-                  settings.appearance === option.value && {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    {
-                      color:
-                        settings.appearance === option.value
-                          ? colors.cardForeground
-                          : colors.mutedForeground,
-                    },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-        </CollapsibleSection>
 
         <Pressable
           testID="clear-conversation-history"
@@ -2841,10 +2842,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1,
     marginBottom: 8,
-    marginTop: 24,
+    marginTop: 18,
     paddingLeft: 4,
   },
   card: { borderWidth: 1, borderRadius: 20, padding: 16 },
+  appearanceCard: { marginTop: 12 },
   collapsibleSection: { marginTop: 20 },
   collapsibleHeader: {
     minHeight: 68,
@@ -2884,6 +2886,7 @@ const styles = StyleSheet.create({
   privacyToolLink: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 10,
     borderRadius: 13,
     padding: 10,
     marginTop: 10,
@@ -3025,6 +3028,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   readinessTitle: { fontFamily: "Inter_500Medium", fontSize: 15 },
+  speechRateTitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
+    marginBottom: 8,
+  },
   readinessDesc: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,

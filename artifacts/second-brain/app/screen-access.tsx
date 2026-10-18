@@ -178,7 +178,7 @@ export default function ScreenAccessScreen() {
           </View>
         </View>
 
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>What Demi can receive</Text>
+        <Text style={[styles.sectionLabel, styles.channelSectionLabel, { color: colors.mutedForeground }]}>What Demi can receive</Text>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <ChannelRow
             icon="type"
@@ -217,7 +217,7 @@ export default function ScreenAccessScreen() {
         </View>
 
         {!hasGrant && (
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.card, styles.offStateCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Text style={[styles.cardTitle, { color: colors.cardForeground }]}>Screen access is off</Text>
             <Text style={[styles.description, { color: colors.mutedForeground }]}>
               Enable the named capability before a session can start. This grant does not enable Android capture or accessibility by itself.
@@ -451,7 +451,9 @@ const styles = StyleSheet.create({
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusPillText: { fontFamily: "Inter_500Medium", fontSize: 11 },
   sectionLabel: { fontFamily: "Inter_500Medium", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginHorizontal: 20, marginTop: 18, marginBottom: 8 },
+  channelSectionLabel: { marginBottom: 12 },
   card: { marginHorizontal: 20, padding: 16, borderWidth: 1, borderRadius: 18 },
+  offStateCard: { marginTop: 14 },
   channelRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11, borderBottomWidth: 1 },
   channelIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   channelTitle: { fontFamily: "Inter_500Medium", fontSize: 13 },
