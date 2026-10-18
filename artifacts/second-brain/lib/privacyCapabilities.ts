@@ -101,8 +101,8 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
   {
     id: "local.voice-input",
     name: "Offline voice input",
-    purpose: "Turn speech into editable text through the verified on-device Android recognizer.",
-    scope: "Microphone audio while the microphone action is active and the selected offline locale.",
+    purpose: "Turn speech into editable text with the bundled on-device Moonshine recognizer.",
+    scope: "Microphone audio while the microphone action is active and the bundled US English model.",
     kind: "system",
     dataSensitivity: "sensitive",
     networkUse: "never",
@@ -113,7 +113,7 @@ export const CAPABILITY_DEFINITIONS: readonly CapabilityDefinition[] = [
   {
     id: "local.voice-output",
     name: "Offline spoken replies",
-    purpose: "Speak a reply with an installed Android voice that reports no network requirement.",
+    purpose: "Speak a reply with the bundled on-device Piper US English voice.",
     scope: "The reply text currently being spoken.",
     kind: "system",
     dataSensitivity: "personal",

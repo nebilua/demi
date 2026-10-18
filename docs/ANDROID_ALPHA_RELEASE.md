@@ -27,9 +27,9 @@ pnpm run verify:android-alpha
 ```
 
 This one command runs typecheck and the complete deterministic suite. It
-includes the feature, component-failure, voice-boundary, reminder,
-scheduled-job, privacy, cloud-fallback, tool-registry, sandbox-code, and
-research suites. It also runs the build cleanup/port checks and the static
+includes the feature, component-failure, voice-boundary, public privacy-guide,
+reminder, scheduled-job, privacy, cloud-fallback, tool-registry, sandbox-code,
+and research suites. It also runs the build cleanup/port checks and the static
 artifact checks.
 
 The static checks are the existing release-server validation matrix in
@@ -106,9 +106,10 @@ network state used. These checks are not automated by
 - The local-first boundary has no account, cloud conversation sync, remote
   inference in the default flow, or multi-device recovery. A lost or reset
   Android device-bound key cannot be recovered through the project.
-- Speech recognition and spoken replies use the open-source Moonshine and
-  Piper models bundled with the Android app; they do not depend on the
-  device's speech-recognition or TTS provider. Only US English is bundled.
+- Speech recognition and spoken replies run locally with the open-source
+  Moonshine and Piper models bundled with the Android app; they do not depend
+  on the device's speech-recognition or TTS provider. Only US English is
+  bundled.
 - Browser and Expo Go previews use local preview storage and cannot prove
   Android Keystore protection, native llama.cpp/model loading, native voice,
   notifications, permissions, restart behavior, storage pressure, or offline

@@ -20,6 +20,7 @@ const checks = [
   ["feature flows", "test:feature-flows"],
   ["component failure handling", "test:component-failures"],
   ["voice boundaries", "test:voice-boundaries"],
+  ["public privacy guides", "test:public-guides"],
   ["Android release identity", "test:android-release"],
   ["Android reminders", "test:android-reminders"],
   ["scheduled jobs", "test:scheduled-jobs"],

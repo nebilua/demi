@@ -64,9 +64,12 @@ identifiers are retained so edits and deletions can cancel previous alerts.
 features, including remote inference. The default local assistant flow does
 not call them. Remote inference requires a configured server-managed provider
 and a separate active capability approval; it receives only a bounded,
-redacted task input when local inference is unavailable or fails for an
-eligible device/runtime reason. Running the API service requires a PostgreSQL
-`DATABASE_URL`.
+redacted current-task input (up to 1,800 characters) when local inference is
+unavailable or fails for an eligible device/runtime reason. Email addresses,
+phone numbers, and token-like secrets are redacted. The request includes its
+task and local-failure reason, not saved conversation history, profile,
+memories, files, contacts, or screen content. Running the API service requires
+a PostgreSQL `DATABASE_URL`.
 
 ## Privacy capability boundary
 

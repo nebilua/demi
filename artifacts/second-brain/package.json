@@ -16,6 +16,7 @@
     "test:component-failures": "tsx scripts/test-component-failures.js",
     "profile:runtime": "tsx scripts/profile-runtime.js",
     "test:voice-boundaries": "tsx scripts/test-voice-boundaries.js",
+    "test:public-guides": "tsx scripts/test-public-guides.js",
     "test:android-reminders": "tsx scripts/test-android-reminders.js",
     "test:android-release": "node scripts/test-android-release.js",
     "test:scheduled-jobs": "tsx scripts/test-scheduled-jobs.js",
