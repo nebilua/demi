@@ -702,6 +702,8 @@ export default function SettingsScreen() {
   const [showPrivacyClearConfirm, setShowPrivacyClearConfirm] = useState(false);
   const [isClearingPrivacy, setIsClearingPrivacy] = useState(false);
   const [privacyDetailsExpanded, setPrivacyDetailsExpanded] = useState(false);
+  const [conversationHistoryExpanded, setConversationHistoryExpanded] =
+    useState(false);
   const [deviceFootprintExpanded, setDeviceFootprintExpanded] = useState(false);
   const [offlineSetupExpanded, setOfflineSetupExpanded] = useState(false);
   const [localVoiceExpanded, setLocalVoiceExpanded] = useState(false);
@@ -727,14 +729,14 @@ export default function SettingsScreen() {
   );
   const modelStatusMessage =
     engineStatus === "unsupported"
-      ? "Offline model inference is unavailable in the browser preview. Install the Android app to use a local GGUF."
+      ? "Use the installed Android app for local replies."
       : engineStatus === "no-model"
-        ? "No local model is installed. Download the recommended model or import a compatible GGUF."
+        ? "Import or download a model in Model setup & diagnostics."
         : engineStatus === "loading"
-          ? "Loading the local model. Keep Demi open until setup finishes."
+          ? "Keep Demi open until loading finishes."
           : engineStatus === "error"
-            ? "The local model could not start. Check the device fit below, then retry or import a smaller Q4 GGUF."
-            : "Local replies are running on this device.";
+            ? "Retry setup or import a smaller model."
+            : "Replies run on this device.";
   const modelStatusColor =
     engineStatus === "ready"
       ? colors.primary
@@ -835,7 +837,9 @@ export default function SettingsScreen() {
       <StatusBar style={colors.isDark ? "light" : "dark"} />
       <View style={styles.header}>
         <Pressable
+          testID="settings-back"
           accessibilityRole="button"
+          accessibilityLabel="Go back"
           onPress={() => router.back()}
           style={({ pressed }) => [
             styles.backButton,
@@ -875,6 +879,121 @@ export default function SettingsScreen() {
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
+          <SettingRow
+            icon="mic"
+            title="Voice input"
+            description="Dictate locally with the bundled model"
+          >
+            <Switch
+              testID="voice-input-setting"
+              accessibilityRole="switch"
+              accessibilityLabel="Voice input"
+              accessibilityHint="Turn offline dictation on or off."
+              accessibilityState={{ checked: settings.voiceInputEnabled }}
+              value={settings.voiceInputEnabled}
+              onValueChange={(v) => updateSettings({ voiceInputEnabled: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.voiceInputEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
+          </SettingRow>
+          <SettingRow
+            icon="volume-2"
+            title="Spoken replies"
+            description="Read replies aloud with the bundled voice"
+          >
+            <Switch
+              testID="spoken-replies-setting"
+              accessibilityRole="switch"
+              accessibilityLabel="Spoken replies"
+              accessibilityHint="Turn spoken replies on or off."
+              accessibilityState={{ checked: settings.spokenRepliesEnabled }}
+              value={settings.spokenRepliesEnabled}
+              onValueChange={(v) => updateSettings({ spokenRepliesEnabled: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.spokenRepliesEnabled
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
+          </SettingRow>
+          <SettingRow
+            icon="save"
+            title="Save history"
+            description="Keep conversations on this device"
+          >
+            <Switch
+              testID="save-history-setting"
+              accessibilityRole="switch"
+              accessibilityLabel="Save conversation history"
+              accessibilityHint="Choose whether Demi keeps conversation history."
+              accessibilityState={{ checked: settings.saveConversations }}
+              value={settings.saveConversations}
+              onValueChange={(v) => updateSettings({ saveConversations: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.saveConversations
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
+          </SettingRow>
+        </View>
+        <View
+          style={[
+            styles.appearanceCard,
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <Text style={[styles.rowTitle, { color: colors.cardForeground, marginBottom: 10 }]}>
+            Appearance
+          </Text>
+          <View style={[styles.segmented, { backgroundColor: colors.secondary }]}>
+            {appearanceOptions.map((option) => (
+              <Pressable
+                key={option.value}
+                testID={`appearance-option-${option.value}`}
+                accessibilityRole="radio"
+                accessibilityLabel={`${option.label} appearance`}
+                accessibilityHint="Choose how Demi looks."
+                accessibilityState={{ selected: settings.appearance === option.value }}
+                onPress={() => updateSettings({ appearance: option.value })}
+                style={[
+                  styles.segment,
+                  settings.appearance === option.value && {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    {
+                      color:
+                        settings.appearance === option.value
+                          ? colors.cardForeground
+                          : colors.mutedForeground,
+                    },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
           <View style={styles.privacyPauseRow}>
             <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
               <Feather
@@ -885,15 +1004,18 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.rowCopy}>
               <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                Pause privileged actions
+                Pause approved actions
               </Text>
               <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-                Stop local model, voice, reminder, and future automation actions until resumed.
+                Pause approved local and network actions until resumed.
               </Text>
             </View>
             <Switch
               testID="privacy-global-pause"
-              accessibilityLabel="Pause privileged actions"
+              accessibilityRole="switch"
+              accessibilityLabel="Pause approved actions"
+              accessibilityHint="Pause approved local and network actions until resumed."
+              accessibilityState={{ checked: safePrivacyState.globalPause }}
               value={safePrivacyState.globalPause}
               onValueChange={(value) => void setGlobalPrivacyPause?.(value)}
               trackColor={{ false: colors.secondary, true: colors.accent }}
@@ -904,11 +1026,6 @@ export default function SettingsScreen() {
               }
             />
           </View>
-          <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
-            {safePrivacyState.globalPause
-              ? "Privileged actions are paused until you resume them."
-              : "Local actions follow the capability approvals below."}
-          </Text>
         </View>
 
         <View
@@ -950,10 +1067,39 @@ export default function SettingsScreen() {
         </View>
 
         <CollapsibleSection
+          sectionTestID="settings-group-conversation-history"
+          icon="message-square"
+          title="Conversation history"
+          summary="Clear saved messages from this device"
+          expanded={conversationHistoryExpanded}
+          onToggle={() =>
+            setConversationHistoryExpanded((expanded) => !expanded)
+          }
+        >
+          <Pressable
+            testID="clear-conversation-history"
+            accessibilityRole="button"
+            accessibilityLabel="Clear conversation history"
+            accessibilityHint="Review a confirmation before history is removed."
+            onPress={() => setShowClearConfirm(true)}
+            style={({ pressed }) => [
+              styles.dangerCard,
+              { backgroundColor: colors.card, borderColor: colors.destructive },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Feather name="trash-2" size={16} color={colors.destructive} />
+            <Text style={[styles.dangerText, { color: colors.destructive }]}>
+              Clear conversation history
+            </Text>
+          </Pressable>
+        </CollapsibleSection>
+
+        <CollapsibleSection
           sectionTestID="settings-group-privacy"
           icon="shield"
-          title="Privacy capabilities"
-          summary="Permissions, activity history, and local tool access"
+          title="Privacy & permissions"
+          summary="Review access, recent activity, and local tool access"
           expanded={privacyDetailsExpanded}
           onToggle={() => setPrivacyDetailsExpanded((expanded) => !expanded)}
         >
@@ -1268,8 +1414,8 @@ export default function SettingsScreen() {
         <CollapsibleSection
           sectionTestID="settings-group-device-footprint"
           icon="hard-drive"
-          title="Device footprint"
-          summary="Local storage measurements and inactive model files"
+          title="Device storage"
+          summary="Check local storage and inactive model files"
           expanded={deviceFootprintExpanded}
           onToggle={() => setDeviceFootprintExpanded((expanded) => !expanded)}
         >
@@ -1318,6 +1464,15 @@ export default function SettingsScreen() {
               Model files, Android Keystore keys, privacy/audit records, notification
               registrations, credentials, and connector secrets are never included.
               Import replaces those supported categories only.
+            </Text>
+            <Text
+              style={[
+                styles.readinessDesc,
+                { color: colors.destructive, marginTop: 8 },
+              ]}
+            >
+              The export is not encrypted by Demi. Anyone with the file can read
+              its contents, so store it somewhere you trust.
             </Text>
             <View style={styles.downloadActions}>
               <Pressable
@@ -1400,8 +1555,8 @@ export default function SettingsScreen() {
         <CollapsibleSection
           sectionTestID="settings-group-offline-setup"
           icon="cpu"
-          title="Offline setup"
-          summary="Install or manage the on-device model"
+          title="Model setup & diagnostics"
+          summary="Install and manage the on-device model"
           expanded={offlineSetupExpanded}
           onToggle={() => setOfflineSetupExpanded((expanded) => !expanded)}
         >
@@ -2287,8 +2442,8 @@ export default function SettingsScreen() {
         <CollapsibleSection
           sectionTestID="settings-group-advanced-preferences"
           icon="sliders"
-          title="Advanced preferences"
-          summary="Appearance and haptic feedback"
+          title="More preferences"
+          summary="Haptic feedback"
           expanded={advancedPreferencesExpanded}
           onToggle={() =>
             setAdvancedPreferencesExpanded((expanded) => !expanded)
@@ -2307,6 +2462,10 @@ export default function SettingsScreen() {
             noBorder
           >
             <Switch
+              accessibilityRole="switch"
+              accessibilityLabel="Haptic feedback"
+              accessibilityHint="Turn light send feedback on or off."
+              accessibilityState={{ checked: settings.hapticsEnabled }}
               value={settings.hapticsEnabled}
               onValueChange={(v) => updateSettings({ hapticsEnabled: v })}
               trackColor={{ false: colors.secondary, true: colors.accent }}
@@ -2318,125 +2477,7 @@ export default function SettingsScreen() {
             />
           </SettingRow>
         </View>
-        <View
-          style={[
-            styles.appearanceCard,
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View
-            style={[styles.segmented, { backgroundColor: colors.secondary }]}
-          >
-            {appearanceOptions.map((option) => (
-              <Pressable
-                key={option.value}
-                testID={`appearance-option-${option.value}`}
-                accessibilityRole="radio"
-                accessibilityState={{
-                  selected: settings.appearance === option.value,
-                }}
-                onPress={() => updateSettings({ appearance: option.value })}
-                style={[
-                  styles.segment,
-                  settings.appearance === option.value && {
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.segmentText,
-                    {
-                      color:
-                        settings.appearance === option.value
-                          ? colors.cardForeground
-                          : colors.mutedForeground,
-                    },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
         </CollapsibleSection>
-
-        <SectionLabel>Everyday controls</SectionLabel>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <SettingRow
-            icon="mic"
-            title="Offline voice input"
-            description="Use mic for dictation"
-          >
-            <Switch
-              value={settings.voiceInputEnabled}
-              onValueChange={(v) => updateSettings({ voiceInputEnabled: v })}
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.voiceInputEnabled
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-            />
-          </SettingRow>
-          <SettingRow
-            icon="volume-2"
-            title="Spoken replies"
-            description="Read new replies aloud"
-          >
-            <Switch
-              value={settings.spokenRepliesEnabled}
-              onValueChange={(v) => updateSettings({ spokenRepliesEnabled: v })}
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.spokenRepliesEnabled
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-            />
-          </SettingRow>
-          <SettingRow
-            icon="save"
-            title="Save history"
-            description="Keep conversations"
-          >
-            <Switch
-              value={settings.saveConversations}
-              onValueChange={(v) => updateSettings({ saveConversations: v })}
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.saveConversations
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-            />
-          </SettingRow>
-        </View>
-
-        <Pressable
-          testID="clear-conversation-history"
-          accessibilityRole="button"
-          accessibilityLabel="Clear conversation history"
-          onPress={() => setShowClearConfirm(true)}
-          style={({ pressed }) => [
-            styles.dangerCard,
-            { backgroundColor: colors.card, borderColor: colors.destructive },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Feather name="trash-2" size={16} color={colors.destructive} />
-          <Text style={[styles.dangerText, { color: colors.destructive }]}>
-            Clear conversation history
-          </Text>
-        </Pressable>
       </ScrollView>
 
       <Modal

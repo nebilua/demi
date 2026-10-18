@@ -455,6 +455,7 @@ function baseAppValue(overrides = {}) {
 }
 
 async function testSettingsNavigationGroupsRemainReachable() {
+  routerCalls = [];
   const previousDimensions = windowDimensions;
   windowDimensions = { width: 320, height: 640 };
   appValue = baseAppValue();
@@ -466,9 +467,15 @@ async function testSettingsNavigationGroupsRemainReachable() {
     );
   });
 
+  assert.equal(
+    findByTestId(renderer, 'settings-back').props.accessibilityLabel,
+    'Go back',
+  );
   for (const groupId of [
     'settings-group-privacy',
+    'settings-group-conversation-history',
     'settings-group-device-footprint',
+    'settings-group-local-recovery',
     'settings-group-offline-setup',
     'settings-group-local-voice',
     'settings-group-advanced-preferences',
@@ -479,11 +486,34 @@ async function testSettingsNavigationGroupsRemainReachable() {
     assert.match(group.props.accessibilityLabel, /expand/);
   }
   assert.ok(findByTestId(renderer, 'privacy-global-pause'));
+  assert.equal(
+    findByTestId(renderer, 'privacy-global-pause').props.accessibilityLabel,
+    'Pause approved actions',
+  );
   assert.ok(findByTestId(renderer, 'model-status-summary'));
-  assert.ok(findByTestId(renderer, 'clear-conversation-history'));
+  assert.equal(hasTestId(renderer, 'clear-conversation-history'), false);
+  assert.ok(findByTestId(renderer, 'voice-input-setting'));
+  assert.ok(findByTestId(renderer, 'spoken-replies-setting'));
+  assert.ok(findByTestId(renderer, 'save-history-setting'));
+  assert.ok(findByTestId(renderer, 'appearance-option-light'));
+  for (const switchId of [
+    'privacy-global-pause',
+    'voice-input-setting',
+    'spoken-replies-setting',
+    'save-history-setting',
+  ]) {
+    const settingSwitch = findByTestId(renderer, switchId);
+    assert.equal(settingSwitch.props.accessibilityRole, 'switch');
+    assert.equal(typeof settingSwitch.props.accessibilityLabel, 'string');
+    assert.equal(typeof settingSwitch.props.accessibilityHint, 'string');
+    assert.equal(typeof settingSwitch.props.accessibilityState.checked, 'boolean');
+  }
+  assert.equal(
+    findByTestId(renderer, 'appearance-option-light').props.accessibilityState.selected,
+    true,
+  );
   assert.equal(hasTestId(renderer, 'open-screen-access'), false);
   assert.equal(hasTestId(renderer, 'offline-speech-setup'), false);
-  assert.equal(hasTestId(renderer, 'appearance-option-light'), false);
 
   await expandSettingsGroup(renderer, 'settings-group-privacy');
   const screenAccessLink = findByTestId(renderer, 'open-screen-access');
@@ -499,19 +529,46 @@ async function testSettingsNavigationGroupsRemainReachable() {
       .some((style) => style.gap === 10),
   );
   assert.ok(findByTestId(renderer, 'clear-privacy-state'));
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'settings-group-privacy').props.onPress();
+  });
+  assert.equal(
+    findByTestId(renderer, 'settings-group-privacy').props.accessibilityState
+      .expanded,
+    false,
+  );
+  assert.equal(hasTestId(renderer, 'open-screen-access'), false);
+  await expandSettingsGroup(renderer, 'settings-group-privacy');
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'open-screen-access').props.onPress();
+  });
+  assert.equal(routerCalls.at(-1), '/screen-access');
 
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   assert.ok(findByTestId(renderer, 'toggle-storage-details'));
 
+  await expandSettingsGroup(renderer, 'settings-group-local-recovery');
+  assert.ok(findByTestId(renderer, 'export-local-data'));
+  assert.ok(findByTestId(renderer, 'import-local-data'));
+  assert.match(textContent(renderer), /not encrypted by Demi/);
+
   await expandSettingsGroup(renderer, 'settings-group-offline-setup');
   assert.ok(findByTestId(renderer, 'download-recommended'));
+  assert.ok(findByTestId(renderer, 'model-status-summary'));
+
+  await expandSettingsGroup(renderer, 'settings-group-conversation-history');
+  const clearHistory = findByTestId(renderer, 'clear-conversation-history');
+  assert.equal(clearHistory.props.accessibilityRole, 'button');
+  assert.equal(
+    clearHistory.props.accessibilityLabel,
+    'Clear conversation history',
+  );
 
   await expandSettingsGroup(renderer, 'settings-group-local-voice');
   assert.ok(findByTestId(renderer, 'offline-speech-setup'));
   assert.ok(findByTestId(renderer, 'offline-tts-setup'));
 
   await expandSettingsGroup(renderer, 'settings-group-advanced-preferences');
-  assert.ok(findByTestId(renderer, 'appearance-option-light'));
   const speechRateLabel = renderer.root
     .findAllByType('Text')
     .find((node) => node.children.includes('Spoken reply speed'));
@@ -539,15 +596,17 @@ async function testSettingsNavigationGroupsRemainReachable() {
       -1,
     );
   const hapticIndex = findExactTextIndex('Haptic feedback');
-  const appearanceIndex = findExactTextIndex('System');
-  const everydayIndex = findExactTextIndex('Everyday controls');
-  const voiceInputIndex = findExactTextIndex('Offline voice input');
-  assert.ok(hapticIndex < appearanceIndex);
-  assert.ok(appearanceIndex < everydayIndex);
-  assert.ok(everydayIndex < voiceInputIndex);
+  const appearanceIndex = findExactTextIndex('Appearance');
+  const voiceInputIndex = findExactTextIndex('Voice input');
+  const spokenRepliesIndex = findExactTextIndex('Spoken replies');
+  const historyIndex = findExactTextIndex('Save history');
+  assert.ok(voiceInputIndex < spokenRepliesIndex);
+  assert.ok(spokenRepliesIndex < historyIndex);
+  assert.ok(historyIndex < appearanceIndex);
+  assert.ok(appearanceIndex < hapticIndex);
 
   await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'clear-conversation-history').props.onPress();
+    await clearHistory.props.onPress();
   });
   assert.ok(findByTestId(renderer, 'confirm-clear-conversation'));
   assert.equal(
@@ -558,6 +617,12 @@ async function testSettingsNavigationGroupsRemainReachable() {
     await findByTestId(renderer, 'cancel-clear-conversation').props.onPress();
   });
   assert.equal(hasTestId(renderer, 'confirm-clear-conversation'), false);
+
+  routerCalls = [];
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'settings-back').props.onPress();
+  });
+  assert.equal(routerCalls.at(-1), 'back');
 
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -1460,6 +1525,20 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   await TestRenderer.act(async () => {
     homeRenderer = TestRenderer.create(React.createElement(DemiScreen));
   });
+  for (const [testID, label, route] of [
+    ['open-calendar', 'Open important dates', '/calendar'],
+    ['open-scheduled-work', 'Open scheduled work', '/scheduled'],
+    ['open-settings', 'Open settings', '/settings'],
+  ]) {
+    const button = findByTestId(homeRenderer, testID);
+    assert.equal(button.props.accessibilityRole, 'button');
+    assert.equal(button.props.accessibilityLabel, label);
+    await TestRenderer.act(async () => {
+      await button.props.onPress();
+    });
+    assert.equal(routerCalls.at(-1), route);
+  }
+  routerCalls = [];
   assert.equal(
     findByTestId(homeRenderer, 'demi-voice-circle').props.accessibilityLabel,
     'Open settings for setup',

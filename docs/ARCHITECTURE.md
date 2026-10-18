@@ -1,5 +1,9 @@
 # Architecture
 
+This guide describes how the app is implemented. For the user-facing account of
+data handling, privacy controls, and recovery limits, see
+[Privacy](PRIVACY.md).
+
 ## Local-first mobile app
 
 The primary product is the Expo / React Native app in
@@ -33,16 +37,20 @@ surface. Fetched web text is passed to the on-device model and is not stored in
 the local library. Remote inference is a separate capability and is not used by
 this workspace.
 
-## Voice privacy boundary
+## Bundled offline voice
 
-Recognition is available only in an installed native Android build. Android
-13+ is required because earlier versions can treat offline recognition as a
-preference rather than a guarantee. Demi verifies that the selected
-locale is installed for offline recognition before dictation begins.
+`modules/offline-tts` packages sherpa-onnx, the Moonshine Tiny English
+recognizer, and the Piper US English voice. In the installed Android app,
+`AudioRecord` captures user-started microphone input and sherpa-onnx runs
+recognition and speech synthesis locally; neither Android speech recognition
+nor Android TextToSpeech is used. The app requests microphone permission and
+checks the separate local voice capability before dictation.
 
-Spoken replies use a small local Expo module wrapping Android
-`TextToSpeech`. It rejects voices that require a network connection, are not
-installed, or fail activation.
+The model archives are included in the Android app and extracted into its
+private, no-backup storage when prepared. They are not downloaded at runtime.
+The bundled voice currently supports US English only. License notices and
+checksums for the packaged components are in
+`modules/offline-tts/THIRD_PARTY_NOTICES.md`.
 
 ## Calendar and notifications
 
@@ -52,9 +60,12 @@ identifiers are retained so edits and deletions can cancel previous alerts.
 
 ## Optional API
 
-`artifacts/api-server` and the shared `lib` packages reserve a path for
-explicit opt-in network features. They are not called by the default local
-assistant experience. Running that service requires a PostgreSQL
+`artifacts/api-server` and shared `lib` packages provide optional network
+features, including remote inference. The default local assistant flow does
+not call them. Remote inference requires a configured server-managed provider
+and a separate active capability approval; it receives only a bounded,
+redacted task input when local inference is unavailable or fails for an
+eligible device/runtime reason. Running the API service requires a PostgreSQL
 `DATABASE_URL`.
 
 ## Privacy capability boundary
@@ -62,11 +73,11 @@ assistant experience. Running that service requires a PostgreSQL
 `lib/privacyCapabilities.ts` is the common model for every privileged action.
 It describes purpose, data scope, sensitivity, lifetime, network use, approval
 state, and destructive-action requirements. Local capabilities remain
-account-free and default to the existing on-device behavior. Network,
-connector, screen, and future automation capabilities are separate and
-ungranted until an explicit future approval flow exists.
-The recommended model download is also represented separately as a network
-capability; users must enable it before a model file is fetched.
+account-free and follow the approval state defined for each capability.
+Remote inference and recommended model downloads are off by default and need
+separate approval. Screen access uses a visible, session-only flow; scheduled
+actions require per-job opt-in. Model downloads have their own network
+capability and approval.
 
 ## Permissioned screen and device access
 
@@ -116,7 +127,5 @@ or system action must be a separate typed tool outside this interpreter.
 
 The web and Expo Go previews cannot load the custom Android modules or
 llama.cpp runtime. Their role is interface preview and local storage testing;
-they surface honest unavailable/setup states for native-only capabilities.
-They also label secure records as local preview storage and do not claim that
-Android secure storage protects prompts or transient process memory. A lost or
-reset device-bound key cannot be recovered through an account or cloud backup.
+they surface unavailable/setup states for native-only capabilities. The
+privacy page describes the preview's storage and recovery limitations.

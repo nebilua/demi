@@ -74,11 +74,12 @@ model, Android version, ABI, APK SHA-256, app version/code, test date, and any
 network state used. These checks are not automated by
 `verify:android-alpha`:
 
-- [ ] **Voice and model:** grant microphone permission; install an offline
-      English speech locale; confirm dictation starts only after offline setup
-      reports ready and the resulting text remains editable. Import a
-      compatible GGUF model, load it, receive a local response, restart the
-      app, and confirm the model remains available.
+- [ ] **Voice and model:** grant microphone permission; prepare the bundled
+      US English voice in Settings; confirm dictation starts only when the
+      bundled assets and local voice capability are ready, and that its text
+      remains editable. Test a spoken reply. Import a compatible GGUF model,
+      load it, receive a local response, restart the app, and confirm the model
+      remains available.
 - [ ] **Offline behavior:** repeat dictation and local model response with
       network access disabled. Record any unexpected network dependency or
       unavailable state.
@@ -105,8 +106,9 @@ network state used. These checks are not automated by
 - The local-first boundary has no account, cloud conversation sync, remote
   inference in the default flow, or multi-device recovery. A lost or reset
   Android device-bound key cannot be recovered through the project.
-- Android speech and TTS engines are device-supplied. Demi checks the
-  capabilities they report but cannot certify a third-party engine.
+- Speech recognition and spoken replies use the open-source Moonshine and
+  Piper models bundled with the Android app; they do not depend on the
+  device's speech-recognition or TTS provider. Only US English is bundled.
 - Browser and Expo Go previews use local preview storage and cannot prove
   Android Keystore protection, native llama.cpp/model loading, native voice,
   notifications, permissions, restart behavior, storage pressure, or offline

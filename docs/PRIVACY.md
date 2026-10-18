@@ -1,5 +1,9 @@
 # Privacy
 
+Demi's default mobile experience works without an account, cloud sync, or
+remote AI. This page explains what is stored on the device, what is shared
+with Android, and the limits of recovery and local protection.
+
 ## Scheduled digests and monitors
 
 Scheduled work is opt-in per job and bounded to the sources, cadence, local model
@@ -12,10 +16,9 @@ Android local notifications provide a reboot-safe best-effort wake-up, but Andro
 may defer background execution because of battery policy, force-stop, locked-device
 state, storage pressure, or revoked notification permission. Demi does not promise
 exact-time model execution: it recovers due jobs when the app becomes active and
-records failed or missed runs without deleting the job definition. Monitors record
-a local baseline and notify only when their configured count condition matches.
-
-Demi is designed so its core experience works without an account.
+records failed or missed runs without deleting the job definition. Monitors
+record a local baseline and notify only when their configured count condition
+matches.
 
 ## Stored on the device
 
@@ -23,7 +26,8 @@ Demi is designed so its core experience works without an account.
 - Approved memories and their short source excerpts
 - Appearance and behavior settings
 - Important dates and reminder notes
-- References to user-imported GGUF models
+- User-imported GGUF model files and their references
+- Bundled English speech models, unpacked into private app storage when prepared
 - The bounded, user-selected private research library (encrypted document
   metadata and passages)
 - Sandboxed code action audit records and results (the selected input is used
@@ -32,13 +36,13 @@ Demi is designed so its core experience works without an account.
 - Capability grants, connector references, schedules, redacted agent traces, and
   user-visible action history
 
-## Shared with Android system services
+## Voice and Android system services
 
-- Microphone audio is handled by the selected Android speech-recognition
-  service only after offline capability and locale installation are verified
-  on Android 13+.
-- Reply text is passed to Android TextToSpeech only after a voice that reports
-  no network requirement is activated.
+- When the user starts dictation, microphone audio is captured by the app and
+  processed locally with its bundled Moonshine US English model. It is not sent
+  to Android's speech-recognition service or a network speech API.
+- Spoken replies are synthesized locally with the bundled Piper US English
+  voice. Reply text is not sent to Android TextToSpeech or a network speech API.
 - Reminder title, body, and timing are passed to Android's local notification
   scheduler.
 
@@ -87,12 +91,17 @@ sensitivity, lifetime, network classification, and approval state. The local
 model, verified offline voice input/output, and local reminders are separate
 capabilities. They can be paused or revoked independently from Settings.
 
-Network connectors, remote inference, and recommended model downloads are
-separate capabilities. They are not granted by default, do not run as part of
-the local assistant flow, and must
-describe the exact data that would leave the device before a future feature can
-request approval. Demi does not grant unrestricted device, screen, or connector
-access.
+Network connectors, remote inference, and recommended model downloads each
+have a separate capability and are off by default. If remote inference is
+enabled, Demi sends the current task input (up to 1,800 characters) to the
+configured server-managed provider only when local inference is unavailable or
+fails for an eligible device/runtime reason. Email addresses, phone numbers,
+and token-like secrets are redacted. The request also identifies the task and
+why local inference could not run. Saved history, profile, memories, files,
+contacts, and screen content are not included. Model-download approval applies
+only to the named model file, not conversation data. Connector actions require
+a separate connection and per-request review. Demi does not grant unrestricted
+device, screen, or connector access.
 
 ### Permissioned screen access
 
@@ -131,14 +140,12 @@ local action history. Clearing capability data removes grants, connector
 references, schedules, traces, and audit history; it does not delete
 conversations, memories, or imported models.
 
-Sandboxed code actions are off by default and require both the capability grant
-and a fresh per-run review. They accept only a small JSON program and explicitly
-selected CSV or JSON text. The interpreter has no JavaScript evaluator,
-filesystem, network, credential, Android-intent, or native-service access. It
-enforces bounded input, rows, cells, steps, runtime, and output, writes no
-files, and reports cancellation or failure without changing the selected file
-or the rest of the app. Results are shown in the current screen; raw code,
-input, and output are omitted from the retained privacy audit summaries.
+Sandboxed code actions are off by default and require a separate approval and a
+fresh review for each run. They operate only on a CSV or JSON file the user
+selects, use bounded calculations and transformations, and cannot write files,
+use the network, or control Android. Cancelling or failing leaves the selected
+file and app data unchanged. Results appear on screen; raw code, input, and
+output are omitted from the retained action-history summaries.
 
 ## Threat boundary and retention
 
@@ -150,17 +157,18 @@ authentication secrets are not placed in ordinary local storage or in the
 action-history summary. Future connectors must store only a secure reference,
 not a secret value, in this record.
 
-Android system services may receive only the data required for an approved
-capability: microphone audio during active dictation, reply text for a verified
-offline voice, or reminder content and timing for a local notification.
-Transient prompts and model outputs exist in the local process while inference
-is running. Android Keystore-backed storage does **not** encrypt model prompts
-or transient process memory, and Demi does not claim that it does.
+Voice audio and reply text are processed locally by the app's bundled speech
+runtime. Android's local notification scheduler receives reminder content and
+timing. Transient prompts and model outputs exist in the local process while
+inference is running. Android Keystore-backed storage does **not** encrypt
+model prompts or transient process memory, and Demi does not claim that it
+does.
 
 The web preview uses local preview storage rather than Android Keystore
 protection. It is an interface and persistence preview, not proof of Android
-device encryption. No account, cloud sync, remote inference, analytics SDK, or
-server-side private-data store is introduced by this foundation.
+device encryption. The default flow has no account, cloud sync, analytics SDK,
+or server-side private-data store. Remote inference is optional and requires
+its own capability approval and a configured provider.
 
 Research answers are not verification claims. When no matching source passage
 is available, the UI says that the answer is not verified by a source. HTML
@@ -172,26 +180,19 @@ result from replacing the current workspace state.
 Memory suggestions are generated by the local model and remain unsaved until
 the user saves or edits them. Date suggestions open the Important Dates editor
 prefilled but unsaved. Approved memories can be searched, edited, archived, or
-deleted in the Memory vault. A lost or reset device-bound key cannot be
-recovered through an account or cloud backup.
+deleted in the Memory vault.
 
-## Not included by default
+## Not used by default
 
 - User accounts
 - Cloud conversation sync
-- Remote AI inference
+- Remote AI inference or network connectors without separate approval
 - Analytics or advertising SDKs
-- Bundled model weights
+- Bundled GGUF language-model weights (none are included)
 
-The optional API server is reserved for future opt-in functionality and is not
-part of the default mobile flow.
+The optional API server is not required by the default mobile flow.
 
 ## User responsibility
-
-Android speech and TTS engines are separate software selected and installed by
-the device owner. Demi checks the capabilities exposed by Android but
-cannot audit a third-party engine's implementation. Users should choose an
-engine they trust and install its offline language or voice data.
 
 Imported model files have their own licenses and privacy characteristics. Only
 use models from trusted sources whose terms permit your intended use.

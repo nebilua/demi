@@ -200,13 +200,16 @@ export default function DemiScreen() {
           <Text style={[styles.wordmark, { color: colors.primary }]}>Demi</Text>
           <View style={styles.headerActions}>
             <Pressable
+              testID="open-calendar"
               accessibilityRole="button"
+              accessibilityLabel="Open important dates"
               onPress={() => router.push('/calendar')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
               <Feather name="calendar" size={20} color={colors.foreground} />
             </Pressable>
             <Pressable
+              testID="open-scheduled-work"
               accessibilityRole="button"
               accessibilityLabel="Open scheduled work"
               onPress={() => router.push('/scheduled' as never)}
@@ -215,7 +218,9 @@ export default function DemiScreen() {
               <Feather name="clock" size={20} color={colors.foreground} />
             </Pressable>
             <Pressable
+              testID="open-settings"
               accessibilityRole="button"
+              accessibilityLabel="Open settings"
               onPress={() => router.push('/settings')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
