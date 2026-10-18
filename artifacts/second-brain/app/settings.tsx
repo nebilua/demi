@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -28,6 +28,7 @@ import {
   CAPABILITY_DEFINITIONS,
   createDefaultPrivacyState,
   getCapabilityStatusLabel,
+  isCapabilityActive,
   type CapabilityApproval,
   type CapabilityDefinition,
   type CapabilityId,
@@ -46,16 +47,40 @@ const speechRateOptions = [
   { value: 1.05, label: "Faster" },
 ];
 
-function SectionLabel({ children }: { children: string }) {
-  const { settings } = useApp();
-  const colors = useColors(settings.appearance);
+const settingsCategories = [
+  {
+    id: "memory",
+    title: "Memory",
+    description: "Profile, saved memories, and conversation history",
+    icon: "bookmark",
+  },
+  {
+    id: "ui",
+    title: "UI",
+    description: "Appearance and interface preferences",
+    icon: "sliders",
+  },
+  {
+    id: "model",
+    title: "Model",
+    description: "On-device model setup and device storage",
+    icon: "cpu",
+  },
+  {
+    id: "voice",
+    title: "Voice",
+    description: "Offline speech setup and spoken reply preferences",
+    icon: "volume-2",
+  },
+  {
+    id: "permissions",
+    title: "Advanced Permissions",
+    description: "Network access, system permissions, and approvals",
+    icon: "shield",
+  },
+] as const;
 
-  return (
-    <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
-      {children}
-    </Text>
-  );
-}
+type SettingsCategory = (typeof settingsCategories)[number]["id"];
 
 function SettingRow({
   icon,
@@ -63,12 +88,16 @@ function SettingRow({
   description,
   children,
   noBorder,
+  compact = false,
+  paddingBottom,
 }: {
   icon: keyof typeof Feather.glyphMap;
   title: string;
   description: string;
   children: React.ReactNode;
   noBorder?: boolean;
+  compact?: boolean;
+  paddingBottom?: number;
 }) {
   const { settings } = useApp();
   const colors = useColors(settings.appearance);
@@ -77,6 +106,8 @@ function SettingRow({
     <View
       style={[
         styles.settingRow,
+        compact && styles.compactSettingRow,
+        paddingBottom !== undefined && { paddingBottom },
         !noBorder && { borderBottomColor: colors.border, borderBottomWidth: 1 },
       ]}
     >
@@ -106,6 +137,7 @@ function CollapsibleSection({
   expanded,
   onToggle,
   children,
+  compact = false,
 }: {
   sectionTestID: string;
   icon: keyof typeof Feather.glyphMap;
@@ -114,12 +146,18 @@ function CollapsibleSection({
   expanded: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  compact?: boolean;
 }) {
   const { settings } = useApp();
   const colors = useColors(settings.appearance);
 
   return (
-    <View style={styles.collapsibleSection}>
+    <View
+      style={[
+        styles.collapsibleSection,
+        compact && styles.compactCollapsibleSection,
+      ]}
+    >
       <Pressable
         testID={sectionTestID}
         accessibilityRole="button"
@@ -358,8 +396,6 @@ function StorageUsageCard({
   isReclaiming,
   reclaimMessage,
   modelOperationInProgress,
-  detailsExpanded,
-  onDetailsExpandedChange,
   isRefreshing,
 }: {
   usage: LocalStorageUsage | null;
@@ -369,8 +405,6 @@ function StorageUsageCard({
   isReclaiming: boolean;
   reclaimMessage: string | null;
   modelOperationInProgress: boolean;
-  detailsExpanded: boolean;
-  onDetailsExpandedChange: (expanded: boolean) => void;
   isRefreshing: boolean;
 }) {
   const canReclaim =
@@ -387,88 +421,50 @@ function StorageUsageCard({
       ]}
     >
       <View style={styles.storageHeader}>
+        <View style={styles.rowCopy}>
+          <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+            Local storage
+          </Text>
+          <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+            {Platform.OS === "web"
+              ? "Device storage measurements are available in the installed Android app."
+              : usage
+                ? usage.total.bytes === null
+                  ? "Some local data could not be measured."
+                  : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
+                : "Checking app-managed storage..."}
+          </Text>
+        </View>
         <Pressable
-          testID="toggle-storage-details"
+          testID="refresh-storage-usage"
           accessibilityRole="button"
           accessibilityLabel={
-            detailsExpanded
-              ? "Local storage, hide details"
-              : "Local storage, show details"
+            isRefreshing
+              ? "Refreshing local storage usage"
+              : "Refresh local storage usage"
           }
-          accessibilityHint={
-            detailsExpanded
-              ? "Double tap to collapse storage details."
-              : "Double tap to expand storage details."
-          }
-          accessibilityState={{ expanded: detailsExpanded }}
-          onPress={() => onDetailsExpandedChange(!detailsExpanded)}
+          accessibilityState={{ disabled: isRefreshing }}
+          disabled={isRefreshing}
+          onPress={onRefresh}
           style={({ pressed }) => [
-            styles.storageHeaderToggle,
+            styles.refreshButton,
+            { backgroundColor: colors.secondary },
             pressed && styles.pressed,
           ]}
         >
-          <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
-            <Feather
-              name="hard-drive"
-              size={17}
-              color={colors.accentForeground}
+          {isRefreshing ? (
+            <ActivityIndicator
+              testID="storage-refresh-indicator"
+              size="small"
+              color={colors.foreground}
             />
-          </View>
-          <View style={styles.rowCopy}>
-            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-              Local storage
-            </Text>
-            <Text
-              style={[styles.rowDescription, { color: colors.mutedForeground }]}
-            >
-              {Platform.OS === "web"
-                ? "Device storage measurements are available in the installed Android app."
-                : usage
-                  ? usage.total.bytes === null
-                    ? "Some local data could not be measured."
-                    : `${formatStorageBytes(usage.total.bytes)} tracked on this device${usage.total.status === "estimated" ? " · some values estimated" : ""}`
-                  : "Checking app-managed storage..."}
-            </Text>
-          </View>
-          <Feather
-            name={detailsExpanded ? "chevron-up" : "chevron-down"}
-            size={18}
-            color={colors.mutedForeground}
-          />
+          ) : (
+            <Feather name="refresh-cw" size={15} color={colors.foreground} />
+          )}
         </Pressable>
-        {detailsExpanded && (
-          <Pressable
-            testID="refresh-storage-usage"
-            accessibilityRole="button"
-            accessibilityLabel={
-              isRefreshing
-                ? "Refreshing local storage usage"
-                : "Refresh local storage usage"
-            }
-            accessibilityState={{ disabled: isRefreshing }}
-            disabled={isRefreshing}
-            onPress={onRefresh}
-            style={({ pressed }) => [
-              styles.refreshButton,
-              { backgroundColor: colors.secondary },
-              pressed && styles.pressed,
-            ]}
-          >
-            {isRefreshing ? (
-              <ActivityIndicator
-                testID="storage-refresh-indicator"
-                size="small"
-                color={colors.foreground}
-              />
-            ) : (
-              <Feather name="refresh-cw" size={15} color={colors.foreground} />
-            )}
-          </Pressable>
-        )}
       </View>
 
-      {detailsExpanded && (
-        <>
+      <>
           {usage && (
             <View style={styles.storageRows}>
               {formatStorageUpdatedAt(usage.measuredAt) && (
@@ -618,8 +614,7 @@ function StorageUsageCard({
               {reclaimMessage}
             </Text>
           )}
-        </>
-      )}
+      </>
     </View>
   );
 }
@@ -674,8 +669,6 @@ export default function SettingsScreen() {
     storageUsageRefreshing,
     refreshStorageUsage,
     reclaimUnusedModelFiles,
-    storageDetailsExpanded,
-    setStorageDetailsExpanded,
   } = useApp();
   const { clearConversation } = useChat();
   const {
@@ -696,22 +689,42 @@ export default function SettingsScreen() {
   const [showReclaimConfirm, setShowReclaimConfirm] = useState(false);
   const [isReclaimingModels, setIsReclaimingModels] = useState(false);
   const [showRemoveModelConfirm, setShowRemoveModelConfirm] = useState(false);
+  const [showModelDownloadConfirm, setShowModelDownloadConfirm] =
+    useState(false);
+  const [modelDownloadAuthorizationPending, setModelDownloadAuthorizationPending] =
+    useState(false);
+  const [modelDownloadApprovalError, setModelDownloadApprovalError] =
+    useState<string | null>(null);
   const [modelReclaimMessage, setModelReclaimMessage] = useState<string | null>(
     null,
   );
   const [showPrivacyClearConfirm, setShowPrivacyClearConfirm] = useState(false);
   const [isClearingPrivacy, setIsClearingPrivacy] = useState(false);
   const [privacyDetailsExpanded, setPrivacyDetailsExpanded] = useState(false);
-  const [conversationHistoryExpanded, setConversationHistoryExpanded] =
-    useState(false);
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
+    null,
+  );
   const [deviceFootprintExpanded, setDeviceFootprintExpanded] = useState(false);
   const [offlineSetupExpanded, setOfflineSetupExpanded] = useState(false);
   const [localVoiceExpanded, setLocalVoiceExpanded] = useState(false);
-  const [advancedPreferencesExpanded, setAdvancedPreferencesExpanded] =
-    useState(false);
   const [localRecoveryExpanded, setLocalRecoveryExpanded] = useState(false);
   const [showImportConfirm, setShowImportConfirm] = useState(false);
   const safePrivacyState = privacyState ?? createDefaultPrivacyState(0);
+
+  useEffect(() => {
+    if (
+      !modelDownloadAuthorizationPending ||
+      !isCapabilityActive(privacyState, "network.model-download")
+    ) {
+      return;
+    }
+    setModelDownloadAuthorizationPending(false);
+    void downloadRecommendedModel();
+  }, [
+    downloadRecommendedModel,
+    modelDownloadAuthorizationPending,
+    privacyState,
+  ]);
 
   const canSetupSpeech =
     Platform.OS === "android" &&
@@ -762,6 +775,51 @@ export default function SettingsScreen() {
       setShowRemoveModelConfirm(false);
     } catch {
       // Keep the confirmation open so a failed removal is not reported as success.
+    }
+  }
+
+  function requestRecommendedDownload() {
+    setModelDownloadApprovalError(null);
+    if (!privacyReady) {
+      setModelDownloadApprovalError(
+        "Privacy settings are still opening. Try again in a moment.",
+      );
+      return;
+    }
+    if (safePrivacyState.globalPause) {
+      setModelDownloadApprovalError(
+        "Privacy pause is active. Resume approved actions in Advanced Permissions before downloading a model.",
+      );
+      return;
+    }
+    if (isCapabilityActive(privacyState, "network.model-download")) {
+      void downloadRecommendedModel();
+      return;
+    }
+    setShowModelDownloadConfirm(true);
+  }
+
+  async function confirmModelDownloadApproval() {
+    if (!privacyReady || !setCapabilityApproval) {
+      setModelDownloadApprovalError(
+        "The local approval could not be saved. Try again when privacy settings are ready.",
+      );
+      return;
+    }
+    if (safePrivacyState.globalPause) {
+      setModelDownloadApprovalError(
+        "Privacy pause is active. Resume approved actions in Advanced Permissions before downloading a model.",
+      );
+      return;
+    }
+    try {
+      await setCapabilityApproval("network.model-download", "approved");
+      setModelDownloadAuthorizationPending(true);
+      setShowModelDownloadConfirm(false);
+    } catch {
+      setModelDownloadApprovalError(
+        "The download approval could not be saved on this device. No model download was started.",
+      );
     }
   }
 
@@ -839,7 +897,9 @@ export default function SettingsScreen() {
         <Pressable
           testID="settings-back"
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel={
+            "Go back"
+          }
           onPress={() => router.back()}
           style={({ pressed }) => [
             styles.backButton,
@@ -849,9 +909,18 @@ export default function SettingsScreen() {
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-          Settings
-        </Text>
+        {activeCategory === "permissions" ? null : (
+          <Text
+            testID="settings-header-title"
+            style={[styles.headerTitle, { color: colors.foreground }]}
+          >
+            {activeCategory
+              ? settingsCategories.find(
+                  (category) => category.id === activeCategory,
+                )?.title
+              : "Settings"}
+          </Text>
+        )}
         <View style={styles.headerSpacer} />
       </View>
 
@@ -862,6 +931,57 @@ export default function SettingsScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {!activeCategory ? (
+          <View style={styles.categoryList}>
+            {settingsCategories.map((category) => (
+              <Pressable
+                key={category.id}
+                testID={`settings-category-${category.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${category.title} settings`}
+                onPress={() => setActiveCategory(category.id)}
+                style={({ pressed }) => [
+                  styles.categoryEntry,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
+                  <Feather
+                    name={category.icon}
+                    size={17}
+                    color={colors.accentForeground}
+                  />
+                </View>
+                <View style={styles.rowCopy}>
+                  <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+                    {category.title}
+                  </Text>
+                  <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+                    {category.description}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          <>
+            <Pressable
+              testID="settings-browse-categories"
+              accessibilityRole="button"
+              accessibilityLabel="Browse settings categories"
+              onPress={() => setActiveCategory(null)}
+              style={({ pressed }) => [
+                styles.categoryBrowse,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Feather name="grid" size={14} color={colors.primary} />
+              <Text style={[styles.categoryBrowseText, { color: colors.primary }]}>
+                Browse categories
+              </Text>
+            </Pressable>
         {storageError && (
           <View
             style={[styles.errorBanner, { backgroundColor: colors.secondary }]}
@@ -872,10 +992,14 @@ export default function SettingsScreen() {
             </Text>
           </View>
         )}
-        <SectionLabel>Essentials</SectionLabel>
+          </>
+        )}
+        {activeCategory === "voice" && (
         <View
+          testID="voice-controls-card"
           style={[
             styles.card,
+            styles.voiceControlsCard,
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
@@ -883,6 +1007,7 @@ export default function SettingsScreen() {
             icon="mic"
             title="Voice input"
             description="Dictate locally with the bundled model"
+            compact
           >
             <Switch
               testID="voice-input-setting"
@@ -904,6 +1029,8 @@ export default function SettingsScreen() {
             icon="volume-2"
             title="Spoken replies"
             description="Read replies aloud with the bundled voice"
+            compact
+            paddingBottom={0}
           >
             <Switch
               testID="spoken-replies-setting"
@@ -921,28 +1048,9 @@ export default function SettingsScreen() {
               }
             />
           </SettingRow>
-          <SettingRow
-            icon="save"
-            title="Save history"
-            description="Keep conversations on this device"
-          >
-            <Switch
-              testID="save-history-setting"
-              accessibilityRole="switch"
-              accessibilityLabel="Save conversation history"
-              accessibilityHint="Choose whether Demi keeps conversation history."
-              accessibilityState={{ checked: settings.saveConversations }}
-              value={settings.saveConversations}
-              onValueChange={(v) => updateSettings({ saveConversations: v })}
-              trackColor={{ false: colors.secondary, true: colors.accent }}
-              thumbColor={
-                settings.saveConversations
-                  ? colors.accentForeground
-                  : colors.mutedForeground
-              }
-            />
-          </SettingRow>
         </View>
+        )}
+        {activeCategory === "ui" && (
         <View
           style={[
             styles.appearanceCard,
@@ -988,6 +1096,8 @@ export default function SettingsScreen() {
             ))}
           </View>
         </View>
+        )}
+        {activeCategory === "permissions" && (
         <View
           style={[
             styles.card,
@@ -1027,7 +1137,9 @@ export default function SettingsScreen() {
             />
           </View>
         </View>
+        )}
 
+        {activeCategory === "model" && (
         <View
           testID="model-status-summary"
           style={[
@@ -1065,17 +1177,39 @@ export default function SettingsScreen() {
             </Text>
           </View>
         </View>
+        )}
 
-        <CollapsibleSection
-          sectionTestID="settings-group-conversation-history"
-          icon="message-square"
-          title="Conversation history"
-          summary="Clear saved messages from this device"
-          expanded={conversationHistoryExpanded}
-          onToggle={() =>
-            setConversationHistoryExpanded((expanded) => !expanded)
-          }
+        {activeCategory === "memory" && (
+        <View
+          testID="memory-history-card"
+          style={[
+            styles.card,
+            styles.memoryHistoryCard,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
         >
+          <SettingRow
+            icon="save"
+            title="Save history"
+            description="Keep conversations on this device"
+            noBorder
+          >
+            <Switch
+              testID="save-history-setting"
+              accessibilityRole="switch"
+              accessibilityLabel="Save conversation history"
+              accessibilityHint="Choose whether Demi keeps conversation history."
+              accessibilityState={{ checked: settings.saveConversations }}
+              value={settings.saveConversations}
+              onValueChange={(v) => updateSettings({ saveConversations: v })}
+              trackColor={{ false: colors.secondary, true: colors.accent }}
+              thumbColor={
+                settings.saveConversations
+                  ? colors.accentForeground
+                  : colors.mutedForeground
+              }
+            />
+          </SettingRow>
           <Pressable
             testID="clear-conversation-history"
             accessibilityRole="button"
@@ -1083,8 +1217,8 @@ export default function SettingsScreen() {
             accessibilityHint="Review a confirmation before history is removed."
             onPress={() => setShowClearConfirm(true)}
             style={({ pressed }) => [
-              styles.dangerCard,
-              { backgroundColor: colors.card, borderColor: colors.destructive },
+              styles.historyClearAction,
+              { borderTopColor: colors.border },
               pressed && styles.pressed,
             ]}
           >
@@ -1093,8 +1227,10 @@ export default function SettingsScreen() {
               Clear conversation history
             </Text>
           </Pressable>
-        </CollapsibleSection>
+        </View>
+        )}
 
+        {activeCategory === "permissions" && (
         <CollapsibleSection
           sectionTestID="settings-group-privacy"
           icon="shield"
@@ -1119,7 +1255,15 @@ export default function SettingsScreen() {
           <Text style={[styles.privacyDisclosure, { color: colors.mutedForeground }]}>
             Android secure storage protects saved records at rest. It does not encrypt model prompts or transient process memory while Demi is running.
           </Text>
-          {CAPABILITY_DEFINITIONS.map((definition, index) => (
+          {CAPABILITY_DEFINITIONS.filter(
+            (definition) =>
+              ![
+                "local.inference",
+                "local.voice-input",
+                "local.voice-output",
+                "network.model-download",
+              ].some((excludedId) => excludedId === definition.id),
+          ).map((definition) => (
             <PrivacyCapabilityRow
               key={definition.id}
               definition={definition}
@@ -1335,7 +1479,9 @@ export default function SettingsScreen() {
           </Text>
         </View>
         </CollapsibleSection>
-        <SectionLabel>Personal context</SectionLabel>
+        )}
+        {activeCategory === "memory" && (
+        <>
         <View
           style={[
             styles.card,
@@ -1410,7 +1556,10 @@ export default function SettingsScreen() {
             color={colors.mutedForeground}
           />
         </Pressable>
+        </>
+        )}
 
+        {activeCategory === "model" && (
         <CollapsibleSection
           sectionTestID="settings-group-device-footprint"
           icon="hard-drive"
@@ -1426,8 +1575,6 @@ export default function SettingsScreen() {
             onReclaim={() => setShowReclaimConfirm(true)}
             isReclaiming={isReclaimingModels}
             reclaimMessage={modelReclaimMessage}
-            detailsExpanded={storageDetailsExpanded}
-            onDetailsExpandedChange={setStorageDetailsExpanded}
             isRefreshing={storageUsageRefreshing}
             modelOperationInProgress={
               modelSetupStatus !== "idle" ||
@@ -1435,7 +1582,9 @@ export default function SettingsScreen() {
             }
           />
         </CollapsibleSection>
+        )}
 
+        {activeCategory === "memory" && (
         <CollapsibleSection
           sectionTestID="settings-group-local-recovery"
           icon="download"
@@ -1551,7 +1700,9 @@ export default function SettingsScreen() {
               )}
           </View>
         </CollapsibleSection>
+        )}
 
+        {activeCategory === "model" && (
         <CollapsibleSection
           sectionTestID="settings-group-offline-setup"
           icon="cpu"
@@ -1672,7 +1823,8 @@ export default function SettingsScreen() {
                     <Pressable
                       testID="download-recommended"
                       accessibilityRole="button"
-                      onPress={downloadRecommendedModel}
+                      accessibilityLabel="Download recommended model"
+                      onPress={requestRecommendedDownload}
                       style={({ pressed }) => [
                         styles.primaryButton,
                         { backgroundColor: colors.primary },
@@ -1861,20 +2013,22 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {(downloadError || engineError) && (
+            {(modelDownloadApprovalError || downloadError || engineError) && (
               <Text
                 style={[
                   styles.errorText,
                   { color: colors.destructive, marginTop: 8 },
                 ]}
               >
-                {downloadError || engineError}
+                {modelDownloadApprovalError || downloadError || engineError}
               </Text>
             )}
           </View>
         </View>
         </CollapsibleSection>
+        )}
 
+        {activeCategory === "voice" && (
         <CollapsibleSection
           sectionTestID="settings-group-local-voice"
           icon="volume-2"
@@ -1882,6 +2036,7 @@ export default function SettingsScreen() {
           summary="Bundled English dictation and spoken replies"
           expanded={localVoiceExpanded}
           onToggle={() => setLocalVoiceExpanded((expanded) => !expanded)}
+          compact
         >
         <View
           style={[
@@ -2438,20 +2593,14 @@ export default function SettingsScreen() {
           </View>
         </View>
         </CollapsibleSection>
+        )}
 
-        <CollapsibleSection
-          sectionTestID="settings-group-advanced-preferences"
-          icon="sliders"
-          title="More preferences"
-          summary="Haptic feedback"
-          expanded={advancedPreferencesExpanded}
-          onToggle={() =>
-            setAdvancedPreferencesExpanded((expanded) => !expanded)
-          }
-        >
+        {activeCategory === "ui" && (
         <View
+          testID="haptic-feedback-card"
           style={[
             styles.card,
+            styles.hapticsCard,
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
@@ -2462,6 +2611,7 @@ export default function SettingsScreen() {
             noBorder
           >
             <Switch
+              testID="haptic-feedback-setting"
               accessibilityRole="switch"
               accessibilityLabel="Haptic feedback"
               accessibilityHint="Turn light send feedback on or off."
@@ -2477,7 +2627,7 @@ export default function SettingsScreen() {
             />
           </SettingRow>
         </View>
-        </CollapsibleSection>
+        )}
       </ScrollView>
 
       <Modal
@@ -2621,6 +2771,77 @@ export default function SettingsScreen() {
               >
                 <Text style={[styles.modalButtonText, { color: colors.primary }]}>
                   Replace
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showModelDownloadConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowModelDownloadConfirm(false)}
+      >
+        <View
+          style={[
+            styles.modalBackdrop,
+            {
+              backgroundColor: colors.isDark
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.5)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.cardForeground }]}>
+              Allow this model download?
+            </Text>
+            <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
+              Demi will connect to the model&apos;s published source to download
+              only the recommended model file and verify its checksum. No
+              conversations, memories, or profile information will be sent.
+              This network approval lasts 24 hours.
+            </Text>
+            {modelDownloadApprovalError && (
+              <Text style={[styles.modalBody, { color: colors.destructive }]}>
+                {modelDownloadApprovalError}
+              </Text>
+            )}
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="cancel-model-download-approval"
+                accessibilityRole="button"
+                accessibilityLabel="Cancel model download approval"
+                onPress={() => setShowModelDownloadConfirm(false)}
+                style={styles.modalButton}
+              >
+                <Text
+                  style={[
+                    styles.modalButtonText,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-model-download-approval"
+                accessibilityRole="button"
+                accessibilityLabel="Approve and download model"
+                onPress={() => void confirmModelDownloadApproval()}
+                style={styles.modalButton}
+              >
+                <Text
+                  style={[styles.modalButtonText, { color: colors.primary }]}
+                >
+                  Allow &amp; download
                 </Text>
               </Pressable>
             </View>
@@ -2858,6 +3079,26 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "SpaceGrotesk_600SemiBold", fontSize: 18 },
   headerSpacer: { width: 36 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 12 },
+  categoryList: { gap: 10, paddingTop: 4 },
+  categoryEntry: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  categoryBrowse: {
+    minHeight: 32,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  categoryBrowseText: { fontFamily: "Inter_500Medium", fontSize: 12 },
   errorBanner: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -2878,17 +3119,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 3,
   },
-  sectionLabel: {
-    fontFamily: "SpaceGrotesk_700Bold",
-    fontSize: 11,
-    letterSpacing: 1,
-    marginBottom: 8,
-    marginTop: 18,
-    paddingLeft: 4,
-  },
   card: { borderWidth: 1, borderRadius: 20, padding: 16 },
-  appearanceCard: { marginTop: 12 },
+  memoryHistoryCard: { marginBottom: 12 },
+  appearanceCard: { marginTop: 0 },
   collapsibleSection: { marginTop: 20 },
+  compactCollapsibleSection: { marginTop: 12 },
   collapsibleHeader: {
     minHeight: 68,
     borderWidth: 1,
@@ -3195,6 +3430,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
   },
+  compactSettingRow: { paddingVertical: 8 },
+  voiceControlsCard: { paddingTop: 4, paddingBottom: 0 },
+  hapticsCard: { marginTop: 12 },
   segmented: { flexDirection: "row", borderRadius: 12, padding: 4 },
   segment: {
     flex: 1,
@@ -3205,15 +3443,15 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   segmentText: { fontFamily: "Inter_500Medium", fontSize: 13 },
-  dangerCard: {
-    marginTop: 32,
-    padding: 16,
-    borderRadius: 20,
-    borderWidth: 1,
+  historyClearAction: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+    minHeight: 44,
+    borderTopWidth: 1,
+    marginTop: 8,
+    paddingTop: 10,
   },
   dangerText: { fontFamily: "Inter_500Medium", fontSize: 14 },
   modalBackdrop: {

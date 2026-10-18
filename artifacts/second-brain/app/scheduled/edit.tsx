@@ -251,10 +251,7 @@ export default function ScheduledJobEditScreen() {
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />
         </Pressable>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>{id ? 'Edit scheduled work' : 'New scheduled work'}</Text>
-          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>explicit sources, bounded runtime</Text>
-        </View>
+        <View style={styles.headerCopy} />
         <View style={styles.headerSpacer} />
       </View>
 
@@ -263,7 +260,6 @@ export default function ScheduledJobEditScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.eyebrow, { color: colors.primary }]}>Define the job</Text>
         <Text style={[styles.title, { color: colors.foreground }]}>What should Demi check?</Text>
         <Text style={[styles.body, { color: colors.mutedForeground }]}>
           Every run uses only the sources you select. No cloud scheduler or unrestricted tool access is used.

@@ -20,6 +20,7 @@ import {
 import {
   Inter_400Regular,
   Inter_500Medium,
+  Inter_600SemiBold,
   useFonts as useInter,
 } from '@expo-google-fonts/inter';
 import { Stack } from 'expo-router';
@@ -89,6 +90,7 @@ export default function RootLayout() {
   const [interLoaded, interError] = useInter({
     Inter_400Regular,
     Inter_500Medium,
+    Inter_600SemiBold,
   });
 
   const fontsLoaded = spaceGroteskLoaded && interLoaded;

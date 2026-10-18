@@ -102,14 +102,7 @@ export default function ScheduledJobsScreen() {
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />
         </Pressable>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            Scheduled work
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>
-            private, bounded, on this device
-          </Text>
-        </View>
+        <View style={styles.headerCopy} />
         <Pressable
           testID="add-scheduled-job"
           accessibilityRole="button"
@@ -155,9 +148,6 @@ export default function ScheduledJobsScreen() {
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <View style={styles.listIntro}>
-              <Text style={[styles.eyebrow, { color: colors.primary }]}>
-                Local automation
-              </Text>
               <Text style={[styles.listTitle, { color: colors.foreground }]}>
                 Useful work, with limits.
               </Text>

@@ -262,8 +262,6 @@ type AppContextValue = {
   storageUsageRefreshing: boolean;
   refreshStorageUsage: () => void;
   reclaimUnusedModelFiles: () => Promise<ModelCleanupResult>;
-  storageDetailsExpanded: boolean;
-  setStorageDetailsExpanded: (expanded: boolean) => void;
 };
 
 export type ChatContextValue = {
@@ -573,7 +571,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     null,
   );
   const [storageUsageRefreshing, setStorageUsageRefreshing] = useState(false);
-  const [storageDetailsExpanded, setStorageDetailsExpanded] = useState(false);
   const [storageUsageRefreshToken, setStorageUsageRefreshToken] = useState(0);
   const [memories, setMemories] = useState<ApprovedMemory[]>([]);
   const [pendingMemoryCandidate, setPendingMemoryCandidate] =
@@ -1353,7 +1350,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setDownloadError(
         privacyState.globalPause
           ? "Privacy pause is active. Resume privileged actions in Settings before downloading a model."
-          : "Model downloads are off by default. Enable Recommended model download in Settings first.",
+          : "Model downloads are off by default. Approve the download in Model settings first.",
       );
       setDownloadStatus("error");
       return;
@@ -2970,8 +2967,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       storageUsageRefreshing,
       refreshStorageUsage,
       reclaimUnusedModelFiles,
-      storageDetailsExpanded,
-      setStorageDetailsExpanded,
     }),
     [
       settings,
@@ -3007,7 +3002,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       voiceSelfTestSpeechStatus,
       storageUsage,
       storageUsageRefreshing,
-      storageDetailsExpanded,
     ],
   );
 

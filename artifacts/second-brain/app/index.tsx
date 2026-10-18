@@ -2,6 +2,12 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  FadeOutDown,
+  LinearTransition,
+} from 'react-native-reanimated';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -140,12 +146,13 @@ export default function DemiScreen() {
   // Setup text for the single prompt
   let setupNeeded = false;
   let setupLabel = '';
+  let setupDescription = '';
   if (engineStatus !== 'ready') {
     setupNeeded = true;
-    setupLabel = 'Model setup required';
   } else if (!settings.voiceInputEnabled || voiceInputStatus === 'needs-model' || voiceInputStatus === 'unavailable') {
     setupNeeded = true;
     setupLabel = 'Voice setup required';
+    setupDescription = 'Review offline voice controls and bundled speech setup.';
   }
 
   function handleVoiceInput() {
@@ -262,7 +269,7 @@ export default function DemiScreen() {
                   isSpeaking ? "Stop speaking" :
                   isThinking ? "Thinking" :
                   draft ? "Review dictation draft" :
-                  setupNeeded ? "Open settings for setup" : "Start voice input"
+                  setupNeeded ? engineStatus === 'ready' ? "Open settings for voice setup" : "Open Settings" : "Start voice input"
                 }
                 onPress={handleVoiceInput}
                 style={({ pressed }) => [
@@ -288,25 +295,71 @@ export default function DemiScreen() {
                 )}
               </Pressable>
 
-              <Text
-                accessibilityLiveRegion="polite"
-                style={[styles.statusText, { color: colors.mutedForeground }]}
-              >
-                {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : draft ? 'Draft ready — review before sending' : wasStopped ? 'Dictation canceled' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
-              </Text>
+              {!(setupNeeded && engineStatus !== 'ready') && (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={[styles.statusText, { color: colors.mutedForeground }]}
+                >
+                  {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : draft ? 'Draft ready — review before sending' : wasStopped ? 'Dictation canceled' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
+                </Text>
+              )}
               {cloudFallbackActivity && (
                 <Text style={[styles.setupText, { color: colors.mutedForeground }]}>
                   {cloudFallbackActivity.message}
                 </Text>
               )}
 
-              {setupNeeded && !isListening && !isThinking && (
+              {setupNeeded && engineStatus === 'ready' && !isListening && !isThinking && (
                 <Pressable
+                  testID="home-setup-prompt"
+                  accessibilityRole="button"
+                  accessibilityLabel={`${setupLabel}. ${setupDescription}`}
+                  accessibilityHint="Open Settings to complete setup."
                   onPress={() => router.push('/settings')}
-                  style={({ pressed }) => [styles.setupBadge, { backgroundColor: colors.accent }, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.setupBadge,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    },
+                    pressed && styles.pressed,
+                  ]}
                 >
-                  <Text style={[styles.setupText, { color: colors.accentForeground }]}>{setupLabel}</Text>
-                  <Feather name="chevron-right" size={14} color={colors.accentForeground} />
+                  <View
+                    style={[
+                      styles.setupBadgeIcon,
+                      { backgroundColor: colors.accent },
+                    ]}
+                  >
+                    <Feather
+                      name={engineStatus === 'ready' ? 'volume-2' : 'cpu'}
+                      size={16}
+                      color={colors.accentForeground}
+                    />
+                  </View>
+                  <View style={styles.setupBadgeCopy}>
+                    <Text
+                      style={[
+                        styles.setupBadgeTitle,
+                        { color: colors.cardForeground },
+                      ]}
+                    >
+                      {setupLabel}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.setupBadgeDescription,
+                        { color: colors.mutedForeground },
+                      ]}
+                    >
+                      {setupDescription}
+                    </Text>
+                  </View>
+                  <Feather
+                    name="chevron-right"
+                    size={17}
+                    color={colors.mutedForeground}
+                  />
                 </Pressable>
               )}
             </View>
@@ -319,7 +372,13 @@ export default function DemiScreen() {
         style={[styles.composerSafe, { backgroundColor: colors.background, paddingBottom: Platform.OS === 'web' ? 34 : 0 }]}
       >
         {showKeyboard ? (
-          <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Animated.View
+            testID="chat-composer-container"
+            entering={FadeInUp.duration(220)}
+            exiting={FadeOutDown.duration(150)}
+            layout={LinearTransition.duration(180)}
+            style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Close message composer"
@@ -338,6 +397,8 @@ export default function DemiScreen() {
               multiline
               maxLength={1200}
               editable={isConversationReady && (engineStatus === 'ready' || cloudFallbackEnabled)}
+              selectionColor={colors.primary}
+              textAlignVertical="top"
               style={[styles.input, { color: colors.cardForeground }]}
               onSubmitEditing={Platform.OS === 'web' ? handleSend : undefined}
               blurOnSubmit={false}
@@ -360,9 +421,15 @@ export default function DemiScreen() {
                 color={canSend ? colors.primaryForeground : colors.mutedForeground}
               />
             </Pressable>
-          </View>
+          </Animated.View>
         ) : (
-          <View style={styles.bottomBar}>
+          <Animated.View
+            testID="chat-composer-collapsed"
+            entering={FadeInDown.duration(180)}
+            exiting={FadeOutDown.duration(130)}
+            layout={LinearTransition.duration(180)}
+            style={styles.bottomBar}
+          >
              <Pressable
               testID="keyboard-toggle"
               accessibilityRole="button"
@@ -372,7 +439,7 @@ export default function DemiScreen() {
              >
                <Feather name="edit-2" size={20} color={colors.mutedForeground} />
              </Pressable>
-          </View>
+          </Animated.View>
         )}
       </SafeAreaView>
       <PersonalProfileEditor
@@ -565,12 +632,35 @@ const styles = StyleSheet.create({
   setupBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    width: '88%',
+    maxWidth: 340,
+    minHeight: 64,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 16,
+    borderWidth: 1,
     marginTop: 12,
-    gap: 6,
+    gap: 10,
     pointerEvents: 'auto',
+  },
+  setupBadgeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setupBadgeCopy: { flex: 1 },
+  setupBadgeTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  setupBadgeDescription: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 1,
   },
   setupText: {
     fontFamily: 'Inter_500Medium',

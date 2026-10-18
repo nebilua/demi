@@ -66,6 +66,19 @@ let reminderScheduleResult = {
 };
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
+  if (request === 'react-native-reanimated') {
+    const transition = (name) => ({
+      duration: (milliseconds) => ({ name, duration: milliseconds }),
+    });
+    return {
+      __esModule: true,
+      default: { View: passthrough('AnimatedView') },
+      FadeInDown: transition('FadeInDown'),
+      FadeInUp: transition('FadeInUp'),
+      FadeOutDown: transition('FadeOutDown'),
+      LinearTransition: transition('LinearTransition'),
+    };
+  }
   if (request === 'react-native') return fakeReactNative;
   if (request === '@react-native-async-storage/async-storage') {
     return {
@@ -206,6 +219,17 @@ function hasTestId(renderer, testID) {
 }
 
 async function expandSettingsGroup(renderer, testID) {
+  const categoryByGroup = {
+    'settings-group-privacy': 'permissions',
+    'settings-group-device-footprint': 'model',
+    'settings-group-local-recovery': 'memory',
+    'settings-group-offline-setup': 'model',
+    'settings-group-local-voice': 'voice',
+  };
+  const category = categoryByGroup[testID];
+  if (!hasTestId(renderer, testID) && category) {
+    await openSettingsCategory(renderer, category);
+  }
   await TestRenderer.act(async () => {
     const group = findByTestId(renderer, testID);
     assert.equal(group.props.accessibilityRole, 'button');
@@ -218,15 +242,18 @@ async function expandSettingsGroup(renderer, testID) {
   );
 }
 
+async function openSettingsCategory(renderer, category) {
+  if (!hasTestId(renderer, `settings-category-${category}`)) {
+    await TestRenderer.act(async () => {
+      await findByTestId(renderer, 'settings-browse-categories').props.onPress();
+    });
+  }
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, `settings-category-${category}`).props.onPress();
+  });
+}
+
 function SettingsSessionHarness({ SettingsScreen }) {
-  const [expanded, setExpanded] = React.useState(
-    appValue.storageDetailsExpanded ?? false,
-  );
-  appValue = {
-    ...appValue,
-    storageDetailsExpanded: expanded,
-    setStorageDetailsExpanded: setExpanded,
-  };
   return React.createElement(SettingsScreen);
 }
 
@@ -285,15 +312,10 @@ function assertStorageUpdated(renderer, measuredAt) {
 }
 
 function StorageRefreshHarness({ SettingsScreen, refreshPromise }) {
-  const [expanded, setExpanded] = React.useState(
-    appValue.storageDetailsExpanded ?? false,
-  );
   const [usage, setUsage] = React.useState(appValue.storageUsage ?? null);
   const [refreshing, setRefreshing] = React.useState(false);
   appValue = {
     ...appValue,
-    storageDetailsExpanded: expanded,
-    setStorageDetailsExpanded: setExpanded,
     storageUsage: usage,
     storageUsageRefreshing: refreshing,
     refreshStorageUsage: () => {
@@ -308,16 +330,11 @@ function StorageRefreshHarness({ SettingsScreen, refreshPromise }) {
 }
 
 function StorageRaceHarness({ SettingsScreen, refreshPromises }) {
-  const [expanded, setExpanded] = React.useState(
-    appValue.storageDetailsExpanded ?? false,
-  );
   const [usage, setUsage] = React.useState(appValue.storageUsage ?? null);
   const [refreshing, setRefreshing] = React.useState(false);
   const refreshRunRef = React.useRef(0);
   appValue = {
     ...appValue,
-    storageDetailsExpanded: expanded,
-    setStorageDetailsExpanded: setExpanded,
     storageUsage: usage,
     storageUsageRefreshing: refreshing,
     refreshStorageUsage: () => {
@@ -393,8 +410,6 @@ function baseAppValue(overrides = {}) {
     storageError: null,
     storageUsage: null,
     storageUsageRefreshing: false,
-    storageDetailsExpanded: false,
-    setStorageDetailsExpanded: () => {},
     refreshStorageUsage: () => {},
     reclaimUnusedModelFiles: async () => ({
       status: 'completed',
@@ -458,7 +473,12 @@ async function testSettingsNavigationGroupsRemainReachable() {
   routerCalls = [];
   const previousDimensions = windowDimensions;
   windowDimensions = { width: 320, height: 640 };
-  appValue = baseAppValue();
+  let clearCalls = 0;
+  appValue = baseAppValue({
+    clearConversation: async () => {
+      clearCalls += 1;
+    },
+  });
   const { default: SettingsScreen } = require('../app/settings.tsx');
   let renderer;
   await TestRenderer.act(async () => {
@@ -471,51 +491,41 @@ async function testSettingsNavigationGroupsRemainReachable() {
     findByTestId(renderer, 'settings-back').props.accessibilityLabel,
     'Go back',
   );
-  for (const groupId of [
-    'settings-group-privacy',
-    'settings-group-conversation-history',
-    'settings-group-device-footprint',
-    'settings-group-local-recovery',
-    'settings-group-offline-setup',
-    'settings-group-local-voice',
-    'settings-group-advanced-preferences',
-  ]) {
-    const group = findByTestId(renderer, groupId);
-    assert.equal(group.props.accessibilityRole, 'button');
-    assert.equal(group.props.accessibilityState.expanded, false);
-    assert.match(group.props.accessibilityLabel, /expand/);
+  const categories = ['memory', 'ui', 'model', 'voice', 'permissions'];
+  for (const category of categories) {
+    const entry = findByTestId(renderer, `settings-category-${category}`);
+    assert.equal(entry.props.accessibilityRole, 'button');
+    assert.equal(entry.props.accessibilityState, undefined);
   }
+  const renderedCategoryEntries = renderer.root.findAll((node) =>
+    typeof node.props.testID === 'string' &&
+    node.props.testID.startsWith('settings-category-'),
+  );
+  assert.equal(
+    new Set(renderedCategoryEntries.map((entry) => entry.props.testID)).size,
+    5,
+  );
+  assert.equal(hasTestId(renderer, 'privacy-global-pause'), false);
+  assert.equal(hasTestId(renderer, 'model-status-summary'), false);
+  assert.equal(hasTestId(renderer, 'clear-conversation-history'), false);
+  assert.equal(hasTestId(renderer, 'voice-input-setting'), false);
+  assert.equal(hasTestId(renderer, 'save-history-setting'), false);
+  assert.equal(hasTestId(renderer, 'appearance-option-light'), false);
+
+  await openSettingsCategory(renderer, 'permissions');
+  assert.equal(hasTestId(renderer, 'settings-header-title'), false);
   assert.ok(findByTestId(renderer, 'privacy-global-pause'));
   assert.equal(
     findByTestId(renderer, 'privacy-global-pause').props.accessibilityLabel,
     'Pause approved actions',
   );
-  assert.ok(findByTestId(renderer, 'model-status-summary'));
-  assert.equal(hasTestId(renderer, 'clear-conversation-history'), false);
-  assert.ok(findByTestId(renderer, 'voice-input-setting'));
-  assert.ok(findByTestId(renderer, 'spoken-replies-setting'));
-  assert.ok(findByTestId(renderer, 'save-history-setting'));
-  assert.ok(findByTestId(renderer, 'appearance-option-light'));
-  for (const switchId of [
-    'privacy-global-pause',
-    'voice-input-setting',
-    'spoken-replies-setting',
-    'save-history-setting',
-  ]) {
-    const settingSwitch = findByTestId(renderer, switchId);
-    assert.equal(settingSwitch.props.accessibilityRole, 'switch');
-    assert.equal(typeof settingSwitch.props.accessibilityLabel, 'string');
-    assert.equal(typeof settingSwitch.props.accessibilityHint, 'string');
-    assert.equal(typeof settingSwitch.props.accessibilityState.checked, 'boolean');
-  }
-  assert.equal(
-    findByTestId(renderer, 'appearance-option-light').props.accessibilityState.selected,
-    true,
-  );
-  assert.equal(hasTestId(renderer, 'open-screen-access'), false);
-  assert.equal(hasTestId(renderer, 'offline-speech-setup'), false);
-
   await expandSettingsGroup(renderer, 'settings-group-privacy');
+  assert.doesNotMatch(textContent(renderer), /Local model inference/);
+  assert.doesNotMatch(textContent(renderer), /Offline voice input/);
+  assert.doesNotMatch(textContent(renderer), /Offline spoken replies/);
+  assert.doesNotMatch(textContent(renderer), /Recommended model download/);
+  assert.match(textContent(renderer), /Opt-in web research/);
+  assert.match(textContent(renderer), /Local contacts/);
   const screenAccessLink = findByTestId(renderer, 'open-screen-access');
   assert.equal(screenAccessLink.props.accessibilityRole, 'button');
   const screenAccessLinkStyle =
@@ -530,45 +540,99 @@ async function testSettingsNavigationGroupsRemainReachable() {
   );
   assert.ok(findByTestId(renderer, 'clear-privacy-state'));
   await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'settings-group-privacy').props.onPress();
-  });
-  assert.equal(
-    findByTestId(renderer, 'settings-group-privacy').props.accessibilityState
-      .expanded,
-    false,
-  );
-  assert.equal(hasTestId(renderer, 'open-screen-access'), false);
-  await expandSettingsGroup(renderer, 'settings-group-privacy');
-  await TestRenderer.act(async () => {
     await findByTestId(renderer, 'open-screen-access').props.onPress();
   });
   assert.equal(routerCalls.at(-1), '/screen-access');
 
+  await openSettingsCategory(renderer, 'model');
+  assert.ok(findByTestId(renderer, 'model-status-summary'));
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  assert.ok(findByTestId(renderer, 'toggle-storage-details'));
-
-  await expandSettingsGroup(renderer, 'settings-group-local-recovery');
-  assert.ok(findByTestId(renderer, 'export-local-data'));
-  assert.ok(findByTestId(renderer, 'import-local-data'));
-  assert.match(textContent(renderer), /not encrypted by Demi/);
-
+  assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.match(textContent(renderer), /Local storage/);
+  assert.equal(hasTestId(renderer, 'toggle-storage-details'), false);
   await expandSettingsGroup(renderer, 'settings-group-offline-setup');
   assert.ok(findByTestId(renderer, 'download-recommended'));
-  assert.ok(findByTestId(renderer, 'model-status-summary'));
 
-  await expandSettingsGroup(renderer, 'settings-group-conversation-history');
+  await openSettingsCategory(renderer, 'memory');
+  assert.ok(findByTestId(renderer, 'save-history-setting'));
   const clearHistory = findByTestId(renderer, 'clear-conversation-history');
   assert.equal(clearHistory.props.accessibilityRole, 'button');
   assert.equal(
     clearHistory.props.accessibilityLabel,
     'Clear conversation history',
   );
+  await TestRenderer.act(async () => {
+    await clearHistory.props.onPress();
+  });
+  assert.equal(clearCalls, 0);
+  assert.ok(findByTestId(renderer, 'confirm-clear-conversation'));
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'cancel-clear-conversation').props.onPress();
+  });
+  assert.equal(clearCalls, 0);
+  await TestRenderer.act(async () => {
+    await clearHistory.props.onPress();
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'confirm-clear-conversation').props.onPress();
+  });
+  assert.equal(clearCalls, 1);
 
+  await expandSettingsGroup(renderer, 'settings-group-local-recovery');
+  assert.ok(findByTestId(renderer, 'export-local-data'));
+  assert.ok(findByTestId(renderer, 'import-local-data'));
+  assert.match(textContent(renderer), /not encrypted by Demi/);
+  const historyCard = findByTestId(renderer, 'memory-history-card');
+  assert.ok(
+    historyCard.props.style
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.marginBottom === 12),
+  );
+  assert.equal(
+    findByTestId(renderer, 'clear-conversation-history').parent.props.testID,
+    historyCard.props.testID,
+  );
+  const clearActionStyle = findByTestId(
+    renderer,
+    'clear-conversation-history',
+  ).props.style({ pressed: false });
+  assert.ok(
+    clearActionStyle
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.marginTop === 8),
+  );
+
+  await openSettingsCategory(renderer, 'voice');
+  assert.ok(findByTestId(renderer, 'voice-input-setting'));
+  assert.ok(findByTestId(renderer, 'spoken-replies-setting'));
+  const voiceCardStyle = findByTestId(renderer, 'voice-controls-card').props.style;
+  assert.ok(
+    voiceCardStyle
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.paddingTop === 4),
+  );
+  assert.ok(
+    voiceCardStyle
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.paddingBottom === 0),
+  );
+  const spokenRepliesRowStyle = findByTestId(
+    renderer,
+    'spoken-replies-setting',
+  ).parent.props.style;
+  assert.ok(
+    spokenRepliesRowStyle
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.paddingBottom === 0),
+  );
   await expandSettingsGroup(renderer, 'settings-group-local-voice');
   assert.ok(findByTestId(renderer, 'offline-speech-setup'));
   assert.ok(findByTestId(renderer, 'offline-tts-setup'));
-
-  await expandSettingsGroup(renderer, 'settings-group-advanced-preferences');
   const speechRateLabel = renderer.root
     .findAllByType('Text')
     .find((node) => node.children.includes('Spoken reply speed'));
@@ -579,50 +643,34 @@ async function testSettingsNavigationGroupsRemainReachable() {
       .filter(Boolean)
       .some((style) => style.marginBottom === 8),
   );
-  assert.equal(
-    findByTestId(renderer, 'appearance-option-light').props.accessibilityRole,
-    'radio',
+  const voiceSetupHeader = findByTestId(renderer, 'settings-group-local-voice');
+  assert.ok(
+    voiceSetupHeader.parent.props.style
+      .flat(Infinity)
+      .filter(Boolean)
+      .some((style) => style.marginTop === 12),
   );
-  assert.equal(
-    findByTestId(renderer, 'appearance-option-light').props.accessibilityState
-      .selected,
-    true,
-  );
-  const renderedTextNodes = renderer.root.findAllByType('Text');
-  const findExactTextIndex = (value) =>
-    renderedTextNodes.reduce(
-      (lastIndex, node, index) =>
-        node.children.includes(value) ? index : lastIndex,
-      -1,
-    );
-  const hapticIndex = findExactTextIndex('Haptic feedback');
-  const appearanceIndex = findExactTextIndex('Appearance');
-  const voiceInputIndex = findExactTextIndex('Voice input');
-  const spokenRepliesIndex = findExactTextIndex('Spoken replies');
-  const historyIndex = findExactTextIndex('Save history');
-  assert.ok(voiceInputIndex < spokenRepliesIndex);
-  assert.ok(spokenRepliesIndex < historyIndex);
-  assert.ok(historyIndex < appearanceIndex);
-  assert.ok(appearanceIndex < hapticIndex);
 
-  await TestRenderer.act(async () => {
-    await clearHistory.props.onPress();
-  });
-  assert.ok(findByTestId(renderer, 'confirm-clear-conversation'));
+  await openSettingsCategory(renderer, 'ui');
+  assert.ok(findByTestId(renderer, 'appearance-option-light'));
+  assert.equal(findByTestId(renderer, 'appearance-option-light').props.accessibilityRole, 'radio');
   assert.equal(
-    findByTestId(renderer, 'confirm-clear-conversation').props.accessibilityRole,
-    'button',
+    findByTestId(renderer, 'settings-back').props.accessibilityLabel,
+    'Go back',
   );
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'cancel-clear-conversation').props.onPress();
-  });
-  assert.equal(hasTestId(renderer, 'confirm-clear-conversation'), false);
+  assert.ok(findByTestId(renderer, 'haptic-feedback-setting'));
+  assert.equal(hasTestId(renderer, 'settings-group-advanced-preferences'), false);
 
   routerCalls = [];
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'settings-back').props.onPress();
   });
   assert.equal(routerCalls.at(-1), 'back');
+  assert.equal(hasTestId(renderer, 'settings-category-ui'), false);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'settings-browse-categories').props.onPress();
+  });
+  assert.ok(findByTestId(renderer, 'settings-category-ui'));
 
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -653,7 +701,14 @@ async function testHomeSetupCircleFitsCompactStage() {
   assert.equal(circleStyle.width, circleStyle.height);
   assert.equal(circleStyle.borderRadius * 2, circleStyle.width);
   assert.equal(circle.props.accessibilityRole, 'button');
-  assert.equal(circle.props.accessibilityLabel, 'Open settings for setup');
+  assert.equal(circle.props.accessibilityLabel, 'Open Settings');
+  assert.equal(hasTestId(renderer, 'home-setup-prompt'), false);
+  assert.doesNotMatch(textContent(renderer), /Model setup required|Setup needed/);
+  routerCalls = [];
+  await TestRenderer.act(async () => {
+    await circle.props.onPress();
+  });
+  assert.deepEqual(routerCalls, ['/settings']);
 
   const stage = findByTestId(renderer, 'home-voice-stage');
   const stageStyle = stage.props.style
@@ -701,6 +756,95 @@ async function testModelRemovalRequiresConfirmation() {
   });
   assert.equal(removeCalls, 1);
   assert.equal(hasTestId(renderer, 'confirm-remove-local-model'), false);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
+async function testModelDownloadRequiresInFlowNetworkApproval() {
+  const privacyCapabilities = require('../lib/privacyCapabilities.ts');
+  const approvalCalls = [];
+  let downloadCalls = 0;
+
+  function ModelDownloadHarness({ SettingsScreen, initialPrivacyState }) {
+    const [privacyState, setPrivacyState] = React.useState(
+      initialPrivacyState ?? privacyCapabilities.createDefaultPrivacyState(),
+    );
+    appValue = baseAppValue({
+      privacyReady: true,
+      privacyState,
+      setCapabilityApproval: async (capabilityId, approval) => {
+        approvalCalls.push([capabilityId, approval]);
+        setPrivacyState((current) =>
+          privacyCapabilities.updateCapabilityGrant(
+            current,
+            capabilityId,
+            approval,
+          ),
+        );
+      },
+      downloadRecommendedModel: async () => {
+        downloadCalls += 1;
+      },
+    });
+    return React.createElement(SettingsScreen);
+  }
+
+  const { default: SettingsScreen } = require('../app/settings.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(ModelDownloadHarness, { SettingsScreen }),
+    );
+  });
+  await expandSettingsGroup(renderer, 'settings-group-offline-setup');
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'download-recommended').props.onPress();
+  });
+  assert.equal(downloadCalls, 0);
+  assert.match(textContent(renderer), /Allow this model download/);
+  assert.match(textContent(renderer), /No conversations, memories, or profile/);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'cancel-model-download-approval').props.onPress();
+  });
+  assert.equal(approvalCalls.length, 0);
+  assert.equal(downloadCalls, 0);
+
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'download-recommended').props.onPress();
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'confirm-model-download-approval').props.onPress();
+    await Promise.resolve();
+  });
+  assert.deepEqual(approvalCalls, [
+    ['network.model-download', 'approved'],
+  ]);
+  assert.equal(downloadCalls, 1);
+  assert.equal(hasTestId(renderer, 'confirm-model-download-approval'), false);
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  const pausedPrivacyState = privacyCapabilities.createDefaultPrivacyState();
+  pausedPrivacyState.globalPause = true;
+  appValue = baseAppValue();
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(ModelDownloadHarness, {
+        SettingsScreen,
+        initialPrivacyState: pausedPrivacyState,
+      }),
+    );
+  });
+  await expandSettingsGroup(renderer, 'settings-group-offline-setup');
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'download-recommended').props.onPress();
+  });
+  assert.equal(hasTestId(renderer, 'confirm-model-download-approval'), false);
+  assert.match(textContent(renderer), /Privacy pause is active/);
+  assert.equal(approvalCalls.length, 1);
+  assert.equal(downloadCalls, 1);
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
@@ -811,43 +955,11 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
     );
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  const storageToggle = findByTestId(renderer, 'toggle-storage-details');
-  assert.equal(storageToggle.props.accessibilityRole, 'button');
-  assert.equal(storageToggle.props.accessibilityState.expanded, false);
-  assert.equal(storageToggle.props.accessibilityLabel, 'Local storage, show details');
-  assert.equal(
-    storageToggle.props.accessibilityHint,
-    'Double tap to expand storage details.',
-  );
-  assert.equal(hasTestId(renderer, 'reclaim-model-files'), false);
-  assert.equal(hasTestId(renderer, 'refresh-storage-usage'), false);
-  assert.doesNotMatch(textContent(renderer), /Reclaimable model files/);
-  await TestRenderer.act(async () => {
-    await storageToggle.props.onPress();
-  });
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
-    true,
-  );
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityLabel,
-    'Local storage, hide details',
-  );
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityHint,
-    'Double tap to collapse storage details.',
-  );
+  assert.equal(hasTestId(renderer, 'toggle-storage-details'), false);
   assert.ok(findByTestId(renderer, 'reclaim-model-files'));
   assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
   assert.match(textContent(renderer), /Reclaimable model files/);
   assert.match(textContent(renderer), /Local storage/);
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
-  assert.equal(hasTestId(renderer, 'reclaim-model-files'), false);
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'reclaim-model-files').props.onPress();
   });
@@ -866,7 +978,7 @@ async function testModelReclaimFailureKeepsConfirmationOpen() {
   fakeReactNative.Platform.Version = previousPlatform.Version;
 }
 
-async function testStorageDetailsPersistAcrossSettingsVisits() {
+async function testStorageDetailsOpenWithDeviceStorage() {
   appValue = baseAppValue();
   const { default: SettingsScreen } = require('../app/settings.tsx');
   let renderer;
@@ -876,13 +988,9 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
     );
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
-    true,
-  );
+  assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.match(textContent(renderer), /Local storage/);
+  assert.equal(hasTestId(renderer, 'toggle-storage-details'), false);
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
@@ -894,44 +1002,12 @@ async function testStorageDetailsPersistAcrossSettingsVisits() {
     );
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState.expanded,
-    false,
-  );
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityLabel,
-    'Local storage, show details',
-  );
+  assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
+  assert.match(textContent(renderer), /Local storage/);
+  assert.equal(hasTestId(renderer, 'toggle-storage-details'), false);
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
-}
-
-function assertStorageDetailsAreSessionOnly() {
-  const source = fs.readFileSync(
-    path.join(__dirname, '../context/AppContext.tsx'),
-    'utf8',
-  );
-  const startupEffectStart = source.indexOf('  useEffect(() => {');
-  const startupEffectEnd = source.indexOf(
-    '  useEffect(() => {',
-    startupEffectStart + 1,
-  );
-  const startupEffect = source.slice(startupEffectStart, startupEffectEnd);
-
-  assert.match(
-    source,
-    /const \[storageDetailsExpanded, setStorageDetailsExpanded\] = useState\(false\);/,
-  );
-  assert.doesNotMatch(startupEffect, /storageDetailsExpanded/);
-  assert.doesNotMatch(
-    source,
-    /AsyncStorage\.(?:getItem|setItem|removeItem)\([^)]*(?:storageDetailsExpanded|STORAGE_DETAILS)/,
-  );
-}
-
-async function testStorageDetailsResetForFreshProviderSession() {
-  assertStorageDetailsAreSessionOnly();
 }
 
 async function testStorageRefreshKeepsDetailsAndSummary() {
@@ -955,14 +1031,7 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     );
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
-  );
+  assert.equal(hasTestId(renderer, 'toggle-storage-details'), false);
   assert.match(textContent(renderer), /64 B tracked on this device/);
   assertStorageUpdated(renderer, initialUsage.measuredAt);
 
@@ -980,21 +1049,11 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
   );
   assert.ok(findByTestId(renderer, 'storage-refresh-indicator'));
   assert.ok(findByTestId(renderer, 'reclaim-model-files'));
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
-  );
   refresh.resolve(refreshedUsage);
   await TestRenderer.act(async () => {
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
-  );
   assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
   assert.equal(
     findByTestId(renderer, 'refresh-storage-usage').props.accessibilityLabel,
@@ -1028,9 +1087,6 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
   await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
-  await TestRenderer.act(async () => {
     await findByTestId(renderer, 'refresh-storage-usage').props.onPress();
   });
   assert.equal(
@@ -1044,11 +1100,6 @@ async function testStorageRefreshKeepsDetailsAndSummary() {
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
-  );
   assert.ok(findByTestId(renderer, 'refresh-storage-usage'));
   assert.equal(
     findByTestId(renderer, 'refresh-storage-usage').props.accessibilityLabel,
@@ -1090,14 +1141,7 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
     );
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
-  );
+  assert.equal(hasTestId(renderer, 'toggle-storage-details'), false);
   assert.match(textContent(renderer), /64 B tracked on this device/);
 
   await TestRenderer.act(async () => {
@@ -1120,12 +1164,6 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
     renderer.root.findAllByProps({ testID: 'storage-refresh-indicator' }).length,
     0,
   );
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
-  );
-
   olderRefresh.resolve(olderUsage);
   await TestRenderer.act(async () => {
     await Promise.resolve();
@@ -1141,11 +1179,6 @@ async function testStorageRefreshRaceKeepsNewestSummary() {
   assert.equal(
     renderer.root.findAllByProps({ testID: 'storage-refresh-indicator' }).length,
     0,
-  );
-  assert.equal(
-    findByTestId(renderer, 'toggle-storage-details').props.accessibilityState
-      .expanded,
-    true,
   );
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -1200,10 +1233,6 @@ async function testForegroundReturnRefreshRaceKeepsNewestSummary() {
     );
   });
   await expandSettingsGroup(renderer, 'settings-group-device-footprint');
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'toggle-storage-details').props.onPress();
-  });
-
   await TestRenderer.act(async () => {
     // The first refresh represents AppState returning to active; the second
     // represents the user refreshing while that foreground scan is pending.
@@ -1410,6 +1439,54 @@ async function testVoiceStartClearsDraftBeforeRecognition() {
   assert.equal(findByTestId(renderer, 'chat-input').props.value, '');
 }
 
+async function testComposerModeSwitchIsAnimated() {
+  appValue = baseAppValue();
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'keyboard-toggle').props.onPress();
+  });
+
+  const composer = findByTestId(renderer, 'chat-composer-container');
+  const input = findByTestId(renderer, 'chat-input');
+  assert.equal(composer.props.entering.name, 'FadeInUp');
+  assert.equal(composer.props.entering.duration, 220);
+  assert.equal(composer.props.exiting.name, 'FadeOutDown');
+  assert.equal(composer.props.layout.name, 'LinearTransition');
+  assert.equal(composer.props.layout.duration, 180);
+  assert.equal(input.props.selectionColor, colors.primary);
+  assert.equal(input.props.textAlignVertical, 'top');
+
+  await TestRenderer.act(async () => {
+    await input.props.onChangeText('A longer draft that grows naturally as it wraps across multiple lines.');
+  });
+  assert.equal(findByTestId(renderer, 'chat-input').props.value.length > 40, true);
+  assert.equal(
+    findByTestId(renderer, 'chat-composer-container').props.layout.duration,
+    180,
+  );
+
+  await TestRenderer.act(async () => {
+    await findByProps(renderer, {
+      accessibilityLabel: 'Close message composer',
+    }).props.onPress();
+  });
+  assert.equal(hasTestId(renderer, 'chat-input'), false);
+  assert.ok(findByTestId(renderer, 'keyboard-toggle'));
+  assert.equal(
+    findByTestId(renderer, 'chat-composer-collapsed').props.entering.name,
+    'FadeInDown',
+  );
+
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+}
+
 async function testDictationStaysEditableUntilExplicitSend() {
   let sent = 0;
   appValue = baseAppValue({
@@ -1509,9 +1586,7 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   assert.match(textContent(settingsRenderer), /installed Android app/);
   await expandSettingsGroup(settingsRenderer, 'settings-group-device-footprint');
   assert.match(textContent(settingsRenderer), /Device storage measurements are available/);
-  await TestRenderer.act(async () => {
-    await findByTestId(settingsRenderer, 'toggle-storage-details').props.onPress();
-  });
+  assert.equal(hasTestId(settingsRenderer, 'toggle-storage-details'), false);
   assert.match(textContent(settingsRenderer), /does not report device disk usage/);
   await TestRenderer.act(async () => {
     settingsRenderer.unmount();
@@ -1541,7 +1616,7 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
   routerCalls = [];
   assert.equal(
     findByTestId(homeRenderer, 'demi-voice-circle').props.accessibilityLabel,
-    'Open settings for setup',
+    'Open settings for voice setup',
   );
   await TestRenderer.act(async () => {
     await findByTestId(homeRenderer, 'demi-voice-circle').props.onPress();
@@ -1606,6 +1681,8 @@ async function testSettingsStaysUsableWhenStorageIsUnavailable() {
   await TestRenderer.act(async () => {
     renderer = TestRenderer.create(React.createElement(SettingsScreen));
   });
+  assert.equal(textContent(renderer).includes('Some local data could not be opened'), false);
+  await openSettingsCategory(renderer, 'memory');
   assert.match(textContent(renderer), /Some local data could not be opened/);
   await expandSettingsGroup(renderer, 'settings-group-local-voice');
   assert.ok(findByTestId(renderer, 'offline-speech-setup'));
@@ -1850,16 +1927,59 @@ function testDownloadCancellationGuardRunsBeforeCommit() {
   );
 }
 
+function testBoxedCalendarAndScheduledCopyRemoved() {
+  const removedCopyByScreen = [
+    [
+      '../app/calendar/index.tsx',
+      ['Important dates', 'people worth remembering', 'Your people, your dates'],
+    ],
+    [
+      '../app/scheduled/index.tsx',
+      ['Scheduled work', 'private, bounded, on this device', 'Local automation'],
+    ],
+    [
+      '../app/scheduled/edit.tsx',
+      [
+        'New scheduled work',
+        'Edit scheduled work',
+        'explicit sources, bounded runtime',
+        'Define the job',
+      ],
+    ],
+    [
+      '../app/calendar/edit.tsx',
+      [
+        'New important date',
+        'Edit important date',
+        'saved only on this device',
+        'Who & what',
+        'The date stays in Demi.',
+        'needed to notify you.',
+      ],
+    ],
+  ];
+  for (const [screen, copy] of removedCopyByScreen) {
+    const source = fs.readFileSync(path.join(__dirname, screen), 'utf8');
+    for (const phrase of copy) {
+      assert.equal(
+        source.includes(phrase),
+        false,
+        `Expected ${JSON.stringify(phrase)} to be removed from ${screen}.`,
+      );
+    }
+  }
+}
+
 async function main() {
   await testProfileSaveFailureKeepsEditorOpen();
   await testSettingsNavigationGroupsRemainReachable();
   await testHomeSetupCircleFitsCompactStage();
   await testModelRemovalRequiresConfirmation();
+  await testModelDownloadRequiresInFlowNetworkApproval();
   await testSettingsFailureKeepsControlledValue();
   await testVoiceErrorsExposeAccessibleRetry();
   await testModelReclaimFailureKeepsConfirmationOpen();
-  await testStorageDetailsPersistAcrossSettingsVisits();
-  await testStorageDetailsResetForFreshProviderSession();
+  await testStorageDetailsOpenWithDeviceStorage();
   await testStorageRefreshKeepsDetailsAndSummary();
   await testStorageRefreshRaceKeepsNewestSummary();
   testStorageMeasurementWaitsForProcessRestore();
@@ -1867,6 +1987,7 @@ async function main() {
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
+  await testComposerModeSwitchIsAnimated();
   await testDictationStaysEditableUntilExplicitSend();
   await testEmptyDictationDoesNotSendAnything();
   testVoiceLifecycleGuardsLateRecognition();
@@ -1879,6 +2000,7 @@ async function main() {
   await testCalendarReminderSurvivesRestartAndSchedulingFailure();
   await testReminderCandidateRoutesWithExactTime();
   testDownloadCancellationGuardRunsBeforeCommit();
+  testBoxedCalendarAndScheduledCopyRemoved();
   console.log('Component failure-injection checks passed.');
 }
 

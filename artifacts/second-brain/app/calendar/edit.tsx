@@ -154,14 +154,7 @@ function ReminderForm({
         >
           <Feather name="x" size={18} color={colors.foreground} />
         </Pressable>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            {initial ? 'Edit important date' : 'New important date'}
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>
-            saved only on this device
-          </Text>
-        </View>
+        <View style={styles.headerCopy} />
         <Pressable
           testID="save-reminder"
           accessibilityRole="button"
@@ -189,9 +182,6 @@ function ReminderForm({
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.intro}>
-          <Text style={[styles.eyebrow, { color: colors.primary }]}>
-            Who & what
-          </Text>
           <Text style={[styles.pageTitle, { color: colors.foreground }]}>
             Keep the date close.
           </Text>
@@ -408,16 +398,6 @@ function ReminderForm({
             },
           ]}
         />
-
-        <View style={[styles.privacyCard, { backgroundColor: colors.accent }]}>
-          <Feather name="lock" size={15} color={colors.accentForeground} />
-          <Text
-            style={[styles.privacyText, { color: colors.accentForeground }]}
-          >
-            The date stays in Demi. Android only receives the alert
-            needed to notify you.
-          </Text>
-        </View>
 
         <Pressable
           testID="save-reminder-bottom"

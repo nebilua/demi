@@ -122,14 +122,7 @@ export default function CalendarScreen() {
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />
         </Pressable>
-        <View style={styles.headerCopy}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]}>
-            Important dates
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.mutedForeground }]}>
-            people worth remembering
-          </Text>
-        </View>
+        <View style={styles.headerCopy} />
         <Pressable
           testID="add-reminder"
           accessibilityRole="button"
@@ -173,9 +166,6 @@ export default function CalendarScreen() {
           <View style={[styles.emptyIcon, { backgroundColor: colors.accent }]}>
             <Feather name="calendar" size={26} color={colors.accentForeground} />
           </View>
-          <Text style={[styles.eyebrow, { color: colors.primary }]}>
-            Your people, your dates
-          </Text>
           <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
             Nothing to remember yet.
           </Text>
