@@ -30,6 +30,8 @@ The API server needs `DATABASE_URL`. The mobile preview does not.
 
 ## Please keep in mind
 
+- Keep user-facing writing simple and casual. Make it sound like a person wrote
+  it, not polished marketing or AI copy.
 - Chats and settings stay local by default. Keep cloud features off unless the
   user clearly chooses them.
 - Real model replies and offline voice need an installed Android build. The
