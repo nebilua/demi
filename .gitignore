@@ -7,6 +7,8 @@ out-tsc
 *.tsbuildinfo
 .expo
 .expo-shared
+/generated-artifacts/
+/artifacts/second-brain/modules/screen-access/android/src/main/assets/ocr/
 
 # dependencies
 node_modules
