@@ -58,12 +58,18 @@ export default function ScheduledJobsScreen() {
   const colors = useColors(settings.appearance);
   const [deleteTarget, setDeleteTarget] = useState<ScheduledJob | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   async function action(action: () => Promise<void>, id: string) {
     if (busyId) return;
     setBusyId(id);
+    setActionError(null);
     try {
       await action();
+      return true;
+    } catch {
+      setActionError("The change could not be saved. Try again; your scheduled work is still here.");
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -71,8 +77,7 @@ export default function ScheduledJobsScreen() {
 
   async function confirmDelete() {
     if (!deleteTarget) return;
-    await action(() => deleteJob(deleteTarget.id), deleteTarget.id);
-    setDeleteTarget(null);
+    if (await action(() => deleteJob(deleteTarget.id), deleteTarget.id)) setDeleteTarget(null);
   }
 
   return (
@@ -118,14 +123,14 @@ export default function ScheduledJobsScreen() {
         </Pressable>
       </View>
 
-      {error && (
+      {(actionError || error) && (
         <View style={[styles.errorBanner, { backgroundColor: colors.secondary }]}>
           <Feather name="alert-circle" size={15} color={colors.destructive} />
-          <Text style={[styles.errorText, { color: colors.foreground }]}>{error}</Text>
+          <Text style={[styles.errorText, { color: colors.foreground }]}>{actionError || error}</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Dismiss scheduled work error"
-            onPress={dismissError}
+            onPress={() => { setActionError(null); dismissError(); }}
           >
             <Feather name="x" size={16} color={colors.mutedForeground} />
           </Pressable>
@@ -148,19 +153,15 @@ export default function ScheduledJobsScreen() {
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <View style={styles.listIntro}>
-              <Text style={[styles.listTitle, { color: colors.foreground }]}>
-                Useful work, with limits.
-              </Text>
+              <Text style={[styles.listTitle, { color: colors.foreground }]}>Scheduled</Text>
               <Text style={[styles.listBody, { color: colors.mutedForeground }]}>
-                Android may delay background work. Demi schedules a local wake-up,
-                then runs the full digest or monitor when the app and approved
-                capabilities are available. Notifications never include private results.
+                Runs locally. Android may delay runs. Notifications never show results.
               </Text>
               {isRunning && (
-                <View style={[styles.runningBanner, { backgroundColor: colors.accent }]}>
-                  <ActivityIndicator size="small" color={colors.accentForeground} />
-                  <Text style={[styles.runningText, { color: colors.accentForeground }]}>
-                    Running approved scheduled work locally…
+                <View style={[styles.runningBanner, { backgroundColor: colors.secondary }]}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={[styles.runningText, { color: colors.foreground }]}>
+                    Running…
                   </Text>
                 </View>
               )}
@@ -168,31 +169,15 @@ export default function ScheduledJobsScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <View style={[styles.emptyIcon, { backgroundColor: colors.accent }]}>
-                <Feather name="clock" size={26} color={colors.accentForeground} />
+              <View style={[styles.emptyIcon, { backgroundColor: colors.secondary }]}>
+                <Feather name="clock" size={22} color={colors.mutedForeground} />
               </View>
               <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-                Nothing scheduled yet.
+                Nothing scheduled
               </Text>
               <Text style={[styles.emptyBody, { color: colors.mutedForeground }]}>
-                Create a morning digest from approved local sources or a monitor
-                that checks a bounded count for changes.
+                Use + to add a daily digest or a change monitor.
               </Text>
-              <Pressable
-                testID="empty-add-scheduled-job"
-                accessibilityRole="button"
-                onPress={() => router.push('/scheduled/edit' as never)}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  { backgroundColor: colors.primary },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Feather name="plus" size={17} color={colors.primaryForeground} />
-                <Text style={[styles.primaryButtonText, { color: colors.primaryForeground }]}>
-                  Create scheduled work
-                </Text>
-              </Pressable>
             </View>
           }
           renderItem={({ item }) => (
@@ -205,18 +190,18 @@ export default function ScheduledJobsScreen() {
                 }
                 style={({ pressed }) => [styles.jobMain, pressed && styles.pressed]}
               >
-                <View style={[styles.jobIcon, { backgroundColor: item.enabled ? colors.accent : colors.secondary }]}>
+                <View style={[styles.jobIcon, { backgroundColor: colors.secondary }]}>
                   <Feather
                     name={item.kind === 'digest' ? 'sun' : 'activity'}
                     size={18}
-                    color={item.enabled ? colors.accentForeground : colors.mutedForeground}
+                    color={item.enabled ? colors.primary : colors.mutedForeground}
                   />
                 </View>
                 <View style={styles.jobCopy}>
                   <View style={styles.titleLine}>
                     <Text style={[styles.jobName, { color: colors.cardForeground }]}>{item.name}</Text>
                     <Text style={[styles.jobKind, { color: item.enabled ? colors.primary : colors.mutedForeground }]}>
-                      {item.enabled ? (item.kind === 'digest' ? 'DIGEST' : 'MONITOR') : 'PAUSED'}
+                      {item.enabled ? (item.kind === 'digest' ? 'Digest' : 'Monitor') : 'Paused'}
                     </Text>
                   </View>
                   <Text style={[styles.jobMeta, { color: colors.mutedForeground }]}>
@@ -311,6 +296,7 @@ export default function ScheduledJobsScreen() {
               <Feather name="trash-2" size={20} color={colors.destructive} />
             </View>
             <Text style={[styles.confirmTitle, { color: colors.cardForeground }]}>Delete scheduled work?</Text>
+            {actionError && <Text accessibilityLiveRegion="assertive" style={[styles.confirmDescription, { color: colors.destructive }]}>{actionError}</Text>}
             <Text style={[styles.confirmDescription, { color: colors.mutedForeground }]}>
               {deleteTarget ? `${deleteTarget.name}, its local notification, and encrypted result history will be removed.` : ''}
             </Text>
@@ -339,8 +325,8 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 34 },
   listIntro: { paddingBottom: 18 },
   eyebrow: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 10, letterSpacing: 1.4, marginBottom: 9 },
-  listTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 29, lineHeight: 35, letterSpacing: -1, marginBottom: 8 },
-  listBody: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 20 },
+  listTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 20, lineHeight: 26, marginBottom: 4 },
+  listBody: { fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 18 },
   runningBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 11, borderRadius: 12, marginTop: 14 },
   runningText: { fontFamily: 'Inter_500Medium', fontSize: 12 },
   jobCard: { borderRadius: 16, borderWidth: 1, padding: 14, marginBottom: 12 },
@@ -349,7 +335,7 @@ const styles = StyleSheet.create({
   jobCopy: { flex: 1 },
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   jobName: { flex: 1, fontFamily: 'Inter_600SemiBold', fontSize: 14 },
-  jobKind: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 9, letterSpacing: 1 },
+  jobKind: { fontFamily: 'Inter_500Medium', fontSize: 11 },
   jobMeta: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 3 },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, borderTopWidth: 1, paddingTop: 10, marginTop: 12 },
   detailText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 10 },
@@ -366,8 +352,8 @@ const styles = StyleSheet.create({
   historyTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 10 },
   historyText: { fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16, marginTop: 4 },
   emptyState: { alignItems: 'center', paddingTop: 42, paddingHorizontal: 18 },
-  emptyIcon: { width: 58, height: 58, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  emptyTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 23, marginBottom: 8 },
+  emptyIcon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  emptyTitle: { fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 17, marginBottom: 6 },
   emptyBody: { fontFamily: 'Inter_400Regular', fontSize: 13, lineHeight: 20, textAlign: 'center', marginBottom: 20 },
   primaryButton: { borderRadius: 13, minHeight: 48, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   primaryButtonText: { fontFamily: 'Inter_600SemiBold', fontSize: 13 },

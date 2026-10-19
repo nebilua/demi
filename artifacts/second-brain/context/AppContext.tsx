@@ -12,6 +12,8 @@ import React, {
 } from "react";
 import { AppState, PermissionsAndroid, Platform } from "react-native";
 import type { LlamaContext } from "llama.rn";
+import { releaseNativeContext } from "@/lib/inferenceScheduler";
+import { NativeInferenceError } from "@/lib/inferenceErrors";
 import {
   formatBytes,
   getDeviceCompatibility,
@@ -88,6 +90,7 @@ import {
   type PrivacyAuditEvent,
   type PrivacyState,
   type ScreenPrivacyPolicy,
+  endPrivacySession,
 } from "@/lib/privacyCapabilities";
 import {
   CloudInferenceError,
@@ -101,12 +104,18 @@ import {
 } from "@/lib/cloudFallback";
 import {
   getAccessibilitySnapshot,
+  captureScreenshotText,
+  readImageText,
   getScreenAccessStatus,
   openAccessibilitySettings,
   requestScreenCapture,
   stopScreenSession as stopNativeScreenSession,
   type ScreenAccessStatus,
 } from "@/lib/screenAccess";
+import {
+  createScreenContext, screenContextValid, screenPrompt, supportedScreenResource,
+  MAX_SCREEN_FILE_BYTES, type SharedScreenContext,
+} from "@/lib/sharedScreenContext";
 import {
   recordRuntimeEvent,
   startRuntimeMetric,
@@ -119,6 +128,7 @@ export type ConversationTurn = {
   role: "user" | "assistant";
   content: string;
   createdAt: number;
+  privateContext?: boolean;
 };
 
 export type AppSettings = {
@@ -156,6 +166,7 @@ export type ScreenSession = {
     name: string;
     mimeType: string | null;
     size: number | null;
+    uri?: string;
   } | null;
   protectedContent: boolean;
   message: string | null;
@@ -193,6 +204,10 @@ type AppContextValue = {
   ) => Promise<void>;
   screenAccessStatus: ScreenAccessStatus;
   screenSession: ScreenSession;
+  screenPreview: SharedScreenContext | null;
+  screenAttachment: SharedScreenContext | null;
+  attachScreenContext: (text: string) => void;
+  discardScreenContext: () => void;
   refreshScreenAccessStatus: () => Promise<void>;
   startScreenSession: (options: {
     accessibilityText: boolean;
@@ -275,6 +290,8 @@ export type ChatContextValue = {
   runLocalInference: (
     prompt: string,
     onToken?: (token: string) => void,
+    priority?: number,
+    guard?: () => boolean,
   ) => Promise<string>;
   clearConversation: () => Promise<void>;
 };
@@ -374,6 +391,7 @@ function parseTurns(value: string | null): ConversationTurn[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
       (turn) =>
+        !turn.privateContext &&
         typeof turn.id === "string" &&
         (turn.role === "user" || turn.role === "assistant") &&
         typeof turn.content === "string" &&
@@ -446,7 +464,10 @@ function readableError(error: unknown) {
   ) {
     return "There is not enough free storage to copy this model. Free space on the device and try again.";
   }
-  if (message) return message;
+  if (/request is too long|model was unloaded|privacy controls|shared text (does not fit|requires)/i.test(message)) return message;
+  if (/hostfunction|jsi|native/i.test(message)) {
+    return "The native model stopped unexpectedly. Reload the model in Settings and retry; your message and partial reply have been kept.";
+  }
   return "The model could not be loaded. Choose a smaller compatible GGUF file and try again.";
 }
 
@@ -460,7 +481,7 @@ async function requestMicrophonePermission(): Promise<MicrophonePermissionStatus
       {
         title: "Allow Demi to use the microphone",
         message:
-          "Demi records only while you hold the microphone button and transcribes speech on this device.",
+          "Demi records after you tap the microphone until you stop or cancel, and transcribes speech on this device.",
         buttonPositive: "Allow",
         buttonNegative: "Not now",
       },
@@ -604,6 +625,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     message: null,
   });
   const [localModel, setLocalModel] = useState<LocalModel | null>(null);
+  const [screenPreview, setScreenPreview] = useState<SharedScreenContext | null>(null);
+  const [screenAttachment, setScreenAttachment] = useState<SharedScreenContext | null>(null);
+  const screenAttachmentRef = useRef<SharedScreenContext | null>(null);
+  const screenPreviewRef = useRef<SharedScreenContext | null>(null);
+  const screenEpochRef = useRef(0);
+  const appActiveRef = useRef(true);
   const [engineStatus, setEngineStatus] = useState<
     "unsupported" | "no-model" | "loading" | "ready" | "error"
   >(Platform.OS === "web" ? "unsupported" : "no-model");
@@ -655,11 +682,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const voiceSelfTestCancelRef = useRef<(() => void) | null>(null);
   const voiceSelfTestCancelRequestedRef = useRef(false);
   const voiceSelfTestSpeechRunRef = useRef(0);
+  const speechRunRef = useRef(0);
   const didRestoreModelRef = useRef(false);
   const modelImportInFlightRef = useRef(false);
   const modelLoadInFlightRef = useRef(false);
   const downloadRunRef = useRef(0);
   const clearConversationInFlightRef = useRef(false);
+  const chatInFlightRef = useRef(false);
   const privacyStateRef = useRef(privacyState);
   const screenSessionRef = useRef(screenSession);
   const privacyMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -688,9 +717,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     recognitionSubscriptionsRef.current = [];
   }
 
+  function voiceInputApproved() {
+    return privacyReady && settingsRef.current.voiceInputEnabled &&
+      isCapabilityActive(privacyStateRef.current, "local.voice-input");
+  }
+
   async function refreshScreenAccessStatus() {
     const status = await getScreenAccessStatus();
     setScreenAccessStatus(status);
+  }
+
+  function discardScreenContext() {
+    screenEpochRef.current += 1;
+    screenAttachmentRef.current = null;
+    screenPreviewRef.current = null;
+    setScreenPreview(null);
+    setScreenAttachment(null);
+    // Screen-derived replies are transient too, not just their inputs.
+    commitTurns(turnsRef.current.filter((turn) => !turn.privateContext));
+  }
+
+  function screenAllowed() {
+    return appActiveRef.current && isCapabilityActive(privacyStateRef.current, "device.screen-access") &&
+      isCapabilityActive(privacyStateRef.current, "local.inference") &&
+      (!screenSessionRef.current.selectedResource || isCapabilityActive(privacyStateRef.current, "local.files"));
+  }
+
+  function attachScreenContext(text: string) {
+    const preview = screenPreviewRef.current;
+    if (!screenContextValid(preview, screenEpochRef.current, screenAllowed())) {
+      discardScreenContext();
+      throw new Error("This capture expired or approval ended. Capture again.");
+    }
+    const attached = createScreenContext(text, preview!.source, preview!.epoch, preview!.capturedAt);
+    screenAttachmentRef.current = attached;
+    setScreenAttachment(attached);
+    screenPreviewRef.current = null;
+    setScreenPreview(null);
   }
 
   async function startScreenSession(options: {
@@ -706,7 +769,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return false;
     }
-    if (!options.accessibilityText && !options.screenshot) {
+    if (!options.accessibilityText && !options.screenshot && !options.selectedResource) {
       setScreenSession((current) => ({
         ...current,
         status: "error",
@@ -715,6 +778,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
+    discardScreenContext();
+    const epoch = screenEpochRef.current;
     setScreenSession({
       status: "starting",
       accessibilityText: false,
@@ -737,36 +802,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         return false;
       }
-      if (options.screenshot) {
-        const capture = await requestScreenCapture();
-        if (capture.status !== "active") {
-          setScreenSession({
-            status: "error",
-            accessibilityText: false,
-            screenshot: false,
-            selectedResource: options.selectedResource ?? null,
-            protectedContent: false,
-            message: capture.reason ?? "Android did not approve screen capture.",
-          });
-          return false;
-        }
-        status = await getScreenAccessStatus();
-      }
       const accessibilitySnapshot = options.accessibilityText
         ? await getAccessibilitySnapshot(privacyStateRef.current.screenPolicy.excludedApps)
         : null;
+      if (accessibilitySnapshot?.protectedContent || accessibilitySnapshot?.excluded) {
+        throw new Error("Protected or excluded content was withheld. Choose another source.");
+      }
+      let text = accessibilitySnapshot?.text ?? "";
+      let source: SharedScreenContext["source"] = "accessibility";
+      if (options.screenshot) {
+        text = await captureScreenshotText(privacyStateRef.current.screenPolicy.excludedApps);
+        source = "screenshot";
+      }
+      if (options.selectedResource) {
+        if (!isCapabilityActive(privacyStateRef.current, "local.files")) throw new Error("Selected file access is paused or revoked in Settings.");
+        const resource = options.selectedResource;
+        if (!resource.uri) throw new Error("Choose the file again; no readable file was shared.");
+        const kind = supportedScreenResource(resource.name, resource.mimeType);
+        const info = await FileSystem.getInfoAsync(resource.uri);
+        const size = resource.size ?? (info.exists && "size" in info ? info.size : null);
+        if (size === null || size > (kind === "image" ? 10_000_000 : MAX_SCREEN_FILE_BYTES)) {
+          throw new Error("Choose a text file under 120 KB or an image under 10 MB.");
+        }
+        text = kind === "image" ? await readImageText(resource.uri) : await FileSystem.readAsStringAsync(resource.uri, { length: MAX_SCREEN_FILE_BYTES });
+        source = "resource";
+      }
+      if (epoch !== screenEpochRef.current || !screenAllowed()) throw new Error("Capture stopped or approval ended. Try again.");
+      const preview = createScreenContext(text, source, epoch);
+      screenPreviewRef.current = preview;
+      setScreenPreview(preview);
       const nextSession: ScreenSession = {
         status: "active",
         accessibilityText:
           options.accessibilityText &&
             Boolean(accessibilitySnapshot?.available) &&
             !accessibilitySnapshot?.excluded,
-        screenshot: options.screenshot && status.mediaProjection === "available",
+        screenshot: options.screenshot,
         selectedResource: options.selectedResource ?? null,
         protectedContent: Boolean(
           status.protectedContent || accessibilitySnapshot?.protectedContent,
         ),
-        message: "Transient screen data stays on this device and is discarded when the session ends.",
+        message: "Text captured, not attached. Review it and share with one local request. Expires in two minutes.",
       };
       setScreenSession(nextSession);
       await recordPrivacyAction({
@@ -781,6 +857,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       return true;
     } catch (error) {
+      if (epoch !== screenEpochRef.current) return false;
+      discardScreenContext();
+      await stopNativeScreenSession("capture-failed").catch(() => undefined);
       setScreenSession((current) => ({
         ...current,
         status: "error",
@@ -794,6 +873,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function stopScreenSession(reason = "user-stopped") {
+    discardScreenContext();
     await stopNativeScreenSession(reason);
     const wasActive =
       screenSessionRef.current.status === "active" ||
@@ -803,6 +883,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       status: "stopped",
       accessibilityText: false,
       screenshot: false,
+      selectedResource: null,
       protectedContent: false,
       message: reason === "app-paused"
         ? "Session stopped because Demi was paused."
@@ -820,6 +901,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function updateScreenPolicy(patch: Partial<ScreenPrivacyPolicy>) {
+    await stopScreenSession("policy-changed");
     await mutatePrivacyState((current) => ({
       ...current,
       screenPolicy: {
@@ -833,6 +915,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refreshScreenAccessStatus().catch(() => undefined);
     const subscription = AppState.addEventListener("change", (state) => {
+      appActiveRef.current = state === "active";
       if (state === "active") {
         void refreshScreenAccessStatus().catch(() => undefined);
         refreshStorageUsage();
@@ -844,9 +927,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ) {
         void stopScreenSession("app-paused");
       }
+      if (state === "background") {
+        // A session lasts for the foreground process session. Revocation is
+        // immediate in memory even if persisting the expired state fails.
+        const next = endPrivacySession(privacyStateRef.current);
+        privacyStateRef.current = next;
+        setPrivacyState(next);
+        void mutatePrivacyState(endPrivacySession).catch(() => undefined);
+      }
     });
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const context = screenAttachmentRef.current ?? screenPreviewRef.current;
+      if (context && !screenContextValid(context, screenEpochRef.current, screenAllowed())) {
+        void stopScreenSession("expired");
+      }
+      if ((!isCapabilityActive(privacyStateRef.current, "local.voice-input") ||
+        !settingsRef.current.voiceInputEnabled || !appActiveRef.current) &&
+        (voiceRecognitionActiveRef.current || voiceSelfTestActiveRef.current)) {
+        cancelVoiceInput();
+        cancelVoiceSelfTest();
+        setVoiceError("Voice approval ended. Resume it in Settings before trying again.");
+      }
+      if (!isCapabilityActive(privacyStateRef.current, "local.voice-output") &&
+        (isSpeaking || voiceSelfTestSpeechStatus === "speaking")) void stopSpeaking();
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isSpeaking, voiceSelfTestSpeechStatus]);
 
   function refreshStorageUsage() {
     setStorageUsageRefreshing(true);
@@ -986,7 +1096,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         memorySuggestionTimerRef.current = null;
       }
       memorySuggestionRunRef.current += 1;
-      void llamaContextRef.current?.release();
+      if (llamaContextRef.current) void releaseNativeContext(llamaContextRef.current);
       llamaContextRef.current = null;
     };
   }, []);
@@ -1062,6 +1172,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       (state) => {
         if (state === "active") {
           void refreshOfflineVoices();
+        } else {
+          voiceSelfTestCancelRef.current?.();
+          cancelVoiceInput();
+          void stopSpeaking();
         }
       },
     );
@@ -1087,6 +1201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [settingsReady, settings.voiceLanguage]);
 
   async function refreshOfflineVoices() {
+    if (voiceRecognitionActiveRef.current || voiceSelfTestActiveRef.current) return;
     setOfflineVoicesLoading(true);
     try {
       const [readiness, voices] = await Promise.all([
@@ -1128,7 +1243,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function releaseModelContext(clearDetails = false) {
     const context = llamaContextRef.current;
     llamaContextRef.current = null;
-    if (context) await context.release();
+    if (context) await releaseNativeContext(context);
     if (clearDetails) setRuntimeDetails(null);
   }
 
@@ -1512,6 +1627,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function startVoiceInput() {
+    if (voiceSelfTestActiveRef.current) {
+      setVoiceError("Stop the microphone test in Settings before starting dictation.");
+      return;
+    }
     const previousRunId = voiceRecognitionRunRef.current;
     const runId = previousRunId + 1;
     voiceRecognitionRunRef.current = runId;
@@ -1521,7 +1640,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     voiceTranscriptRef.current = "";
     setVoiceTranscript("");
 
-    if (!privacyReady || !isCapabilityActive(privacyState, "local.voice-input")) {
+    if (!privacyReady || !isCapabilityActive(privacyStateRef.current, "local.voice-input")) {
       setVoiceInputStatus("error");
       setVoiceError(
         privacyState.globalPause
@@ -1554,11 +1673,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setVoiceError(null);
     setVoiceSetupMessage(null);
+    setVoiceInputStatus("checking");
     await stopSpeaking();
 
     try {
       const permission = await requestMicrophonePermission();
-      if (runId !== voiceRecognitionRunRef.current) return;
+      if (runId !== voiceRecognitionRunRef.current || !voiceInputApproved()) return;
       if (permission !== "granted") {
         setVoiceInputStatus("error");
         setVoiceError(
@@ -1570,7 +1690,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const readiness = await getVoiceReadiness();
-      if (runId !== voiceRecognitionRunRef.current) return;
+      if (runId !== voiceRecognitionRunRef.current || !voiceInputApproved()) return;
       if (!readiness.inputAvailable) {
         setVoiceInputStatus("needs-model");
         setVoiceError(
@@ -1585,11 +1705,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         module.addListener(
           "recognitionResult",
           (event: RecognitionResultEvent) => {
-            if (runId !== voiceRecognitionRunRef.current) return;
+            if (runId !== voiceRecognitionRunRef.current || event.sessionId !== runId || !voiceInputApproved()) return;
             const transcript = event.transcript.trim();
             if (transcript) {
               voiceTranscriptRef.current = transcript;
-              setVoiceTranscript(transcript);
+              if (event.isFinal) setVoiceTranscript(transcript);
             }
             if (event.isFinal) setVoiceInputStatus("processing");
           },
@@ -1597,7 +1717,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         module.addListener(
           "recognitionStatus",
           (event: RecognitionStatusEvent) => {
-            if (runId !== voiceRecognitionRunRef.current) return;
+            if (runId !== voiceRecognitionRunRef.current || event.sessionId !== runId || !voiceInputApproved()) return;
             if (event.status === "listening") {
               setVoiceInputStatus("listening");
               setVoiceError(null);
@@ -1663,7 +1783,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setVoiceInputStatus("processing");
-    void stopLocalRecognition(voiceRecognitionRunRef.current);
+    void stopLocalRecognition(voiceRecognitionRunRef.current).catch(() => {
+      cancelVoiceInput();
+      setVoiceInputStatus("error");
+      setVoiceError("Recording could not stop cleanly. Tap the microphone to retry.");
+    });
   }
 
   function cancelVoiceInput() {
@@ -1685,6 +1809,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function runVoiceSelfTest() {
     if (voiceSelfTestRunning) return;
+    if (!voiceInputApproved()) {
+      setVoiceError("Voice input is paused, revoked, or disabled. Resume it in Settings before testing.");
+      return;
+    }
 
     const module = voiceModuleRef.current;
     if (!module || Platform.OS !== "android") {
@@ -1713,7 +1841,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const permission = await requestMicrophonePermission();
-      if (voiceSelfTestCancelRequestedRef.current) return;
+      if (voiceSelfTestCancelRequestedRef.current || !voiceInputApproved()) return;
       if (permission !== "granted") {
         setVoiceSelfTestResult({
           kind: "recognition",
@@ -1729,7 +1857,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const readiness = await getVoiceReadiness();
-      if (voiceSelfTestCancelRequestedRef.current) return;
+      if (voiceSelfTestCancelRequestedRef.current || !voiceInputApproved()) return;
       if (!readiness.inputAvailable) {
         setVoiceSelfTestResult({
           kind: "recognition",
@@ -1755,14 +1883,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           module.addListener(
             "recognitionResult",
             (event: RecognitionResultEvent) => {
-              if (event.sessionId !== sessionId || !event.isFinal) return;
+              if (event.sessionId !== sessionId || !event.isFinal || !voiceInputApproved()) return;
               transcript = event.transcript.trim();
             },
           ),
           module.addListener(
             "recognitionStatus",
             (event: RecognitionStatusEvent) => {
-              if (event.sessionId !== sessionId) return;
+              if (event.sessionId !== sessionId || !voiceInputApproved()) return;
               if (event.status === "listening") {
                 setVoiceSelfTestResult({
                   kind: "recognition",
@@ -1930,7 +2058,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const languageVoiceAvailable = availableVoices.some((voice) =>
       voiceMatchesLanguage(voice.language, settingsRef.current.voiceLanguage),
     );
-    if (runId !== voiceSelfTestSpeechRunRef.current) return;
+    if (runId !== voiceSelfTestSpeechRunRef.current || !isCapabilityActive(privacyStateRef.current, "local.voice-output") || !appActiveRef.current) return;
     if (!languageVoiceAvailable) {
       setVoiceSelfTestSpeechStatus("idle");
       setVoiceSelfTestResult({
@@ -2061,9 +2189,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       summary: "Offline speech started; reply content omitted.",
     }).catch(() => undefined);
     setVoiceError(null);
+    const run = ++speechRunRef.current;
     await stopLocalSpeech();
 
     const availableVoices = await getOfflineVoices();
+    if (run !== speechRunRef.current || !isCapabilityActive(privacyStateRef.current, "local.voice-output") || !appActiveRef.current) return;
     setOfflineVoices(availableVoices);
     const languageVoiceAvailable = availableVoices.some((voice) =>
       voiceMatchesLanguage(voice.language, settings.voiceLanguage),
@@ -2076,14 +2206,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    speakLocally(trimmedText, {
+    await speakLocally(trimmedText, {
       language: settings.voiceLanguage,
       rate: settings.speechRate,
       preferredVoiceId: settings.preferredVoiceId,
-      onStart: () => setIsSpeaking(true),
-      onDone: () => setIsSpeaking(false),
-      onStopped: () => setIsSpeaking(false),
+      onStart: () => { if (run === speechRunRef.current) setIsSpeaking(true); },
+      onDone: () => { if (run === speechRunRef.current) setIsSpeaking(false); },
+      onStopped: () => { if (run === speechRunRef.current) setIsSpeaking(false); },
       onError: (message) => {
+        if (run !== speechRunRef.current) return;
         setIsSpeaking(false);
         setVoiceError(
           message || "The local voice could not speak this response.",
@@ -2093,6 +2224,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function stopSpeaking() {
+    speechRunRef.current += 1;
+    voiceSelfTestSpeechRunRef.current += 1;
+    setVoiceSelfTestSpeechStatus("idle");
     await stopLocalSpeech();
     setIsSpeaking(false);
   }
@@ -2109,8 +2243,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const normalized = prunePrivacyState(nextState);
     try {
       await writeSecureRecord(SECURE_PRIVACY_STATE_KEY, JSON.stringify(normalized));
-      privacyStateRef.current = normalized;
-      setPrivacyState(normalized);
+      // A write started before backgrounding cannot reactivate session grants.
+      const effective = appActiveRef.current ? normalized : endPrivacySession(normalized);
+      privacyStateRef.current = effective;
+      setPrivacyState(effective);
       setStorageError(null);
     } catch {
       setStorageError(
@@ -2143,8 +2279,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         summary: `${capabilityId} was ${approval} by the user.`,
       });
     });
+    if (capabilityId === "local.voice-input" && approval !== "approved") {
+      cancelVoiceSelfTest();
+      cancelVoiceInput();
+    }
+    if (capabilityId === "local.voice-output" && approval !== "approved") await stopSpeaking();
     if (
-      capabilityId === "device.screen-access" &&
+      (capabilityId === "device.screen-access" || capabilityId === "local.files" || capabilityId === "local.inference") &&
       approval !== "approved" &&
       (screenSessionRef.current.status === "active" ||
         screenSessionRef.current.status === "starting")
@@ -2167,6 +2308,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         },
       ),
     );
+    if (paused) {
+      cancelVoiceSelfTest();
+      cancelVoiceInput();
+      await stopSpeaking();
+    }
     if (
       paused &&
       (screenSessionRef.current.status === "active" ||
@@ -2178,6 +2324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function clearPrivacyState() {
     try {
+      discardScreenContext();
       await privacyMutationQueueRef.current.catch(() => undefined);
       await stopNativeScreenSession("privacy-cleared");
       await removeSecureRecord(SECURE_PRIVACY_STATE_KEY);
@@ -2392,6 +2539,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function persistTurns(nextTurns: ConversationTurn[]) {
     if (!settings.saveConversations) return;
+    const savableTurns = nextTurns.filter((turn) => !turn.privateContext);
     const finishMetric = startRuntimeMetric("conversation.persist", {
       turnCount: Math.min(nextTurns.length, MAX_CONVERSATION_TURNS),
     });
@@ -2399,9 +2547,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await writeSecureRecord(
         SECURE_CONVERSATION_KEY,
-        JSON.stringify(nextTurns.slice(-MAX_CONVERSATION_TURNS)),
+        JSON.stringify(savableTurns.slice(-MAX_CONVERSATION_TURNS)),
       );
-      setSavedTurnCount(Math.min(nextTurns.length, MAX_CONVERSATION_TURNS));
+      setSavedTurnCount(Math.min(savableTurns.length, MAX_CONVERSATION_TURNS));
       setStorageError(null);
       finishMetric();
     } catch {
@@ -2453,17 +2601,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function sendMessage(content: string) {
     const trimmedContent = content.trim();
+    const sharedScreen = screenAttachmentRef.current;
+    const sharedEpoch = screenEpochRef.current;
+    const hasScreen = Boolean(sharedScreen);
+    if (hasScreen && !screenContextValid(sharedScreen, sharedEpoch, screenAllowed())) {
+      discardScreenContext();
+      setStorageError("Shared text expired or approval ended. Capture and review it again.");
+      return;
+    }
     const localAvailable =
       privacyReady &&
       isCapabilityActive(privacyState, "local.inference") &&
       engineStatus === "ready" &&
       Boolean(llamaContextRef.current);
     const cloudAvailable =
+      !hasScreen &&
       privacyReady &&
       isCapabilityActive(privacyState, "network.remote-inference");
     if (
       !trimmedContent ||
-      isThinking ||
+      chatInFlightRef.current ||
       !isConversationReady ||
       !privacyReady ||
       !isCapabilityActive(privacyState, "local.inference") ||
@@ -2509,8 +2666,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }).catch(() => undefined);
     }
 
+    chatInFlightRef.current = true;
     if (settings.hapticsEnabled) {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     }
 
     const userTurn: ConversationTurn = {
@@ -2518,6 +2676,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       role: "user",
       content: trimmedContent,
       createdAt: Date.now(),
+      privateContext: hasScreen,
     };
     const withUserTurn = [...turnsRef.current, userTurn];
 
@@ -2534,6 +2693,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       role: "assistant",
       content: "",
       createdAt: Date.now(),
+      privateContext: hasScreen,
     };
     const withAssistantTurn = [...withUserTurn, assistantTurn];
     commitTurns(withAssistantTurn);
@@ -2543,14 +2703,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       promptLength: trimmedContent.length,
     });
 
+    let streamedContent = "";
+    const requestAllowed = () => isCapabilityActive(privacyStateRef.current, "local.inference") &&
+      (!hasScreen || screenContextValid(sharedScreen, screenEpochRef.current, screenAllowed()));
     try {
-      let streamedContent = "";
+      if (hasScreen && !localAvailable) throw new Error("Shared screen text requires a ready local model. Load it in Settings; cloud fallback is never used.");
+      if (hasScreen && privacyStateRef.current.screenPolicy.retention === "discard-immediately") {
+        screenAttachmentRef.current = null;
+        setScreenAttachment(null);
+      }
       let finalContent: string;
       if (localAvailable && llamaContextRef.current) {
         try {
           finalContent = await streamCompletion(
             llamaContextRef.current,
-            withUserTurn.map((turn) => ({
+            withUserTurn.filter((turn) => !turn.privateContext || turn.id === userTurn.id).map((turn) => ({
               role: turn.role,
               content: turn.content,
             })),
@@ -2561,6 +2728,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             },
             {
+              screenText: sharedScreen?.text,
               displayName: profile.displayName,
               context: profile.context,
               memories: selectRelevantMemories(
@@ -2573,8 +2741,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   .join("\n"),
               ),
             },
+            0,
+            requestAllowed,
           );
         } catch (localError) {
+          if (localError instanceof NativeInferenceError) {
+            setEngineStatus("error");
+            setEngineError(localError.message);
+            await releaseModelContext();
+          }
           if (!cloudAvailable || !isFallbackEligibleLocalFailure(localError)) {
             throw localError;
           }
@@ -2591,6 +2766,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           trimmedContent,
         );
       }
+      if (!requestAllowed()) throw new Error("Local inference was stopped by privacy controls.");
       const completedTurns = withAssistantTurn.map((turn) =>
         turn.id === assistantTurn.id
           ? {
@@ -2618,17 +2794,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         summary: "Local model output completed; response content omitted.",
       }).catch(() => undefined);
       const conversationalReminder =
-        parseConversationalReminder(trimmedContent);
+        hasScreen ? null : parseConversationalReminder(trimmedContent);
       const hasReminderIntent = hasConversationalReminderIntent(trimmedContent);
       if (conversationalReminder) {
         setPendingMemoryCandidate(conversationalReminder);
       }
-      if (settings.spokenRepliesEnabled && completedResponse) {
+      if (!hasScreen && settings.spokenRepliesEnabled && completedResponse) {
         void speakText(completedResponse).catch(() => undefined);
       }
       if (
         !conversationalReminder &&
         !hasReminderIntent &&
+        !hasScreen &&
+        /\b(remember|save this|don['’]t forget|keep in mind)\b/i.test(trimmedContent) &&
         llamaContextRef.current &&
         memories.length < MAX_MEMORIES
       ) {
@@ -2641,11 +2819,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             { promptLength: trimmedContent.length },
           );
           void (async () => {
+            const extractionContext = llamaContextRef.current;
+            if (!extractionContext) return;
             try {
               const rawCandidate = await proposeMemoryCandidate(
-                llamaContextRef.current!,
+                extractionContext,
                 trimmedContent,
                 completedResponse,
+                () => suggestionRun === memorySuggestionRunRef.current &&
+                  llamaContextRef.current === extractionContext &&
+                  isCapabilityActive(privacyStateRef.current, "local.inference"),
               );
               const candidate = parseMemoryCandidate(
                 rawCandidate,
@@ -2661,9 +2844,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               finishMemoryMetric({
                 candidateFound: Boolean(candidate),
               });
-            } catch {
+            } catch (error) {
               finishMemoryMetric({ failed: true });
-              // Suggestions are optional and must never interrupt the conversation.
+              if (error instanceof NativeInferenceError && llamaContextRef.current === extractionContext) {
+                setEngineStatus("error");
+                setEngineError(readableError(error));
+                await releaseModelContext();
+              }
             }
           })();
         }, 0);
@@ -2674,12 +2861,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         turn.id === assistantTurn.id
           ? {
               ...turn,
-              content: `I could not finish that response locally. ${readableError(error)}`,
+              content: `${streamedContent ? `${streamedContent}\n\n` : ""}I could not finish that response locally. ${readableError(error)}`,
             }
           : turn,
       );
-      commitTurns(failedTurns);
-      await persistTurns(failedTurns);
+      const visibleFailedTurns = hasScreen && !requestAllowed()
+        ? failedTurns.filter((turn) => !turn.privateContext)
+        : failedTurns;
+      commitTurns(visibleFailedTurns);
+      await persistTurns(visibleFailedTurns);
       finishInferenceMetric({ failed: true });
       void recordAgentTrace({
         capabilityId: "local.inference",
@@ -2688,6 +2878,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         summary: "Local model output failed; response content omitted.",
       }).catch(() => undefined);
     } finally {
+      if (hasScreen) {
+        screenAttachmentRef.current = null;
+        setScreenAttachment(null);
+        screenPreviewRef.current = null;
+        setScreenPreview(null);
+        screenEpochRef.current += 1;
+      }
+      chatInFlightRef.current = false;
       setIsThinking(false);
     }
   }
@@ -2695,6 +2893,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function runLocalInference(
     prompt: string,
     onToken?: (token: string) => void,
+    priority = 1,
+    guard: () => boolean = () => true,
   ) {
     const trimmedPrompt = prompt.trim();
     if (
@@ -2706,7 +2906,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ) {
       throw new Error("Load the local model and enable local inference first.");
     }
-    return streamCompletion(
+    try {
+    return await streamCompletion(
       llamaContextRef.current,
       [{ role: "user", content: trimmedPrompt }],
       onToken ?? (() => undefined),
@@ -2715,7 +2916,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         context: profile.context,
         memories: selectRelevantMemories(memories, trimmedPrompt, 3),
       },
+      priority,
+      () => guard() && isCapabilityActive(privacyStateRef.current, "local.inference"),
     );
+    } catch (error) {
+      if (error instanceof NativeInferenceError) {
+        setEngineStatus("error");
+        setEngineError(error.message);
+        await releaseModelContext();
+      }
+      throw error;
+    }
   }
 
   async function clearConversation() {
@@ -2907,6 +3118,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       recordAgentTrace,
       screenAccessStatus,
       screenSession,
+      screenPreview,
+      screenAttachment,
+      attachScreenContext,
+      discardScreenContext,
       refreshScreenAccessStatus,
       startScreenSession,
       stopScreenSession,
@@ -2977,6 +3192,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       privacyReady,
       privacyState,
       privacyResetVersion,
+      screenAccessStatus,
+      screenSession,
+      screenPreview,
+      screenAttachment,
       cloudFallbackActivity,
       memories,
       savedTurnCount,

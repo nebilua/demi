@@ -469,6 +469,11 @@ export function parsePrivacyState(value: string | null, now = Date.now()): Priva
         definition,
         now,
       );
+      // A persisted session grant belongs to a previous process, not this one.
+      const grant = capabilities[definition.id];
+      if (grant.lifetime === "session" && grant.approval === "approved") {
+        capabilities[definition.id] = { ...grant, approval: "expired", updatedAt: now };
+      }
     }
     const auditEvents = Array.isArray(input.auditEvents)
       ? input.auditEvents.map((item) => normalizeAuditEvent(item, now)).filter(
@@ -526,10 +531,21 @@ export function getCapabilityStatusLabel(grant: CapabilityGrant) {
 }
 
 export function approvalExpiry(lifetime: CapabilityLifetime, now = Date.now()) {
-  if (lifetime === "session") return now;
+  if (lifetime === "session") return null;
   if (lifetime === "24-hours") return now + 24 * 60 * 60 * 1000;
   if (lifetime === "7-days") return now + 7 * 24 * 60 * 60 * 1000;
   return null;
+}
+
+export function endPrivacySession(state: PrivacyState, now = Date.now()): PrivacyState {
+  const capabilities = { ...state.capabilities };
+  for (const definition of CAPABILITY_DEFINITIONS) {
+    const grant = capabilities[definition.id];
+    if (grant.lifetime === "session" && grant.approval === "approved") {
+      capabilities[definition.id] = { ...grant, approval: "expired", updatedAt: now };
+    }
+  }
+  return { ...state, capabilities };
 }
 
 export function updateCapabilityGrant(

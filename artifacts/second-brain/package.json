@@ -12,6 +12,7 @@
     "test:release-cleanup": "node scripts/test-static-build.js --release-cleanup",
     "test:build-lock": "node scripts/test-static-build.js --build-lock",
     "test:feature-flows": "tsx scripts/test-feature-flows.js",
+    "test:demi-repairs": "tsx scripts/test-demi-repairs.js",
     "test:local-data-transfer": "tsx scripts/test-local-data-transfer.js",
     "test:component-failures": "tsx scripts/test-component-failures.js",
     "profile:runtime": "tsx scripts/profile-runtime.js",

@@ -36,8 +36,12 @@ const requiredNativeEntries = [
   'lib/arm64-v8a/librnllama.so',
   'lib/arm64-v8a/libonnxruntime.so',
   'lib/arm64-v8a/libsherpa-onnx-jni.so',
+  'lib/arm64-v8a/libtesseract.so',
 ];
 const requiredNativeClassFragments = [
+  { label: 'bounded screen access module', fragment: 'com/secondbrain/screenaccess/SecondBrainScreenAccessModule' },
+  { label: 'screen accessibility service', fragment: 'com/secondbrain/screenaccess/SecondBrainAccessibilityService' },
+  { label: 'on-device Tesseract OCR', fragment: 'com/googlecode/tesseract/android/TessBaseAPI' },
   {
     label: 'bundled offline speech module',
     fragment: 'com/secondbrain/offlinetts/SecondBrainOfflineVoiceModule',
@@ -52,6 +56,7 @@ const requiredNativeClassFragments = [
   },
 ];
 const requiredBundledVoiceAssets = [
+  'assets/ocr/eng.traineddata',
   'assets/voice-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2',
   'assets/voice-models/vits-piper-en_US-ljspeech-medium.tar.bz2',
   'assets/THIRD_PARTY_NOTICES.md',

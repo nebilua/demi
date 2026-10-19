@@ -37,7 +37,8 @@ The API server needs `DATABASE_URL`. The mobile preview does not.
 - Real model replies and offline voice need an installed Android build. The
   browser and Expo Go previews are useful for checking screens, not those
   Android-only features.
-- Android speech input needs Android 13 or newer and its offline language pack.
+- Speech uses bundled open-source English models, not Android speech services
+  or an operating-system language pack. Test it on an installed Android build.
 - Android’s secure storage protects saved data on the device; it does not
   encrypt prompts while the app is using them.
 - Ask for confirmation before clearing data or doing anything destructive.

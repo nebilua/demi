@@ -53,6 +53,12 @@ None is required for the shipped local-first Android experience.
 
 ## Verification policy
 
+Native OCR is separate from the pnpm audit: Tesseract4Android 4.9.0 and its
+Tesseract/Leptonica dependencies are open source. English tessdata_fast is
+Apache-2.0, pinned and hash-checked at APK build time. No proprietary ML Kit or
+Play-services OCR model is used. See
+`artifacts/second-brain/modules/screen-access/THIRD_PARTY_NOTICES.md`.
+
 Run the command above after every dependency update. A release is blocked if
 the result contains `Unknown`, a proprietary license, a source-available-only
 license, noncommercial terms, or a copyleft license that is incompatible with

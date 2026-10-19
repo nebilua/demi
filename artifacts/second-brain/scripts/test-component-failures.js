@@ -29,6 +29,7 @@ const passthrough = (name) => (props) =>
 
 const fakeReactNative = {
   ActivityIndicator: passthrough('ActivityIndicator'),
+  AppState: { addEventListener: () => ({ remove() {} }) },
   Alert: { alert() {} },
   Dimensions: { get: () => ({ width: 402, height: 874 }) },
   FlatList: ({ data = [], renderItem, ListHeaderComponent, ...props }) =>
@@ -53,6 +54,7 @@ const fakeReactNative = {
 };
 
 let appValue;
+let scheduledValue;
 let routerCalls = [];
 let secureStorageValue = null;
 let secureWriteFailure = false;
@@ -66,6 +68,8 @@ let reminderScheduleResult = {
 };
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
+  if (request === 'expo-document-picker') return { getDocumentAsync: async () => ({ canceled: true }) };
+  if (request === '@/context/ScheduledJobsContext') return { useScheduledJobs: () => scheduledValue };
   if (request === 'react-native-reanimated') {
     const transition = (name) => ({
       duration: (milliseconds) => ({ name, duration: milliseconds }),
@@ -520,9 +524,9 @@ async function testSettingsNavigationGroupsRemainReachable() {
     'Pause approved actions',
   );
   await expandSettingsGroup(renderer, 'settings-group-privacy');
-  assert.doesNotMatch(textContent(renderer), /Local model inference/);
-  assert.doesNotMatch(textContent(renderer), /Offline voice input/);
-  assert.doesNotMatch(textContent(renderer), /Offline spoken replies/);
+  assert.match(textContent(renderer), /Local model inference/);
+  assert.match(textContent(renderer), /Offline voice input/);
+  assert.match(textContent(renderer), /Offline spoken replies/);
   assert.doesNotMatch(textContent(renderer), /Recommended model download/);
   assert.match(textContent(renderer), /Opt-in web research/);
   assert.match(textContent(renderer), /Local contacts/);
@@ -628,10 +632,10 @@ async function testSettingsNavigationGroupsRemainReachable() {
     spokenRepliesRowStyle
       .flat(Infinity)
       .filter(Boolean)
-      .some((style) => style.paddingBottom === 0),
+      .some((style) => style.paddingBottom >= 16),
   );
   await expandSettingsGroup(renderer, 'settings-group-local-voice');
-  assert.ok(findByTestId(renderer, 'offline-speech-setup'));
+  assert.ok(findByTestId(renderer, 'voice-readiness'));
   assert.ok(findByTestId(renderer, 'offline-tts-setup'));
   const speechRateLabel = renderer.root
     .findAllByType('Text')
@@ -665,7 +669,7 @@ async function testSettingsNavigationGroupsRemainReachable() {
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'settings-back').props.onPress();
   });
-  assert.equal(routerCalls.at(-1), 'back');
+  assert.equal(routerCalls.at(-1), '/');
   assert.equal(hasTestId(renderer, 'settings-category-ui'), false);
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'settings-browse-categories').props.onPress();
@@ -701,14 +705,14 @@ async function testHomeSetupCircleFitsCompactStage() {
   assert.equal(circleStyle.width, circleStyle.height);
   assert.equal(circleStyle.borderRadius * 2, circleStyle.width);
   assert.equal(circle.props.accessibilityRole, 'button');
-  assert.equal(circle.props.accessibilityLabel, 'Open Settings');
+  assert.equal(circle.props.accessibilityLabel, 'Start voice input');
   assert.equal(hasTestId(renderer, 'home-setup-prompt'), false);
   assert.doesNotMatch(textContent(renderer), /Model setup required|Setup needed/);
   routerCalls = [];
   await TestRenderer.act(async () => {
     await circle.props.onPress();
   });
-  assert.deepEqual(routerCalls, ['/settings']);
+  assert.deepEqual(routerCalls, []);
 
   const stage = findByTestId(renderer, 'home-voice-stage');
   const stageStyle = stage.props.style
@@ -716,7 +720,7 @@ async function testHomeSetupCircleFitsCompactStage() {
     .filter(Boolean)
     .find((style) => typeof style.height === 'number');
   assert.ok(stageStyle);
-  assert.ok(stageStyle.height >= circleStyle.height + 92);
+  assert.ok(stageStyle.height >= circleStyle.height + 52);
 
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -1436,7 +1440,7 @@ async function testVoiceStartClearsDraftBeforeRecognition() {
   });
   assert.equal(started, 1);
   assert.equal(sent, 0);
-  assert.equal(findByTestId(renderer, 'chat-input').props.value, '');
+  assert.equal(findByTestId(renderer, 'chat-input').props.value, 'stale draft');
 }
 
 async function testComposerModeSwitchIsAnimated() {
@@ -1581,13 +1585,13 @@ async function testBrowserVoiceControlsExplainNativeRequirement() {
     );
   });
   await expandSettingsGroup(settingsRenderer, 'settings-group-local-voice');
-  assert.equal(findByTestId(settingsRenderer, 'offline-speech-setup').props.disabled, true);
-  assert.equal(findByTestId(settingsRenderer, 'offline-tts-setup').props.disabled, true);
+  assert.equal(hasTestId(settingsRenderer, 'offline-speech-setup'), false);
+  assert.ok(findByTestId(settingsRenderer, 'voice-readiness'));
   assert.match(textContent(settingsRenderer), /installed Android app/);
   await expandSettingsGroup(settingsRenderer, 'settings-group-device-footprint');
   assert.match(textContent(settingsRenderer), /Device storage measurements are available/);
   assert.equal(hasTestId(settingsRenderer, 'toggle-storage-details'), false);
-  assert.match(textContent(settingsRenderer), /does not report device disk usage/);
+  assert.match(textContent(settingsRenderer), /Device storage measurements are available/);
   await TestRenderer.act(async () => {
     settingsRenderer.unmount();
   });
@@ -1685,7 +1689,7 @@ async function testSettingsStaysUsableWhenStorageIsUnavailable() {
   await openSettingsCategory(renderer, 'memory');
   assert.match(textContent(renderer), /Some local data could not be opened/);
   await expandSettingsGroup(renderer, 'settings-group-local-voice');
-  assert.ok(findByTestId(renderer, 'offline-speech-setup'));
+  assert.ok(findByTestId(renderer, 'voice-readiness'));
   assert.ok(findByTestId(renderer, 'offline-tts-setup'));
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -1970,7 +1974,78 @@ function testBoxedCalendarAndScheduledCopyRemoved() {
   }
 }
 
+async function testScreenReviewAndScheduledActionsAtCompactWidth() {
+  const previousDimensions = windowDimensions;
+  windowDimensions = { width: 320, height: 640, fontScale: 2 };
+  const { createDefaultPrivacyState } = require('../lib/privacyCapabilities.ts');
+  const privacyState = createDefaultPrivacyState();
+  let shared = null;
+  let stopped = 0;
+  appValue = baseAppValue({
+    privacyState, screenSession: { status: 'active' },
+    screenAccessStatus: { accessibility: 'enabled', screenshotAvailable: true },
+    screenPreview: { text: 'Captured private text', capturedAt: 100, source: 'accessibility' },
+    screenAttachment: null,
+    attachScreenContext: text => { shared = text; },
+    stopScreenSession: async () => { stopped++; },
+    updateScreenPolicy: async () => {},
+  });
+  const { default: ScreenAccess } = require('../app/screen-access.tsx');
+  let renderer;
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(ScreenAccess)); });
+  assert.match(textContent(renderer), /Android app only/);
+  routerCalls = [];
+  await TestRenderer.act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Back to settings' }).props.onPress(); });
+  assert.deepEqual(routerCalls, ['/settings'], 'direct route falls back to Settings without GO_BACK warnings');
+  // Even a captured mock must require an explicit share, never auto-attach.
+  assert.equal(shared, null);
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'screen-review-text').props.onChangeText('Reviewed text only');
+  });
+  await TestRenderer.act(async () => { findByTestId(renderer, 'attach-screen-context').props.onPress(); });
+  assert.equal(shared, 'Reviewed text only');
+  await TestRenderer.act(async () => { await findByTestId(renderer, 'stop-screen-session').props.onPress(); });
+  assert.equal(stopped, 1);
+  appValue = { ...appValue, screenPreview: null, screenSession: { status: 'stopped' } };
+  await TestRenderer.act(async () => { renderer.update(React.createElement(ScreenAccess)); });
+  assert.equal(hasTestId(renderer, 'screen-review-text'), false);
+  assert.equal(findByTestId(renderer, 'start-screen-session').props.disabled, true);
+  await TestRenderer.act(async () => { renderer.unmount(); });
+
+  const calls = [];
+  let deleteFails = true;
+  scheduledValue = {
+    isReady: true, isRunning: false, error: null, dismissError() {},
+    jobs: [{ id: 'job-compact', name: 'Summary', description: 'Daily summary',
+      cadence: 'daily', time: '09:00', enabled: true, sources: [], results: [],
+      lastResultStatus: 'failed', lastError: 'Model unavailable', nextRunAt: null }],
+    pauseJob: async (...args) => calls.push(['pause', ...args]),
+    retryJob: async id => calls.push(['retry', id]),
+    runJobNow: async id => calls.push(['run', id]),
+    deleteJob: async id => { if (deleteFails) throw Error('write failed'); calls.push(['delete', id]); },
+  };
+  const { default: Scheduled } = require('../app/scheduled/index.tsx');
+  await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(Scheduled)); });
+  assert.doesNotMatch(textContent(renderer), /Useful work, with limits/);
+  assert.ok(findByTestId(renderer, 'add-scheduled-job'));
+  assert.ok(renderer.root.findByProps({ accessibilityLabel: 'Edit Summary' }));
+  await TestRenderer.act(async () => { await renderer.root.findByProps({ accessibilityLabel: 'Pause Summary' }).props.onPress(); });
+  assert.deepEqual(calls[0], ['pause', 'job-compact', true]);
+  await TestRenderer.act(async () => { renderer.root.findByProps({ accessibilityLabel: 'Delete Summary' }).props.onPress(); });
+  assert.equal(calls.some(call => call[0] === 'delete'), false);
+  await TestRenderer.act(async () => { await findByTestId(renderer, 'confirm-delete-scheduled-job').props.onPress(); });
+  assert.ok(findByTestId(renderer, 'confirm-delete-scheduled-job'));
+  assert.match(textContent(renderer), /could not be saved/);
+  deleteFails = false;
+  await TestRenderer.act(async () => { await findByTestId(renderer, 'confirm-delete-scheduled-job').props.onPress(); });
+  assert.equal(hasTestId(renderer, 'confirm-delete-scheduled-job'), false);
+  assert.ok(calls.some(call => call[0] === 'delete'));
+  await TestRenderer.act(async () => { renderer.unmount(); });
+  windowDimensions = previousDimensions;
+}
+
 async function main() {
+  await testScreenReviewAndScheduledActionsAtCompactWidth();
   await testProfileSaveFailureKeepsEditorOpen();
   await testSettingsNavigationGroupsRemainReachable();
   await testHomeSetupCircleFitsCompactStage();

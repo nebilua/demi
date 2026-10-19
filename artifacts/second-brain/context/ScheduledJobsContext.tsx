@@ -99,6 +99,8 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const runningIdsRef = useRef(new Set<string>());
+  const privacyRef = useRef(privacyState);
+  privacyRef.current = privacyState;
 
   const capabilityIsEnabled = (capabilityId: Parameters<typeof isCapabilityActive>[1]) =>
     privacyReady && isCapabilityActive(privacyState, capabilityId);
@@ -174,7 +176,7 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
       throw new Error(
         privacyState.globalPause
           ? 'Privacy pause is active. Resume scheduled actions in Settings before saving.'
-          : 'Scheduled actions are paused or revoked in Settings.',
+          : 'Approve Scheduled actions in Settings > Privacy & Permissions, then try again.',
       );
     }
     const sourceError = sourceCapabilityError(draft.sources);
@@ -261,7 +263,7 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
     const startedAt = Date.now();
     try {
       if (!capabilityIsEnabled('automation.scheduled-actions')) {
-        throw new Error('Scheduled actions are paused or revoked in Settings.');
+        throw new Error('Approve Scheduled actions in Settings > Privacy & Permissions, then try again.');
       }
       const sourceError = sourceCapabilityError(job.sources);
       if (sourceError) throw new Error(sourceError);
@@ -348,6 +350,11 @@ export function ScheduledJobsProvider({ children }: { children: React.ReactNode 
           `User instruction: ${job.prompt || 'Summarize the most useful items for today in short bullets.'}`,
           sourceText,
         ].join('\n\n'),
+        undefined,
+        2,
+        () => isCapabilityActive(privacyRef.current, 'automation.scheduled-actions') &&
+          (!job.sources.some(source => source.kind === 'file') || isCapabilityActive(privacyRef.current, 'local.files')) &&
+          (!job.sources.some(source => source.kind === 'calendar') || isCapabilityActive(privacyRef.current, 'local.calendar')),
       );
       const result: ScheduledJobResult = {
         id: createId(),

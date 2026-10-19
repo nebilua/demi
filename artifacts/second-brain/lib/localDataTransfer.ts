@@ -119,7 +119,7 @@ function utf8Bytes(value: string) {
 
 function portableRecords(records: LocalDataExportRecords) {
   return {
-    conversations: records.conversations,
+    conversations: records.conversations.filter(turn => !turn.privateContext),
     memories: records.memories,
     profile: records.profile,
     importantDates: records.importantDates.map((item) => ({

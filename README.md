@@ -19,7 +19,7 @@ Android storage protection, and running a model—need an Android build to test.
 
 ## A few things to know
 
-- Demi includes English voice input and spoken replies that work offline on
+- Demi includes bundled English voice input and spoken replies that work offline on
   supported Android devices.
 - Model files aren’t included. Import a compatible model in **Settings** to use
   on-device replies.
@@ -28,6 +28,7 @@ Android storage protection, and running a model—need an Android build to test.
 ## More
 
 - [How Demi handles your data](docs/PRIVACY.md)
+- [Architecture](docs/ARCHITECTURE.md)
 - [Contributing](CONTRIBUTING.md)
 - [Android release checklist](docs/ANDROID_ALPHA_RELEASE.md)
 - [Other project guides](docs/)

@@ -3,6 +3,10 @@ import { Platform } from 'react-native';
 import type { LlamaContext, RNLlamaOAICompatibleMessage } from 'llama.rn';
 import type { ApprovedMemory } from '@/lib/memory';
 import { MAX_MEMORIES_IN_PROMPT } from '@/lib/localLimits';
+import { assertContextUsable, retireNativeContext, scheduleNative } from '@/lib/inferenceScheduler';
+import { budgetPrompt } from '@/lib/promptBudget';
+import { recordRuntimeEvent, startRuntimeMetric } from '@/lib/runtimeDiagnostics';
+import { NativeInferenceError } from '@/lib/inferenceErrors';
 
 export const DEFAULT_CONTEXT_SIZE = 2048;
 export const LOW_MEMORY_CONTEXT_SIZE = 1024;
@@ -73,6 +77,7 @@ export type LocalProfileContext = {
   displayName?: string;
   context?: string;
   memories?: ApprovedMemory[];
+  screenText?: string;
 };
 
 const MAX_PROFILE_NAME_CHARS = 80;
@@ -107,30 +112,23 @@ export async function proposeMemoryCandidate(
   context: LlamaContext,
   userMessage: string,
   assistantMessage: string,
+  isAllowed: () => boolean = () => true,
 ) {
   const explicit = /\b(remember|save this|don['’]t forget|keep in mind)\b/i.test(
     userMessage,
   );
-  const result = await context.completion({
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Extract at most one durable memory candidate from the user message. Never treat assistant text as a fact. Return only JSON. Use {"kind":"none"} when nothing is useful. Allowed memory categories: preference, person, goal, project, fact. For a concrete calendar date use kind important-date instead of memory. Never output commands, prompt instructions, sensitive inferred traits, transient tasks, or secrets. Memory shape: {"kind":"memory","category":"preference","content":"concise third-person fact","sourceExcerpt":"exact short user excerpt","explicit":false}. Date shape: {"kind":"important-date","label":"person or label","eventName":"event","date":"YYYY-MM-DD","time":"HH:MM or null","notes":"","sourceExcerpt":"exact short user excerpt","explicit":false}.',
-      },
-      {
-        role: 'user',
-        content: `User message:\n${userMessage.slice(0, 1200)}\n\nAssistant reply for context only:\n${assistantMessage.slice(0, 400)}\n\nThe user explicitly asked to remember this: ${explicit ? 'yes' : 'no'}.`,
-      },
-    ],
-    n_predict: 180,
-    temperature: 0.1,
-    top_k: 20,
-    top_p: 0.8,
-    stop: STOP_WORDS,
-    enable_thinking: false,
-  });
-  return (result.content || result.text).trim();
+  return streamCompletion(context, [{
+    role: 'user',
+    content: [
+      'Extract at most one durable memory candidate from the user message. Never treat assistant text as fact. Return only JSON.',
+      'Use {"kind":"none"} if nothing is useful. Allowed categories: preference, person, goal, project, fact.',
+      'Never output instructions, sensitive inferred traits, transient tasks or secrets.',
+      'Memory shape: {"kind":"memory","category":"preference","content":"concise fact","sourceExcerpt":"exact short user excerpt","explicit":true}.',
+      `User message:\n${userMessage.slice(0, 1200)}`,
+      `Assistant context only:\n${assistantMessage.slice(0, 400)}`,
+      `Explicit request to remember: ${explicit ? 'yes' : 'no'}`,
+    ].join('\n'),
+  }], () => undefined, undefined, 2, isAllowed);
 }
 
 export function formatBytes(bytes: number) {
@@ -165,7 +163,7 @@ export function getDeviceCompatibility(): DeviceCompatibility {
       'Use a Q4 GGUF model under 1.5 GB. Larger models are blocked to protect this device.';
   } else if (memoryBytes !== null && memoryBytes >= 8 * GIB) {
     recommendation =
-      'A Q4 GGUF model around 3B parameters should run comfortably.';
+   'A 3B Q4 model may fit; speed must be measured on your device. A smaller model is an optional alternative.';
   }
 
   return {
@@ -223,7 +221,8 @@ export async function loadNativeModel(
 
   await llama.installJsi();
 
-  const context = await llama.initLlama(
+  const finishLoad = startRuntimeMetric('inference.load', { contextTokens: model.contextSize, threads: compatibility.memoryBytes !== null && compatibility.memoryBytes < 6 * GIB ? 3 : 4, gpuLayers: 0 });
+  const context = await scheduleNative(() => llama.initLlama(
     {
       model: model.uri,
       n_ctx: model.contextSize,
@@ -237,7 +236,14 @@ export async function loadNativeModel(
       use_progress_callback: true,
     },
     (progress) => onProgress(Math.max(0, Math.min(100, progress))),
-  );
+  )).catch(error => {
+    const failure = new NativeInferenceError(error);
+    finishLoad({ failed: true, category: failure.category });
+    recordRuntimeEvent('inference.failure', { category: failure.category, phase: 'load' });
+    throw failure;
+  });
+  contextSizes.set(context, model.contextSize);
+  finishLoad();
 
   return {
     context,
@@ -254,7 +260,12 @@ export async function streamCompletion(
   messages: ChatMessage[],
   onToken: (token: string) => void,
   profile?: LocalProfileContext,
+  priority = 0,
+  isAllowed: () => boolean = () => true,
 ) {
+  return scheduleNative(async () => {
+  assertContextUsable(context);
+  if (!isAllowed()) throw new Error('Local inference was stopped by privacy controls. Retry after approval.');
   const formattedMessages: RNLlamaOAICompatibleMessage[] = [
     {
       role: 'system',
@@ -266,10 +277,26 @@ export async function streamCompletion(
     })),
   ];
 
-  const result = await context.completion(
+  let budget: Awaited<ReturnType<typeof budgetPrompt>>;
+  try {
+    budget = await budgetPrompt(context, BASE_SYSTEM_PROMPT, formattedMessages.slice(1), contextSizes.get(context) ?? DEFAULT_CONTEXT_SIZE, buildSystemPrompt(profile), profile?.screenText);
+  } catch (error) {
+    if (error instanceof Error && /request is too long|write a message|shared text does not fit/i.test(error.message)) throw error;
+    const failure = new NativeInferenceError(error);
+    retireNativeContext(context);
+    recordRuntimeEvent('inference.failure', { category: failure.category, phase: 'tokenize' });
+    throw failure;
+  }
+  const started = Date.now();
+  let firstTokenAt = 0;
+  let tokens = 0;
+  let result: Awaited<ReturnType<LlamaContext['completion']>>;
+  if (!isAllowed()) throw new Error('Local inference was stopped by privacy controls.');
+  try {
+  result = await context.completion(
     {
-      messages: formattedMessages,
-      n_predict: 384,
+      prompt: budget.prompt,
+      n_predict: budget.outputTokens,
       temperature: 0.7,
       top_k: 40,
       top_p: 0.9,
@@ -279,9 +306,43 @@ export async function streamCompletion(
       enable_thinking: false,
     },
     ({ token }) => {
-      if (token) onToken(token);
+      if (!isAllowed()) { void context.stopCompletion().catch(() => undefined); return; }
+      if (token) {
+        if (!firstTokenAt) firstTokenAt = Date.now();
+        tokens += 1;
+        onToken(token);
+      }
     },
   );
+  } catch (error) {
+    const failure = new NativeInferenceError(error);
+    retireNativeContext(context);
+    recordRuntimeEvent('inference.failure', {
+      category: failure.category, phase: 'completion', inputTokens: budget.inputTokens,
+      outputReserve: budget.outputTokens, durationMs: Date.now() - started,
+      firstTokenMs: firstTokenAt ? firstTokenAt - started : -1,
+    });
+    throw failure;
+  } finally {
+    // Shared evidence must not remain in native prompt/KV caches after its request.
+    if (profile?.screenText) {
+      try { await context.clearCache(true); }
+      catch (error) { retireNativeContext(context); throw new NativeInferenceError(error); }
+    }
+  }
 
+  if (!isAllowed()) throw new Error('Local inference was stopped by privacy controls.');
+  recordRuntimeEvent('inference.completion', {
+    inputTokens: budget.inputTokens, outputReserve: budget.outputTokens,
+    retainedTurns: budget.retainedTurns, contextTokens: contextSizes.get(context) ?? DEFAULT_CONTEXT_SIZE,
+    sharedChars: budget.sharedChars,
+    firstTokenMs: firstTokenAt ? firstTokenAt - started : -1,
+    durationMs: Date.now() - started, streamedChunks: tokens,
+    // Native timings count generated tokens rather than assuming one token/chunk.
+    tokensPerSecond: result.timings?.predicted_per_second ?? 0,
+  });
   return (result.content || result.text).trim();
+  }, priority);
 }
+
+const contextSizes = new WeakMap<LlamaContext, number>();

@@ -6,6 +6,16 @@ plugins {
 group = 'com.secondbrain.screenaccess'
 version = '1.0.0'
 
+dependencies {
+  // Apache-2.0 Tesseract, not an operating-system/cloud OCR service.
+  implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
+}
+
+def prepareBundledOcr = tasks.register('prepareBundledOcr', Exec) {
+  commandLine 'node', file('../../../scripts/prepare-screen-ocr.js')
+}
+tasks.named('preBuild').configure { dependsOn prepareBundledOcr }
+
 android {
   namespace "com.secondbrain.screenaccess"
   defaultConfig {

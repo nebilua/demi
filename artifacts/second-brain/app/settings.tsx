@@ -4,7 +4,10 @@ import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
+  Linking,
   Modal,
+  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -35,6 +38,7 @@ import {
   type PrivacyState,
 } from "@/lib/privacyCapabilities";
 import { TOOL_REGISTRY } from "@/lib/toolRegistry";
+import { getRuntimeDiagnostics, type RuntimeMetric } from "@/lib/runtimeDiagnostics";
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: "system", label: "System" },
@@ -238,14 +242,36 @@ function PrivacyCapabilityRow({
   ) => void;
   colors: ReturnType<typeof useColors>;
 }) {
+  const [showDetails, setShowDetails] = useState(false);
+  const app = useApp();
+  const [androidPermission, setAndroidPermission] = useState("Checking");
+  useEffect(() => {
+    const refresh = async () => {
+      if (Platform.OS !== "android") { setAndroidPermission("Android app only"); return; }
+      const permission = definition.id === "local.voice-input"
+        ? PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+        : definition.id === "local.notifications" && Number(Platform.Version) >= 33
+          ? PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS : null;
+      if (!permission) return;
+      try { setAndroidPermission(await PermissionsAndroid.check(permission) ? "Allowed" : "Not allowed"); }
+      catch { setAndroidPermission("Unavailable"); }
+    };
+    void refresh();
+    if (Platform.OS !== "android") return;
+    const subscription = AppState.addEventListener("change", state => { if (state === "active") void refresh(); });
+    return () => subscription.remove();
+  }, [definition.id]);
   const isNetwork = definition.kind === "network";
+  // No on-device contacts reader is implemented, so approval would grant nothing.
+  const isUnavailable = definition.id === "local.contacts" || definition.id === "network.connectors";
   const isWebResearch = definition.id === "network.web-research";
   const canChange =
-    !isNetwork ||
+    !isUnavailable &&
+    (!isNetwork ||
     definition.id === "network.model-download" ||
     definition.id === "network.connectors" ||
     definition.id === "network.web-research" ||
-    definition.id === "network.remote-inference";
+    definition.id === "network.remote-inference");
   const nextApproval: CapabilityApproval =
     grant.approval === "approved" ? "paused" : "approved";
 
@@ -274,14 +300,43 @@ function PrivacyCapabilityRow({
               },
             ]}
           >
-            {globalPause && !isNetwork
+            {isUnavailable
+              ? "Unavailable"
+              : globalPause
               ? "Paused globally"
-              : getCapabilityStatusLabel(grant)}
+              : `App: ${getCapabilityStatusLabel(grant)}`}
           </Text>
         </View>
         <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
           {definition.purpose}
         </Text>
+        {isUnavailable && (
+          <Text
+            testID={`privacy-${definition.id}-unavailable`}
+            style={[styles.privacyScope, { color: colors.mutedForeground }]}
+          >
+            {definition.id === "local.contacts" ? "Demi cannot read contacts in this build. App approval cannot enable it." : "No supported connector is connected in this build."}
+          </Text>
+        )}
+        {(definition.id === "local.voice-input" || definition.id === "local.notifications") && <>
+          <Text testID={`android-permission-${definition.id}`} style={[styles.privacyScope, { color: colors.mutedForeground }]}>Android permission: {androidPermission}</Text>
+          {Platform.OS === "android" && androidPermission === "Not allowed" && <Pressable accessibilityRole="button" onPress={() => void Linking.openSettings()}><Text style={[styles.privacyScope, { color: colors.primary }]}>Android app settings</Text></Pressable>}
+        </>}
+        {definition.id === "device.screen-access" && <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>Android Accessibility: {app.screenAccessStatus?.accessibility ?? "unavailable"} · Capture requires review and sharing.</Text>}
+        {definition.id === "local.files" && <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>Android access: system picker for each selected file, not all storage.</Text>}
+        <Pressable
+          testID={`privacy-${definition.id}-details`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showDetails }}
+          accessibilityLabel={`${showDetails ? "Hide" : "Show"} ${definition.name} details`}
+          onPress={() => setShowDetails((v) => !v)}
+          style={({ pressed }) => [{ alignSelf: "flex-start", marginTop: 6 }, pressed && styles.pressed]}
+        >
+          <Text style={[styles.privacyScope, { color: colors.primary, marginTop: 0 }]}>
+            {showDetails ? "Hide details" : "Details"}
+          </Text>
+        </Pressable>
+        {showDetails && (<>
         <Text style={[styles.privacyScope, { color: colors.mutedForeground }]}>
           Scope: {definition.scope}
         </Text>
@@ -309,6 +364,7 @@ function PrivacyCapabilityRow({
             ? " · destructive actions require confirmation"
             : ""}
         </Text>
+        </>)}
         {canChange && (
           <View style={styles.privacyActions}>
             <Pressable
@@ -701,6 +757,8 @@ export default function SettingsScreen() {
   const [showPrivacyClearConfirm, setShowPrivacyClearConfirm] = useState(false);
   const [isClearingPrivacy, setIsClearingPrivacy] = useState(false);
   const [privacyDetailsExpanded, setPrivacyDetailsExpanded] = useState(false);
+  const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
+  const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetric[]>([]);
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
     null,
   );
@@ -900,7 +958,7 @@ export default function SettingsScreen() {
           accessibilityLabel={
             "Go back"
           }
-          onPress={() => router.back()}
+          onPress={() => router.canGoBack?.() ? router.back() : router.replace("/")}
           style={({ pressed }) => [
             styles.backButton,
             { backgroundColor: colors.secondary },
@@ -1030,7 +1088,7 @@ export default function SettingsScreen() {
             title="Spoken replies"
             description="Read replies aloud with the bundled voice"
             compact
-            paddingBottom={0}
+            paddingBottom={16}
           >
             <Switch
               testID="spoken-replies-setting"
@@ -1258,9 +1316,6 @@ export default function SettingsScreen() {
           {CAPABILITY_DEFINITIONS.filter(
             (definition) =>
               ![
-                "local.inference",
-                "local.voice-input",
-                "local.voice-output",
                 "network.model-download",
               ].some((excludedId) => excludedId === definition.id),
           ).map((definition) => (
@@ -1270,7 +1325,7 @@ export default function SettingsScreen() {
               grant={safePrivacyState.capabilities[definition.id]}
               globalPause={safePrivacyState.globalPause}
               onApprovalChange={(capabilityId, approval) =>
-                void setCapabilityApproval?.(capabilityId, approval)
+                void setCapabilityApproval?.(capabilityId, approval).catch(() => undefined)
               }
               colors={colors}
             />
@@ -1730,7 +1785,7 @@ export default function SettingsScreen() {
                   { color: colors.cardForeground },
                 ]}
               >
-                1. Local model
+                Local model
               </Text>
               {localModel && (
                 <Feather name="check-circle" size={14} color={colors.primary} />
@@ -2013,6 +2068,25 @@ export default function SettingsScreen() {
               </View>
             )}
 
+            <Pressable testID="toggle-runtime-diagnostics" accessibilityRole="button" accessibilityState={{ expanded: showRuntimeDiagnostics }} onPress={() => {
+              setShowRuntimeDiagnostics(!showRuntimeDiagnostics);
+              setRuntimeMetrics(getRuntimeDiagnostics().filter(metric => ['inference.load', 'inference.completion', 'inference.failure'].includes(metric.name)).slice(-6).reverse());
+            }} style={[styles.secondaryButton, { borderColor: colors.border }]}>
+              <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>{showRuntimeDiagnostics ? "Hide diagnostics" : "Diagnostics"}</Text>
+            </Pressable>
+            {showRuntimeDiagnostics && <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary, marginTop: 12 }]}>
+              <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>Local timings only. No prompts, model paths, or captured text. CPU defaults are unchanged; a faster model is optional, not a measured promise.</Text>
+              {runtimeMetrics.length === 0 && <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>No native measurements in this session.</Text>}
+              {runtimeMetrics.map((metric, index) => <Text key={`${metric.recordedAt}-${index}`} style={[styles.readinessDesc, { color: colors.foreground, marginTop: 8 }]}>
+                {metric.name === 'inference.load' ? `Load: ${Math.round(metric.durationMs ?? 0)} ms · context ${metric.details?.contextTokens ?? "?"}` :
+                  metric.name === 'inference.failure' ? `Stopped: ${metric.details?.category ?? "runtime"} · ${metric.details?.phase ?? "completion"} · ${metric.details?.durationMs ?? 0} ms` :
+                    `First token: ${metric.details?.firstTokenMs ?? "?"} ms · ${Number(metric.details?.tokensPerSecond ?? 0).toFixed(1)} tokens/s · input ${metric.details?.inputTokens ?? "?"} · output reserve ${metric.details?.outputReserve ?? "?"}`}
+              </Text>)}
+              <Pressable accessibilityRole="button" onPress={() => setRuntimeMetrics(getRuntimeDiagnostics().filter(metric => ['inference.load', 'inference.completion', 'inference.failure'].includes(metric.name)).slice(-6).reverse())}>
+                <Text style={[styles.privacyScope, { color: colors.primary }]}>Refresh</Text>
+              </Pressable>
+            </View>}
+
             {(modelDownloadApprovalError || downloadError || engineError) && (
               <Text
                 style={[
@@ -2032,8 +2106,8 @@ export default function SettingsScreen() {
         <CollapsibleSection
           sectionTestID="settings-group-local-voice"
           icon="volume-2"
-          title="Local voice setup"
-          summary="Bundled English dictation and spoken replies"
+          title="Voice setup"
+          summary="Readiness, tests, and preferences"
           expanded={localVoiceExpanded}
           onToggle={() => setLocalVoiceExpanded((expanded) => !expanded)}
           compact
@@ -2044,108 +2118,71 @@ export default function SettingsScreen() {
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
-          <Pressable
-            testID="offline-speech-setup"
-            accessibilityRole={canSetupSpeech ? "button" : undefined}
-            accessibilityLabel="Prepare bundled offline speech input"
-            disabled={!canSetupSpeech}
-            onPress={() => void prepareBundledVoiceModels()}
-            style={({ pressed }) => [
-              styles.readinessItem,
-              canSetupSpeech && pressed && styles.pressedReadiness,
-            ]}
-          >
+          <View testID="voice-readiness" style={styles.readinessItem}>
             <View style={styles.readinessHeader}>
               <Feather
                 name="mic"
                 size={16}
-                color={
-                  voiceInputAvailable ? colors.primary : colors.mutedForeground
-                }
+                color={voiceInputAvailable ? colors.primary : colors.mutedForeground}
               />
-              <Text
-                style={[
-                  styles.readinessTitle,
-                  { color: colors.cardForeground },
-                ]}
-              >
-                2. Speech input
+              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                Voice input
               </Text>
               {voiceInputAvailable && (
                 <Feather name="check-circle" size={14} color={colors.primary} />
               )}
-              {canSetupSpeech && (
-                <Feather
-                  name="chevron-right"
-                  size={16}
-                  color={colors.mutedForeground}
-                />
-              )}
-              {voiceSetupInProgress && (
-                <ActivityIndicator size="small" color={colors.primary} />
-              )}
             </View>
-            <Text
-              style={[styles.readinessDesc, { color: colors.mutedForeground }]}
-            >
+            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
               {voiceInputAvailable
-                ? "Bundled US English dictation is ready."
+                ? "Ready"
                 : Platform.OS !== "android"
-                  ? "Available in the installed Android app."
-                  : "Prepare the bundled English recognition model."}
+                  ? "Android app only"
+                  : "Not prepared"}
             </Text>
-          </Pressable>
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          <Pressable
-            testID="offline-tts-setup"
-            accessibilityRole={canSetupSpokenReplies ? "button" : undefined}
-            accessibilityLabel="Prepare bundled offline spoken replies"
-            disabled={!canSetupSpokenReplies}
-            onPress={() => void prepareBundledVoiceModels()}
-            style={({ pressed }) => [
-              styles.readinessItem,
-              canSetupSpokenReplies && pressed && styles.pressedReadiness,
-            ]}
-          >
-            <View style={styles.readinessHeader}>
+            <View testID="offline-tts-setup" style={[styles.readinessHeader, { marginTop: 10 }]}>
               <Feather
                 name="volume-2"
                 size={16}
-                color={
-                  voiceOutputAvailable ? colors.primary : colors.mutedForeground
-                }
+                color={voiceOutputAvailable ? colors.primary : colors.mutedForeground}
               />
-              <Text
-                style={[
-                  styles.readinessTitle,
-                  { color: colors.cardForeground },
-                ]}
-              >
-                3. Spoken replies
+              <Text style={[styles.readinessTitle, { color: colors.cardForeground }]}>
+                Spoken replies
               </Text>
               {voiceOutputAvailable && (
                 <Feather name="check-circle" size={14} color={colors.primary} />
               )}
-              {canSetupSpokenReplies && (
-                <Feather
-                  name="chevron-right"
-                  size={16}
-                  color={colors.mutedForeground}
-                />
-              )}
             </View>
-            <Text
-              style={[styles.readinessDesc, { color: colors.mutedForeground }]}
-            >
+            <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>
               {voiceOutputAvailable
-                ? "Bundled Piper US English voice is ready."
+                ? "Ready"
                 : Platform.OS !== "android"
-                  ? "Available in the installed Android app."
-                  : "Prepare the bundled English voice."}
+                  ? "Android app only"
+                  : "Not prepared"}
             </Text>
-          </Pressable>
+            {(canSetupSpeech || canSetupSpokenReplies || voiceSetupInProgress) && (
+              <Pressable
+                testID="offline-speech-setup"
+                accessibilityRole="button"
+                accessibilityLabel="Prepare bundled offline voice"
+                accessibilityState={{ disabled: voiceSetupInProgress }}
+                disabled={voiceSetupInProgress}
+                onPress={() => void prepareBundledVoiceModels()}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { borderColor: colors.border, marginTop: 12 },
+                  pressed && styles.pressed,
+                ]}
+              >
+                {voiceSetupInProgress ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Text style={[styles.secondaryButtonText, { color: colors.cardForeground }]}>
+                    Prepare voice
+                  </Text>
+                )}
+              </Pressable>
+            )}
+          </View>
 
           <View style={[styles.voicePicker, { borderTopColor: colors.border }]}>
             <View style={styles.voicePickerHeader}>
@@ -2200,7 +2237,7 @@ export default function SettingsScreen() {
               >
                 {Platform.OS !== "android"
                   ? "The bundled voice is available in the installed Android app."
-                  : "The bundled English voice is not ready. Prepare it using Spoken replies above."}
+                  : "The bundled English voice is not ready. Use Prepare voice above."}
               </Text>
             ) : (
               <View style={styles.voiceOptions}>
@@ -2361,7 +2398,7 @@ export default function SettingsScreen() {
                 ]}
               >
                 Bundled {settings.voiceLanguage} speech models are not ready.
-                Tap Speech input to prepare them on this device.
+                Use Prepare voice above.
               </Text>
             )}
           <View

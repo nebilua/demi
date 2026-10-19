@@ -69,6 +69,12 @@ infer APK validity from the JavaScript or browser suites.
 
 ## Physical-device evidence
 
+The voice/chat/permission/screen repairs have a separate affected-entry-point
+matrix and Pixel benchmark record in [DEMI_REPAIR_VERIFICATION.md](DEMI_REPAIR_VERIFICATION.md).
+No connected device was available for that work. Do not treat deterministic
+tests or an APK packaging check as proof that the reported HostFunction failure
+is reproduced or fixed on the user's Pixel.
+
 Use a supported arm64 Android phone running Android 13 or newer. Record device
 model, Android version, ABI, APK SHA-256, app version/code, test date, and any
 network state used. These checks are not automated by

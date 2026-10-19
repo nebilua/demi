@@ -3,3 +3,5 @@
 
 # No need to store the pnpm store twice.
 .local
+/generated-artifacts/
+/artifacts/second-brain/modules/screen-access/android/src/main/assets/ocr/

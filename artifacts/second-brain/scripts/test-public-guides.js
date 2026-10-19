@@ -29,17 +29,17 @@ function checkLocalReadmeLinks(readme) {
   const targetForLabel = (pattern) =>
     links.find(({ label }) => pattern.test(label))?.href;
   assert.equal(
-    targetForLabel(/privacy and data handling/i),
+    targetForLabel(/privacy and data handling|how Demi handles your data/i),
     "docs/PRIVACY.md",
     "README must link to the canonical privacy guide",
   );
   assert.equal(
-    targetForLabel(/technical architecture/i),
+    targetForLabel(/(?:technical )?architecture/i),
     "docs/ARCHITECTURE.md",
     "README must link to the canonical architecture guide",
   );
   assert.equal(
-    targetForLabel(/android alpha release checklist/i),
+    targetForLabel(/android (?:alpha )?release checklist/i),
     "docs/ANDROID_ALPHA_RELEASE.md",
     "README must link to the canonical Android alpha checklist",
   );

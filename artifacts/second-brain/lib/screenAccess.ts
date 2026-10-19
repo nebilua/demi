@@ -9,6 +9,7 @@ export type ScreenAccessStatus = {
   protectedContent: boolean;
   protectedContentState: "none" | "detected" | "unknown";
   lastStopReason: string | null;
+  screenshotAvailable?: boolean;
 };
 
 export type ScreenCaptureResult = {
@@ -24,6 +25,7 @@ export type AccessibilitySnapshot = {
   protectedContentState: "none" | "detected" | "unknown";
   packageName: string | null;
   excluded: boolean;
+  text?: string;
 };
 
 declare class SecondBrainScreenAccessModule extends NativeModule {
@@ -32,6 +34,8 @@ declare class SecondBrainScreenAccessModule extends NativeModule {
   stopScreenSessionAsync(reason?: string): Promise<void>;
   openAccessibilitySettingsAsync(): Promise<void>;
   getAccessibilitySnapshotAsync(excludedApps?: string[]): Promise<AccessibilitySnapshot>;
+  captureScreenshotTextAsync(excludedApps: string[]): Promise<string>;
+  readImageTextAsync(uri: string): Promise<string>;
 }
 
 let nativeModule: SecondBrainScreenAccessModule | null | undefined;
@@ -107,4 +111,16 @@ export async function getAccessibilitySnapshot(
     };
   }
   return module.getAccessibilitySnapshotAsync(excludedApps);
+}
+
+export async function captureScreenshotText(excludedApps: string[]) {
+  const module = getNativeModule();
+  if (!module) throw new Error("Screenshot OCR needs the rebuilt Android app.");
+  return module.captureScreenshotTextAsync(excludedApps);
+}
+
+export async function readImageText(uri: string) {
+  const module = getNativeModule();
+  if (!module) throw new Error("Image OCR needs the rebuilt Android app.");
+  return module.readImageTextAsync(uri);
 }

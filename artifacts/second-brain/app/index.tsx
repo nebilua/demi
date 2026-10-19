@@ -88,6 +88,8 @@ export default function DemiScreen() {
     storageError,
     cloudFallbackActivity,
     voiceError,
+    screenAttachment,
+    discardScreenContext,
   } = useApp();
   const {
     turns,
@@ -128,6 +130,8 @@ export default function DemiScreen() {
     clearVoiceTranscript();
   }, [clearVoiceTranscript, voiceTranscript]);
 
+  useEffect(() => () => cancelVoiceInput(), []);
+
   useEffect(() => {
     if (pendingMemoryCandidate?.kind === 'memory') {
       setMemoryDraft(pendingMemoryCandidate.content);
@@ -147,9 +151,7 @@ export default function DemiScreen() {
   let setupNeeded = false;
   let setupLabel = '';
   let setupDescription = '';
-  if (engineStatus !== 'ready') {
-    setupNeeded = true;
-  } else if (!settings.voiceInputEnabled || voiceInputStatus === 'needs-model' || voiceInputStatus === 'unavailable') {
+  if (!settings.voiceInputEnabled || voiceInputStatus === 'unavailable') {
     setupNeeded = true;
     setupLabel = 'Voice setup required';
     setupDescription = 'Review offline voice controls and bundled speech setup.';
@@ -179,7 +181,6 @@ export default function DemiScreen() {
       return;
     }
     setWasStopped(false);
-    setDraft('');
     void startVoiceInput();
   }
 
@@ -300,7 +301,7 @@ export default function DemiScreen() {
                   accessibilityLiveRegion="polite"
                   style={[styles.statusText, { color: colors.mutedForeground }]}
                 >
-                  {voiceError && !isListening ? 'Voice error' : isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : draft ? 'Draft ready — review before sending' : wasStopped ? 'Dictation canceled' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
+                  {isListening ? 'Listening' : isProcessingVoice ? 'Transcribing' : isThinking ? 'Thinking' : isSpeaking ? 'Speaking' : draft ? 'Draft ready — review before sending' : wasStopped ? 'Dictation canceled' : setupNeeded ? 'Setup needed' : 'Tap to speak'}
                 </Text>
               )}
               {cloudFallbackActivity && (
@@ -371,6 +372,24 @@ export default function DemiScreen() {
         edges={['bottom']}
         style={[styles.composerSafe, { backgroundColor: colors.background, paddingBottom: Platform.OS === 'web' ? 34 : 0 }]}
       >
+        {voiceError && !isListening && (
+          <Pressable accessibilityRole="button" accessibilityLabel="Open voice settings" onPress={() => router.push('/settings')}>
+            <Text testID="home-voice-error" accessibilityLiveRegion="assertive" style={{ color: colors.destructive, fontSize: 13, lineHeight: 18, marginHorizontal: 20, marginVertical: 8 }}>
+              {voiceError} Open Voice in Settings for setup or repair.
+            </Text>
+          </Pressable>
+        )}
+        {storageError && <Text accessibilityLiveRegion="assertive" style={[styles.setupText, { color: colors.destructive, marginHorizontal: 20 }]}>{storageError}</Text>}
+        {screenAttachment && (
+          <View style={{ paddingHorizontal: 20, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Pressable accessibilityRole="button" onPress={() => router.push('/screen-access')} style={{ flex: 1 }}>
+              <Text style={{ color: colors.foreground, fontSize: 13 }}>Shared text · next request is local only</Text>
+            </Pressable>
+            <Pressable testID="discard-shared-screen" accessibilityRole="button" accessibilityLabel="Discard shared text" onPress={discardScreenContext}>
+              <Feather name="x" size={20} color={colors.mutedForeground} />
+            </Pressable>
+          </View>
+        )}
         {showKeyboard ? (
           <Animated.View
             testID="chat-composer-container"

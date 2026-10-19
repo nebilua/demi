@@ -87,20 +87,55 @@ capability and approval.
 `modules/screen-access` is an Android-only Expo module. It has three narrow
 boundaries rather than a generic device-control API:
 
-1. MediaProjection requests Android's consent dialog and feeds a tiny native
-   `ImageReader` only to confirm capture availability. It does not expose a
-   screenshot byte array to JavaScript or write screen pixels to logs.
-2. The declared accessibility service is independently enabled by the user in
-   Android Settings. It reports bounded node availability for the active
-   window, never stores node text, and cannot be enabled by Demi.
-3. The document picker grants one user-selected resource. App-scoped storage,
-   contacts/calendar providers, and ordinary runtime permissions remain
-   separate capabilities and do not imply screen access.
+1. The user-enabled accessibility service reads bounded visible text, withholds
+   editable/password fields and excluded applications, and can take one
+   user-requested screenshot on Android 11+. Bundled open-source English
+   Tesseract OCR converts pixels to text locally. Pixels never reach JavaScript
+   or the GGUF. The former availability-only MediaProjection API now explicitly
+   reports unavailable; it does not pretend discarded frames are usable input.
+2. A selected resource retains its readable URI only for this request. Text,
+   Markdown, CSV, JSON, PNG and JPEG are supported with byte/pixel limits.
+   Unsupported formats fail explicitly. Imported images cannot be app-excluded
+   automatically, so the UI requires review.
+3. Capture, review and attachment are distinct states. Generation receives at
+   most 6,000 characters of untrusted evidence, further bounded by real tokenizer
+   counts. Epoch, consent and expiry checks run before capture completion,
+   queued inference, each stream callback and final delivery.
 
 The React context owns an ephemeral session and a persisted screen policy
 (retention and excluded-app rules). Sessions stop on app pause and expose a
 kill switch. Actions that leave the session or open Android settings are
 previewed and confirmed; there is no generic model-facing tap/type primitive.
+
+Screen-derived conversation pairs are transient and explicitly filtered at both
+conversation persistence and export boundaries. Subsequent unshared prompts
+exclude those pairs. Native prompt and KV tensor data are cleared inside the
+same serialized operation after each shared request, including failures.
+They cannot trigger cloud fallback, reminder parsing,
+memory extraction or spoken replies.
+
+## Native model scheduling and budgets
+
+All native context operations share one priority queue: foreground chat,
+interactive tools/research, then scheduled work and explicit memory extraction.
+Release retires a context immediately but waits for running work; queued old
+users cannot enter the released context. There is no overlapping completion.
+Callers recheck current capabilities and cancellation before and during work.
+Normal chat no longer requests optional background extraction after every turn.
+
+Prompts are formatted with the runtime chat template, then tokenized with the
+runtime tokenizer. Reserve output tokens and safety space first, keep the
+current request intact, add bounded shared evidence and recent complete turns,
+then optional personal context if it fits. Saved history is not trimmed.
+Oversized current requests fail clearly. Native failures use fixed sanitized
+categories and preserve already streamed output; the affected context is
+retired so the model can be loaded again.
+
+Diagnostics contain context/token counts, first-token/load/generation timings
+and sanitized error categories, never private inputs or model paths. Settings
+exposes recent native measurements. CPU/thread/batch defaults are unchanged;
+there is no unmeasured GPU or Pixel performance claim. See
+`DEMI_REPAIR_VERIFICATION.md` for evidence limits.
 
 `AppContext` persists the capability grants, connector references, schedule
 metadata, redacted agent traces, and audit events through

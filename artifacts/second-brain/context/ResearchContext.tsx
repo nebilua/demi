@@ -83,6 +83,8 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
   const [storageReady, setStorageReady] = useState(false);
   const operationRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const privacyRef = useRef(privacyState);
+  privacyRef.current = privacyState;
 
   useEffect(() => {
     let active = true;
@@ -255,7 +257,9 @@ export function ResearchProvider({ children }: { children: React.ReactNode }) {
        try {
          result = await runLocalInference(buildResearchPrompt(normalizedQuery, evidence, mode), (token) => {
            if (operation === operationRef.current) setAnswer((current) => `${current ?? ""}${token}`);
-         });
+          }, 1, () => operation === operationRef.current && !controller.signal.aborted &&
+            isCapabilityActive(privacyRef.current, "local.files") &&
+            (mode !== "web" || isCapabilityActive(privacyRef.current, "network.web-research")));
        } catch (localError) {
          if (
            engineStatus === "ready" &&

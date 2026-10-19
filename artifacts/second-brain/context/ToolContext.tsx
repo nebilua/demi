@@ -66,6 +66,8 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
   const [codeRunBusy, setCodeRunBusy] = useState(false);
   const [codeRunError, setCodeRunError] = useState<string | null>(null);
   const codeCancelRef = useRef(false);
+  const privacyRef = useRef(privacyState);
+  privacyRef.current = privacyState;
 
   async function pickDocument() {
     if (!privacyReady || !isCapabilityActive(privacyState, "local.files")) {
@@ -165,6 +167,8 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
           streamed += token;
           setDocumentResult(streamed);
         },
+        1,
+        () => isCapabilityActive(privacyRef.current, "local.files"),
       );
       setDocumentResult(result || streamed || "The local model returned no text.");
       await recordPrivacyAction({
@@ -325,6 +329,7 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
       documentBusy,
       documentError,
       privacyReady,
+      privacyState,
       codeRun,
       codeRunBusy,
       codeRunError,

@@ -246,7 +246,7 @@ export default function ScheduledJobEditScreen() {
           testID="scheduled-edit-back"
           accessibilityRole="button"
           accessibilityLabel="Back to scheduled work"
-          onPress={() => router.back()}
+          onPress={() => router.canGoBack?.() ? router.back() : router.replace("/scheduled")}
           style={({ pressed }) => [styles.iconButton, { backgroundColor: colors.secondary }, pressed && styles.pressed]}
         >
           <Feather name="arrow-left" size={18} color={colors.foreground} />

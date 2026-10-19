@@ -146,7 +146,7 @@ export function LocalDataTransferProvider({
 
   function recordsFromState(): LocalDataExportRecords {
     return {
-      conversations: chat.turns,
+      conversations: chat.turns.filter(turn => !turn.privateContext),
       memories: app.memories,
       profile: app.profile,
       importantDates: calendar.reminders.map((item) => ({
