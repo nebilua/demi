@@ -1,198 +1,91 @@
 # Privacy
 
-Demi's default mobile experience works without an account, cloud sync, or
-remote AI. This page explains what is stored on the device, what is shared
-with Android, and the limits of recovery and local protection.
+The short version: Demi keeps your chats and personal details on your Android
+device by default. You don’t need an account, and Demi doesn’t sync your chats
+to the cloud. Online features are separate and off until you choose to use them.
 
-## Scheduled digests and monitors
+## What stays on your device
 
-Scheduled work is opt-in per job and bounded to the sources, cadence, local model
-runtime, and execution budget shown in the editor. Digest results and monitor
-history stay in the encrypted local job record and are pruned according to the
-job's seven- or thirty-day retention setting. Notifications contain only generic
-result-ready or change-detected text, never private source content.
+Demi can store your chats, saved memories, profile, reminders, settings, imported
+models, and files you choose for research or scheduled work. It also keeps a
+record of approved actions so you can review what happened.
 
-Android local notifications provide a reboot-safe best-effort wake-up, but Android
-may defer background execution because of battery policy, force-stop, locked-device
-state, storage pressure, or revoked notification permission. Demi does not promise
-exact-time model execution: it recovers due jobs when the app becomes active and
-records failed or missed runs without deleting the job definition. Monitors
-record a local baseline and notify only when their configured count condition
-matches.
+On Android, saved personal data is protected with device-bound encryption.
+That protects stored data; it does not encrypt a prompt while the app is using
+it. The browser preview does not have Android’s encryption, so it should not be
+treated as proof of Android security.
 
-## Stored on the device
+## Voice, reminders, and background work
 
-- Conversation history
-- Approved memories and their short source excerpts
-- Appearance and behavior settings
-- Important dates and reminder notes
-- User-imported GGUF model files and their references
-- Bundled English speech models, unpacked into private app storage when prepared
-- The bounded, user-selected private research library (encrypted document
-  metadata and passages)
-- Sandboxed code action audit records and results (the selected input is used
-  transiently and is not copied into the audit record)
-- Encrypted scheduled job definitions, selected file contents, and bounded result history
-- Capability grants, connector references, schedules, redacted agent traces, and
-  user-visible action history
+- Voice input and spoken replies are processed on your device with the bundled
+  English voice models. Audio and reply text aren’t sent to a speech service.
+- Android receives reminder text and timing to show local notifications.
+- Scheduled work is optional. Notifications use general wording rather than
+  showing private source text. Android may delay background work, so Demi
+  can’t promise that it will run at an exact time.
+- Scheduled results stay on your device and are removed based on the retention
+  period shown for that job.
 
-## Voice and Android system services
+## Online features
 
-- When the user starts dictation, microphone audio is captured by the app and
-  processed locally with its bundled Moonshine US English model. It is not sent
-  to Android's speech-recognition service or a network speech API.
-- Spoken replies are synthesized locally with the bundled Piper US English
-  voice. Reply text is not sent to Android TextToSpeech or a network speech API.
-- Reminder title, body, and timing are passed to Android's local notification
-  scheduler.
+Remote replies, web research, model downloads, and connected services are
+optional. Each has its own approval.
 
-## Encryption and user control
+If you turn on remote replies, Demi may send the current task text—up to 1,800
+characters—to the provider you selected when an eligible local reply can’t run.
+It removes email addresses, phone numbers, and text that looks like a token.
+It does not send your saved chats, profile, memories, files, contacts, or screen
+content with that request.
 
-On Android, the personal profile, approved memories, saved conversations, and
-important dates are stored through Android Keystore-backed encrypted storage.
-The device-bound encryption material is never placed in AsyncStorage. Existing
-plaintext records are removed only after an encrypted copy is written and read
-back successfully.
+Web research only opens one public web address that you approve. The page is
+used for that answer and isn’t saved to your research library. Demi treats
+webpage content as untrusted and shows you the source used.
 
-### Local recovery export
+Connected services need a separate connection and review for each action.
+They don’t get general access to your phone or screen.
 
-Settings provides a user-started local recovery export. The verified,
-versioned JSON package contains only the supported recoverable records: saved
-conversation turns, approved memories, the personal profile, important dates,
-the encrypted research library, and scheduled work. Android lets the user
-choose a destination through the system document flow; the browser preview
-downloads the package locally. Demi does not upload the package.
+## Screen and file access
 
-Import validates the format, size, record limits, duplicate IDs, record
-shapes, and SHA-256 integrity before asking for confirmation. Confirmation
-replaces those supported categories as a transaction; a private on-device
-journal restores the previous records if a write, verification, storage, or
-cancellation step fails. Imported reminders and scheduled work receive new
-device-local notification state rather than reusing notification registrations
-from another device. A completed import is read back and reported as verified.
+Screen understanding is off unless you start a session and approve the access
+it needs. You can enable accessibility access in Android Settings or approve a
+screen-capture prompt. Demi processes screen information on the device and
+discards it when the session ends. Android may hide protected screens or fields;
+Demi doesn’t bypass those protections.
 
-The package never contains GGUF model binaries, Android Keystore or other
-device-bound encryption keys, privacy capability grants, raw audit events or
-runtime traces, notification registrations, credentials, connector secrets, or
-cloud provider secrets. Because the export is portable and not separately
-encrypted by Demi, save it only where you trust the storage and treat anyone
-with access to the file as able to read the included records. A lost or reset
-device-bound key still cannot be recovered through an account or cloud backup.
+When you choose a file, Demi can use that file for the feature you selected.
+It doesn’t scan shared storage or other apps’ private files on its own.
 
-The browser preview does not have Android Keystore protection. It labels this
-state as local preview storage and does not claim device encryption.
-The preview is not evidence that Android secure storage, native voice, model
-loading, notifications, or offline behavior works on a physical device.
+## Exporting and restoring your data
 
-## Capability boundary
+You can start a local recovery export from Settings. Demi doesn’t upload it.
+The export includes supported items such as chats, saved memories, your profile,
+important dates, research files, and scheduled work. It does not include model
+files, device encryption keys, permissions, credentials, or private action
+traces.
 
-Every privileged action has a named capability with a purpose, scope, data
-sensitivity, lifetime, network classification, and approval state. The local
-model, verified offline voice input/output, and local reminders are separate
-capabilities. They can be paused or revoked independently from Settings.
+The export file is not separately encrypted by Demi. Anyone who can open the
+file can read its contents, so save it somewhere you trust. Restoring it replaces
+the supported data after you confirm. Demi checks the file and verifies the
+restore; it can roll back if something goes wrong. A lost device encryption key
+cannot be recovered through an account or cloud backup.
 
-Network connectors, remote inference, and recommended model downloads each
-have a separate capability and are off by default. If remote inference is
-enabled, Demi sends the current task input (up to 1,800 characters) to the
-configured server-managed provider only when local inference is unavailable or
-fails for an eligible device/runtime reason. Email addresses, phone numbers,
-and token-like secrets are redacted. The request also identifies the task and
-why local inference could not run. Saved history, profile, memories, files,
-contacts, and screen content are not included. Model-download approval applies
-only to the named model file, not conversation data. Connector actions require
-a separate connection and per-request review. Demi does not grant unrestricted
-device, screen, or connector access.
+## Your controls
 
-### Permissioned screen access
+You can pause or revoke optional capabilities in Settings. Clearing capability
+records removes permissions, connected-service references, schedules, and
+action history; it does not clear your chats, memories, or imported models.
+Memory and date suggestions aren’t saved unless you choose to save them.
 
-Screen understanding is a separate, session-only capability. It is not
-provided by ordinary Android runtime permissions and is never enabled silently.
-The session screen shows which of these sources are active:
+Code actions are off by default. If enabled, they work only with a CSV or JSON
+file you select, run limited calculations on-device, and cannot use the network
+or change files.
 
-- **Accessibility text:** only available after the user separately enables
-  Demi's declared accessibility service in Android Settings. The service is
-  scoped to visible node availability and does not log or retain node text.
-- **Screenshot pixels:** requested through Android MediaProjection's
-  user-facing consent dialog. The native bridge downsamples into a private
-  on-device reader, does not return raw pixels to JavaScript, and releases the
-  projection when the session ends, the app is paused, or the kill switch is
-  pressed.
-- **Selected device resource:** granted by Android's document picker one file at
-  a time. Demi does not scan shared storage or other apps' private storage.
+## What Demi doesn’t do by default
 
-Protected windows, password fields, banking content, secure/DRM-protected
-content, and content excluded by the user may be withheld by Android or
-ignored by the session policy. Demi does not bypass those protections. Screen
-processing is local by default, transient data is discarded at session end,
-and no connector or remote model receives screen data without a separate
-future disclosure and confirmation. Opening Android accessibility settings is
-shown as a reversible action preview and requires confirmation.
+- Create an account or sync chats to the cloud
+- Send data to a remote model or connected service without separate approval
+- Include language-model weights in the app
+- Use advertising or analytics software
 
-Opt-in web research is a separate capability. It is off by default and can
-only fetch one public HTTPS URL shown in a per-request consent dialog. Demi
-does not crawl links or silently open a browser. The fetched page is labeled
-as untrusted evidence, is passed to the local model only for the current
-answer, and is not retained in the encrypted research library. The user sees
-the URL, the model route, and the evidence passages used.
-
-The global privacy pause stops privileged actions and records the decision in
-local action history. Clearing capability data removes grants, connector
-references, schedules, traces, and audit history; it does not delete
-conversations, memories, or imported models.
-
-Sandboxed code actions are off by default and require a separate approval and a
-fresh review for each run. They operate only on a CSV or JSON file the user
-selects, use bounded calculations and transformations, and cannot write files,
-use the network, or control Android. Cancelling or failing leaves the selected
-file and app data unchanged. Results appear on screen; raw code, input, and
-output are omitted from the retained action-history summaries.
-
-## Threat boundary and retention
-
-The encrypted agent record is used for capability grants, connector references,
-scheduled-job metadata, redacted agent input/output and tool-call traces, and
-user-visible audit events. These records are retained for up to 30 days unless
-the user clears them sooner. Raw prompts, model outputs, credentials, and
-authentication secrets are not placed in ordinary local storage or in the
-action-history summary. Future connectors must store only a secure reference,
-not a secret value, in this record.
-
-Voice audio and reply text are processed locally by the app's bundled speech
-runtime. Android's local notification scheduler receives reminder content and
-timing. Transient prompts and model outputs exist in the local process while
-inference is running. Android Keystore-backed storage does **not** encrypt
-model prompts or transient process memory, and Demi does not claim that it
-does.
-
-The web preview uses local preview storage rather than Android Keystore
-protection. It is an interface and persistence preview, not proof of Android
-device encryption. The default flow has no account, cloud sync, analytics SDK,
-or server-side private-data store. Remote inference is optional and requires
-its own capability approval and a configured provider.
-
-Research answers are not verification claims. When no matching source passage
-is available, the UI says that the answer is not verified by a source. HTML
-scripts and styles are removed before display, local files are bounded before
-indexing, unsupported/binary files are rejected, and low-storage checks fail
-before a file is read into the research library. Cancellation prevents a late
-result from replacing the current workspace state.
-
-Memory suggestions are generated by the local model and remain unsaved until
-the user saves or edits them. Date suggestions open the Important Dates editor
-prefilled but unsaved. Approved memories can be searched, edited, archived, or
-deleted in the Memory vault.
-
-## Not used by default
-
-- User accounts
-- Cloud conversation sync
-- Remote AI inference or network connectors without separate approval
-- Analytics or advertising SDKs
-- Bundled GGUF language-model weights (none are included)
-
-The optional API server is not required by the default mobile flow.
-
-## User responsibility
-
-Imported model files have their own licenses and privacy characteristics. Only
-use models from trusted sources whose terms permit your intended use.
+Imported models have their own privacy practices and licenses. Only use models
+you trust.

@@ -1,72 +1,42 @@
-# Second Brain
+# Demi
 
-A local-first Android personal assistant for private, natural conversations stored on the device.
+Demi is an Android assistant that keeps your chats on your device by default.
+Keep online features optional and don’t claim that a preview proves an Android
+feature works.
 
-## Run & Operate
+## Getting started
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm --filter @workspace/second-brain run dev` — run the Expo mobile preview
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+Use Node.js 24 and pnpm 10:
 
-## Stack
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter @workspace/second-brain run dev
+```
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- Mobile: Expo, Expo Router, React Native, TypeScript
-- Local persistence: AsyncStorage
-- API: Express 5 (reserved for later opt-in network features)
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+Useful checks:
 
-## Where things live
+- `pnpm run typecheck` — check the project
+- `pnpm run build` — check and build the packages
+- `pnpm --filter @workspace/api-server run dev` — start the optional API server
 
-- `artifacts/second-brain/app/index.tsx` — local chat, offline voice controls, and conversation persistence
-- `artifacts/second-brain/app/settings.tsx` — appearance, voice, model, and local-data controls
-- `artifacts/second-brain/lib/offlineLlm.ts` — Android llama.cpp model runtime boundary
-- `artifacts/second-brain/lib/offlineVoice.ts` — Android on-device recognition and verified offline speech boundary
-- `artifacts/second-brain/lib/privacyCapabilities.ts` — named capability model, encrypted agent-state data shape, retention, and audit helpers
-- `artifacts/second-brain/modules/offline-tts` — local Android module that rejects network-backed TTS voices
-- `artifacts/second-brain/constants/colors.ts` — mobile color tokens
-- `artifacts/second-brain/assets/images/icon.png` — app icon
-- `artifacts/api-server` — shared API service for future opt-in network features
+The API server needs `DATABASE_URL`. The mobile preview does not.
 
-## Architecture decisions
+## Where to look
 
-- The local-first default stores conversation turns and settings with AsyncStorage; no backend or database is required.
-- Real model inference runs through llama.cpp in an installed native Android build after the user imports a compatible GGUF file.
-- Voice input requires Android 13+ on-device recognition and a verified installed offline language pack; Android 12 and older are blocked to prevent network fallback.
-- Spoken replies use only Android voices marked as not requiring a network connection; speaking stays unavailable until such a voice is installed.
-- Privileged actions use an encrypted local capability record. Local capabilities remain account-free; network capabilities are separate and ungranted by default.
-- Settings exposes a global privacy pause, independent capability pause/revoke controls, redacted action history, and capability-state clearing. Secure storage is described as at-rest protection only; it does not claim to encrypt prompts or transient process memory.
-- The product uses Rubik throughout the mobile interface.
+- `artifacts/second-brain/app/` — app screens
+- `artifacts/second-brain/lib/` — local model, voice, and privacy features
+- `artifacts/second-brain/modules/` — Android-specific features
+- `artifacts/api-server/` — optional server
 
-## Product
+## Please keep in mind
 
-- A private welcome state establishes local-only behavior.
-- Users can send messages, see a local response state, and reopen saved conversation history on the same device.
-- Users can configure appearance, haptics, and conversation saving from a dedicated Settings screen.
-- Users can dictate editable text offline and listen to or immediately stop locally spoken replies.
-- Users can install/manage Android offline recognition data and choose automatic spoken replies and speaking pace.
-- Users can review the saved message count and clear local history through a cross-platform confirmation flow.
-- Users can inspect and control local privacy capabilities without an account or remote inference.
-- Loading, storage-error, typing, disabled-send, empty, and persisted-chat states are handled.
-
-## User preferences
-
-- Keep cloud fallback, accounts, semantic memory, and task integrations opt-in and out of the local-first default.
-
-## Gotchas
-
-- The Expo preview starts through the managed `artifacts/second-brain: expo` workflow so preview environment variables are available.
-- Native llama.cpp and offline recognition require an installed Android native build; Expo Go and the browser preview remain honest setup/text previews.
-- Android publishing is not handled by Replit's Expo Launch; the static app config includes the package identity and native plugins needed by an external Android build pipeline.
-- Use an in-app confirmation modal for destructive actions; React Native system alerts do not provide a reliable confirmation flow in the web preview.
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Chats and settings stay local by default. Keep cloud features off unless the
+  user clearly chooses them.
+- Real model replies and offline voice need an installed Android build. The
+  browser and Expo Go previews are useful for checking screens, not those
+  Android-only features.
+- Android speech input needs Android 13 or newer and its offline language pack.
+- Android’s secure storage protects saved data on the device; it does not
+  encrypt prompts while the app is using them.
+- Ask for confirmation before clearing data or doing anything destructive.
+- See `docs/PRIVACY.md` before changing what Demi stores, shares, or sends online.

@@ -1,47 +1,37 @@
 # Demi
 
-Demi is an open-source, local-first Android personal assistant. By default, it
-keeps conversations and personal data on your device, works without an account,
-and can run replies with a compatible GGUF model you choose. The Android app
-also bundles US English offline dictation and spoken replies.
+Demi is a personal assistant for Android. It keeps your chats and personal
+information on your phone by default, and you don’t need an account to use it.
+You can use it offline with a compatible model you choose.
 
-## Get started
+## Try it on your computer
 
-Requirements: Node.js 24 and pnpm 10. Start the mobile preview with:
+You’ll need Node.js 24 and pnpm 10. From the project folder, run:
 
 ```bash
-git clone https://github.com/nebilua/second-brain.git
-cd second-brain
 corepack enable
 pnpm install --frozen-lockfile
 pnpm --filter @workspace/second-brain run dev
 ```
 
-For native Android development, install Android Studio and its SDK, then run:
+This opens a preview so you can look around. Some features—like offline voice,
+Android storage protection, and running a model—need an Android build to test.
 
-```bash
-cd artifacts/second-brain
-pnpm exec expo prebuild --platform android
-pnpm exec expo run:android
-```
+## A few things to know
 
-In Demi, prepare the bundled English voice in **Settings → Local voice setup**
-and import a compatible GGUF model in **Settings → Model setup & diagnostics**
-for local replies. Model weights are not included. The browser and Expo Go
-previews are for interface checks; they cannot verify native voice, model
-loading, Android secure storage, or offline behavior.
+- Demi includes English voice input and spoken replies that work offline on
+  supported Android devices.
+- Model files aren’t included. Import a compatible model in **Settings** to use
+  on-device replies.
+- Online features are optional and ask for permission before they’re used.
 
-## Guides
+## More
 
-- [Privacy and data handling](docs/PRIVACY.md)
-- [Technical architecture](docs/ARCHITECTURE.md)
+- [How Demi handles your data](docs/PRIVACY.md)
 - [Contributing](CONTRIBUTING.md)
-- [Android alpha release checklist](docs/ANDROID_ALPHA_RELEASE.md) — required
-  workspace, APK, and physical-device checks before distributing an alpha
-- [Dependency license audit](docs/DEPENDENCY_LICENSES.md)
-- [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [Android release checklist](docs/ANDROID_ALPHA_RELEASE.md)
+- [Other project guides](docs/)
+- [License](LICENSE)
 
-## License
-
-Demi is released under the [MIT License](LICENSE). Imported model files have
-their own licenses; use only models whose terms permit your intended use.
+Imported models have their own licenses, so check the terms before using one.
+Demi’s code is released under the MIT License.
