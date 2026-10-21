@@ -14,6 +14,9 @@ async function main() {
   const diagnostics = await import(
     pathToFileURL(path.resolve(__dirname, "../lib/runtimeDiagnostics.ts")).href
   );
+  const { runLocalModelBenchmark } = await import(
+    pathToFileURL(path.resolve(__dirname, "../lib/modelBenchmark.ts")).href
+  );
 
   assert.match(contextSource, /startRuntimeMetric\("startup\.local-data"\)/);
   assert.match(contextSource, /startRuntimeMetric\("conversation\.persist"/);
@@ -43,6 +46,26 @@ async function main() {
   assert.ok(metrics.every((metric) => metric.recordedAt > 0));
   assert.ok(metrics[0].durationMs >= 0);
 
+  const benchmarkSamples = [
+    { firstTokenMs: 999, tokensPerSecond: 1, durationMs: 1000 },
+    { firstTokenMs: 40, tokensPerSecond: 20, durationMs: 700 },
+    { firstTokenMs: 30, tokensPerSecond: 40, durationMs: 600 },
+    { firstTokenMs: 50, tokensPerSecond: 30, durationMs: 800 },
+  ];
+  let benchmarkCalls = 0;
+  const benchmark = await runLocalModelBenchmark(async () => {
+    const sample = benchmarkSamples[benchmarkCalls];
+    benchmarkCalls += 1;
+    return sample;
+  });
+  assert.equal(benchmarkCalls, 4, "one warm-up and three measured samples");
+  assert.deepEqual(benchmark, {
+    sampleCount: 3,
+    medianFirstTokenMs: 40,
+    medianTokensPerSecond: 30,
+    medianDurationMs: 700,
+  });
+
   console.log(
     JSON.stringify(
       {
@@ -57,6 +80,13 @@ async function main() {
           "conversation.stream-render",
         ],
         streamPaintIntervalMs: 50,
+        benchmark: {
+          warmupSamples: 1,
+          measuredSamples: benchmark.sampleCount,
+          medianFirstTokenMs: benchmark.medianFirstTokenMs,
+          medianTokensPerSecond: benchmark.medianTokensPerSecond,
+          medianDurationMs: benchmark.medianDurationMs,
+        },
         sampleMetrics: metrics.map(({ name, durationMs, count, details }) => ({
           name,
           durationMs,

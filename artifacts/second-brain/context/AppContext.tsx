@@ -117,9 +117,15 @@ import {
   MAX_SCREEN_FILE_BYTES, type SharedScreenContext,
 } from "@/lib/sharedScreenContext";
 import {
+  getRuntimeDiagnostics,
   recordRuntimeEvent,
   startRuntimeMetric,
 } from "@/lib/runtimeDiagnostics";
+import {
+  runLocalModelBenchmark,
+  type InferenceBenchmarkSample,
+  type InferenceBenchmarkSummary,
+} from "@/lib/modelBenchmark";
 
 export type Appearance = "system" | "light" | "dark";
 
@@ -293,6 +299,7 @@ export type ChatContextValue = {
     priority?: number,
     guard?: () => boolean,
   ) => Promise<string>;
+  benchmarkLocalModel: () => Promise<InferenceBenchmarkSummary>;
   clearConversation: () => Promise<void>;
 };
 
@@ -2895,6 +2902,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     onToken?: (token: string) => void,
     priority = 1,
     guard: () => boolean = () => true,
+    includePersonalContext = true,
   ) {
     const trimmedPrompt = prompt.trim();
     if (
@@ -2911,11 +2919,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       llamaContextRef.current,
       [{ role: "user", content: trimmedPrompt }],
       onToken ?? (() => undefined),
-      {
-        displayName: profile.displayName,
-        context: profile.context,
-        memories: selectRelevantMemories(memories, trimmedPrompt, 3),
-      },
+      includePersonalContext
+        ? {
+            displayName: profile.displayName,
+            context: profile.context,
+            memories: selectRelevantMemories(memories, trimmedPrompt, 3),
+          }
+        : undefined,
       priority,
       () => guard() && isCapabilityActive(privacyStateRef.current, "local.inference"),
     );
@@ -2927,6 +2937,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       throw error;
     }
+  }
+
+  async function benchmarkLocalModel() {
+    const prompt =
+      "Write exactly three short bullet points about taking a short break. Keep each bullet under six words.";
+    const runSample = async (): Promise<InferenceBenchmarkSample> => {
+      const previousCompletion = getRuntimeDiagnostics()
+        .filter((metric) => metric.name === "inference.completion")
+        .at(-1);
+      await runLocalInference(prompt, undefined, 1, () => true, false);
+      const completion = getRuntimeDiagnostics()
+        .filter((metric) => metric.name === "inference.completion")
+        .at(-1);
+      if (!completion || completion === previousCompletion) {
+        throw new Error("The local model did not record a completion timing.");
+      }
+      const firstTokenMs = completion?.details?.firstTokenMs;
+      const tokensPerSecond = completion?.details?.tokensPerSecond;
+      const durationMs = completion?.details?.durationMs;
+      if (
+        typeof firstTokenMs !== "number" ||
+        firstTokenMs < 0 ||
+        typeof tokensPerSecond !== "number" ||
+        typeof durationMs !== "number"
+      ) {
+        throw new Error("The local model did not provide complete timing data.");
+      }
+      return { firstTokenMs, tokensPerSecond, durationMs };
+    };
+    return runLocalModelBenchmark(runSample);
   }
 
   async function clearConversation() {
@@ -3234,6 +3274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       rejectMemoryCandidate: () => setPendingMemoryCandidate(null),
       sendMessage,
       runLocalInference,
+      benchmarkLocalModel,
       clearConversation,
     }),
     [
@@ -3247,6 +3288,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       engineStatus,
       profile,
       memories,
+      benchmarkLocalModel,
     ],
   );
 

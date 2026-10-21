@@ -221,15 +221,30 @@ export async function loadNativeModel(
 
   await llama.installJsi();
 
-  const finishLoad = startRuntimeMetric('inference.load', { contextTokens: model.contextSize, threads: compatibility.memoryBytes !== null && compatibility.memoryBytes < 6 * GIB ? 3 : 4, gpuLayers: 0 });
+  const threads =
+    compatibility.memoryBytes !== null && compatibility.memoryBytes < 6 * GIB
+      ? 3
+      : 4;
+  const gpuLayers = 0;
+  const batchSize = 256;
+  const microBatchSize = 128;
+  const finishLoad = startRuntimeMetric('inference.load', {
+    contextTokens: model.contextSize,
+    threads,
+    gpuLayers,
+    batchSize,
+    microBatchSize,
+    modelBytes: model.sizeBytes,
+    deviceMemoryBytes: compatibility.memoryBytes ?? -1,
+  });
   const context = await scheduleNative(() => llama.initLlama(
     {
       model: model.uri,
       n_ctx: model.contextSize,
-      n_batch: 256,
-      n_ubatch: 128,
-      n_threads: compatibility.memoryBytes !== null && compatibility.memoryBytes < 6 * GIB ? 3 : 4,
-      n_gpu_layers: 0,
+      n_batch: batchSize,
+      n_ubatch: microBatchSize,
+      n_threads: threads,
+      n_gpu_layers: gpuLayers,
       use_mmap: true,
       use_mlock: false,
       no_extra_bufts: compatibility.memoryBytes !== null && compatibility.memoryBytes < 6 * GIB,
@@ -243,7 +258,7 @@ export async function loadNativeModel(
     throw failure;
   });
   contextSizes.set(context, model.contextSize);
-  finishLoad();
+  finishLoad({ gpuEnabled: context.gpu });
 
   return {
     context,

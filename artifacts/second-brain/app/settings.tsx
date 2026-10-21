@@ -39,6 +39,7 @@ import {
 } from "@/lib/privacyCapabilities";
 import { TOOL_REGISTRY } from "@/lib/toolRegistry";
 import { getRuntimeDiagnostics, type RuntimeMetric } from "@/lib/runtimeDiagnostics";
+import type { InferenceBenchmarkSummary } from "@/lib/modelBenchmark";
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: "system", label: "System" },
@@ -726,7 +727,7 @@ export default function SettingsScreen() {
     refreshStorageUsage,
     reclaimUnusedModelFiles,
   } = useApp();
-  const { clearConversation } = useChat();
+  const { clearConversation, benchmarkLocalModel } = useChat();
   const {
     status: localDataTransferStatus,
     message: localDataTransferMessage,
@@ -759,6 +760,12 @@ export default function SettingsScreen() {
   const [privacyDetailsExpanded, setPrivacyDetailsExpanded] = useState(false);
   const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
   const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetric[]>([]);
+  const [isModelBenchmarking, setIsModelBenchmarking] = useState(false);
+  const [modelBenchmarkResult, setModelBenchmarkResult] =
+    useState<InferenceBenchmarkSummary | null>(null);
+  const [modelBenchmarkError, setModelBenchmarkError] = useState<string | null>(
+    null,
+  );
   const [activeCategory, setActiveCategory] = useState<SettingsCategory | null>(
     null,
   );
@@ -931,6 +938,35 @@ export default function SettingsScreen() {
       // Keep the confirmation open so a failed clear is not reported as success.
     } finally {
       setIsClearingPrivacy(false);
+    }
+  }
+
+  async function runModelSpeedTest() {
+    if (isModelBenchmarking || engineStatus !== "ready") return;
+    setIsModelBenchmarking(true);
+    setModelBenchmarkError(null);
+    setModelBenchmarkResult(null);
+    try {
+      const result = await benchmarkLocalModel();
+      setModelBenchmarkResult(result);
+      setRuntimeMetrics(
+        getRuntimeDiagnostics()
+          .filter((metric) =>
+            ["inference.load", "inference.completion", "inference.failure"].includes(
+              metric.name,
+            ),
+          )
+          .slice(-6)
+          .reverse(),
+      );
+    } catch (error) {
+      setModelBenchmarkError(
+        error instanceof Error
+          ? error.message
+          : "The local model speed test did not finish.",
+      );
+    } finally {
+      setIsModelBenchmarking(false);
     }
   }
 
@@ -2075,10 +2111,40 @@ export default function SettingsScreen() {
               <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>{showRuntimeDiagnostics ? "Hide diagnostics" : "Diagnostics"}</Text>
             </Pressable>
             {showRuntimeDiagnostics && <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary, marginTop: 12 }]}>
-              <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>Local timings only. No prompts, model paths, or captured text. CPU defaults are unchanged; a faster model is optional, not a measured promise.</Text>
+              <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>Local timings only. No prompts, model paths, or generated text are saved. The speed test uses a fixed prompt without your profile or memories, one warm-up, and three measured replies.</Text>
+              <Pressable
+                testID="run-local-model-speed-test"
+                accessibilityRole="button"
+                disabled={isModelBenchmarking || engineStatus !== "ready"}
+                onPress={() => void runModelSpeedTest()}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  {
+                    borderColor: colors.border,
+                    marginTop: 10,
+                    opacity:
+                      isModelBenchmarking || engineStatus !== "ready" ? 0.5 : 1,
+                  },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>
+                  {isModelBenchmarking ? "Running local speed test…" : "Run local speed test"}
+                </Text>
+              </Pressable>
+              {modelBenchmarkResult && (
+                <Text style={[styles.readinessDesc, { color: colors.foreground, marginTop: 8 }]}>
+                  Median of {modelBenchmarkResult.sampleCount}: first token {Math.round(modelBenchmarkResult.medianFirstTokenMs)} ms · {modelBenchmarkResult.medianTokensPerSecond.toFixed(1)} tokens/s · total {Math.round(modelBenchmarkResult.medianDurationMs)} ms.
+                </Text>
+              )}
+              {modelBenchmarkError && (
+                <Text style={[styles.readinessDesc, { color: colors.destructive, marginTop: 8 }]}>
+                  {modelBenchmarkError}
+                </Text>
+              )}
               {runtimeMetrics.length === 0 && <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>No native measurements in this session.</Text>}
               {runtimeMetrics.map((metric, index) => <Text key={`${metric.recordedAt}-${index}`} style={[styles.readinessDesc, { color: colors.foreground, marginTop: 8 }]}>
-                {metric.name === 'inference.load' ? `Load: ${Math.round(metric.durationMs ?? 0)} ms · context ${metric.details?.contextTokens ?? "?"}` :
+                {metric.name === 'inference.load' ? `Load: ${Math.round(metric.durationMs ?? 0)} ms · context ${metric.details?.contextTokens ?? "?"} · ${metric.details?.threads ?? "?"} CPU threads · batch ${metric.details?.batchSize ?? "?"} · GPU layers ${metric.details?.gpuLayers ?? "?"} · ${metric.details?.gpuEnabled ? "GPU active" : "CPU only"}` :
                   metric.name === 'inference.failure' ? `Stopped: ${metric.details?.category ?? "runtime"} · ${metric.details?.phase ?? "completion"} · ${metric.details?.durationMs ?? 0} ms` :
                     `First token: ${metric.details?.firstTokenMs ?? "?"} ms · ${Number(metric.details?.tokensPerSecond ?? 0).toFixed(1)} tokens/s · input ${metric.details?.inputTokens ?? "?"} · output reserve ${metric.details?.outputReserve ?? "?"}`}
               </Text>)}
