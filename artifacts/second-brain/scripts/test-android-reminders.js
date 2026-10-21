@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const Module = require('node:module');
 const path = require('node:path');
+const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 
 process.env.TZ = 'Asia/Amman';
@@ -37,6 +38,16 @@ Module._load = function load(request, parent, isMain) {
 };
 
 async function main() {
+  const appConfig = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, '../app.json'), 'utf8'),
+  );
+  assert.ok(
+    appConfig.expo.android.permissions.includes(
+      'android.permission.SCHEDULE_EXACT_ALARM',
+    ),
+    'Android builds must declare exact-alarm access so scheduled reminders can fire on time.',
+  );
+
   const reminders = await import(
     pathToFileURL(path.resolve(__dirname, '../lib/reminders.ts')).href
   );

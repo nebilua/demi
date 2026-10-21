@@ -41,7 +41,9 @@ function daysUntil(reminder: DateReminder) {
 function notificationStatusLabel(reminder: DateReminder) {
   switch (reminder.notificationState) {
     case 'scheduled':
-      return timingLabel(reminder.remindMinutesBefore);
+      return Platform.OS === 'android'
+        ? `${timingLabel(reminder.remindMinutesBefore)} · Allow Alarms & reminders in Android settings for reliable timing.`
+        : timingLabel(reminder.remindMinutesBefore);
     case 'permission-denied':
       return 'Notifications are off. Open Android settings, then retry.';
     case 'past':
@@ -328,6 +330,19 @@ export default function CalendarScreen() {
                 >
                   {notificationStatusLabel(item)}
                 </Text>
+                {Platform.OS === 'android' &&
+                  item.notificationState === 'scheduled' && (
+                    <Pressable
+                      testID={`open-alarm-settings-${item.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open Android settings for reminder alerts"
+                      onPress={() => void Linking.openSettings()}
+                    >
+                      <Text style={[styles.retryText, { color: colors.primary }]}>
+                        Settings
+                      </Text>
+                    </Pressable>
+                  )}
                 {item.notificationState !== 'scheduled' &&
                   item.notificationState !== 'past' &&
                   item.notificationState !== 'unavailable' && (

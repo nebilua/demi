@@ -31,6 +31,7 @@ const expectedCmakeVersion = '3.22.1';
 const requiredPermissions = [
   'android.permission.RECORD_AUDIO',
   'android.permission.POST_NOTIFICATIONS',
+  'android.permission.SCHEDULE_EXACT_ALARM',
 ];
 const requiredNativeEntries = [
   'lib/arm64-v8a/librnllama.so',
