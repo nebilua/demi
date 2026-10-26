@@ -118,11 +118,8 @@ export function PersonalProfileEditor({
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <View style={styles.headingRow}>
-              <View style={[styles.icon, { backgroundColor: colors.accent }]}>
-                <Feather name="user" size={20} color={colors.primary} />
-              </View>
-              {!isOnboarding && onClose && (
+            {!isOnboarding && onClose && (
+              <View style={styles.headingRow}>
                 <Pressable
                   testID="close-profile-editor"
                   accessibilityRole="button"
@@ -133,11 +130,8 @@ export function PersonalProfileEditor({
                 >
                   <Feather name="x" size={20} color={colors.mutedForeground} />
                 </Pressable>
-              )}
-            </View>
-            <Text style={[styles.eyebrow, { color: colors.primary }]}>
-              {isOnboarding ? 'OPTIONAL · ON THIS DEVICE' : 'LOCAL PROFILE'}
-            </Text>
+              </View>
+            )}
             <Text style={[styles.title, { color: colors.cardForeground }]}>
               {isOnboarding
                 ? 'A little context, on your terms.'
@@ -149,13 +143,6 @@ export function PersonalProfileEditor({
                 : 'Review or update the private context used by the offline model.'}
             </Text>
 
-            <View style={[styles.privacyNote, { backgroundColor: colors.secondary }]}>
-              <Feather name="shield" size={15} color={colors.primary} />
-              <Text style={[styles.privacyText, { color: colors.foreground }]}>
-                Your answers stay on this device and are never sent to the API
-                server or a cloud service.
-              </Text>
-            </View>
             {error && (
               <View style={[styles.errorNote, { backgroundColor: colors.secondary }]}>
                 <Feather name="alert-circle" size={14} color={colors.destructive} />
@@ -310,20 +297,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
-  icon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  eyebrow: {
-    fontFamily: 'SpaceGrotesk_700Bold',
-    fontSize: 9,
-    letterSpacing: 1.2,
-    marginTop: 18,
-    marginBottom: 8,
-  },
   title: {
     fontFamily: 'SpaceGrotesk_600SemiBold',
     fontSize: 26,
@@ -336,21 +309,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     marginBottom: 15,
-  },
-  privacyNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    borderRadius: 12,
-    paddingHorizontal: 11,
-    paddingVertical: 10,
-    marginBottom: 18,
-  },
-  privacyText: {
-    flex: 1,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 11,
-    lineHeight: 16,
   },
   errorNote: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, borderRadius: 12, padding: 10, marginBottom: 14 },
   errorText: { flex: 1, fontFamily: 'Inter_400Regular', fontSize: 11, lineHeight: 16 },
