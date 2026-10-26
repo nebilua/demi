@@ -7,6 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "second-brain",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#FFF7F8"
+    },
     "ios": {
       "supportsTablet": false
     },
