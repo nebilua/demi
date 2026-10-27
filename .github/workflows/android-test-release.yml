@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -47,6 +49,16 @@ jobs:
             "build-tools;36.0.0" \
             "ndk;27.1.12297006" \
             "cmake;3.22.1"
+
+      - name: Verify bundled voice models
+        run: |
+          for asset in \
+            artifacts/second-brain/modules/offline-tts/android/src/main/assets/voice-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2 \
+            artifacts/second-brain/modules/offline-tts/android/src/main/assets/voice-models/vits-piper-en_US-ljspeech-medium.tar.bz2; do
+            test -s "$asset"
+            test "$(wc -c < "$asset")" -gt 1000000
+            ! head -c 256 "$asset" | grep -q '^version https://git-lfs'
+          done
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
