@@ -1721,8 +1721,8 @@ export default function SettingsScreen() {
             { backgroundColor: colors.card, borderColor: colors.border },
           ]}
         >
-          <View style={styles.readinessItem}>
-            <View style={styles.readinessHeader}>
+          <View style={styles.modelSetupContent}>
+            <View style={[styles.readinessHeader, styles.modelSetupHeader]}>
               <Feather
                 name="cpu"
                 size={16}
@@ -1765,7 +1765,8 @@ export default function SettingsScreen() {
             <View
               style={[
                 styles.diagnosticBox,
-                { backgroundColor: colors.secondary, marginTop: 8 },
+                styles.modelSetupAction,
+                { backgroundColor: colors.secondary },
               ]}
             >
               <Text
@@ -1803,6 +1804,7 @@ export default function SettingsScreen() {
                 <View
                   style={[
                     styles.downloadBox,
+                    styles.modelSetupAction,
                     { backgroundColor: colors.secondary },
                   ]}
                 >
@@ -1873,6 +1875,7 @@ export default function SettingsScreen() {
               <View
                 style={[
                   styles.downloadBox,
+                  styles.modelSetupAction,
                   { backgroundColor: colors.secondary },
                 ]}
               >
@@ -1930,6 +1933,7 @@ export default function SettingsScreen() {
               <View
                 style={[
                   styles.downloadBox,
+                  styles.modelSetupAction,
                   { backgroundColor: colors.secondary },
                 ]}
               >
@@ -1954,6 +1958,7 @@ export default function SettingsScreen() {
               <View
                 style={[
                   styles.downloadBox,
+                  styles.modelSetupAction,
                   { backgroundColor: colors.secondary },
                 ]}
               >
@@ -2020,10 +2025,10 @@ export default function SettingsScreen() {
             <Pressable testID="toggle-runtime-diagnostics" accessibilityRole="button" accessibilityState={{ expanded: showRuntimeDiagnostics }} onPress={() => {
               setShowRuntimeDiagnostics(!showRuntimeDiagnostics);
               setRuntimeMetrics(getRuntimeDiagnostics().filter(metric => ['inference.load', 'inference.completion', 'inference.failure'].includes(metric.name)).slice(-6).reverse());
-            }} style={[styles.secondaryButton, { borderColor: colors.border }]}>
+            }} style={[styles.secondaryButton, styles.modelSetupAction, { borderColor: colors.border }]}>
               <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>{showRuntimeDiagnostics ? "Hide diagnostics" : "Diagnostics"}</Text>
             </Pressable>
-            {showRuntimeDiagnostics && <View style={[styles.diagnosticBox, { backgroundColor: colors.secondary, marginTop: 12 }]}>
+            {showRuntimeDiagnostics && <View style={[styles.diagnosticBox, styles.modelSetupAction, { backgroundColor: colors.secondary }]}>
               <Text style={[styles.readinessDesc, { color: colors.mutedForeground }]}>Local timings only. No prompts, model paths, or generated text are saved. The speed test uses a fixed prompt without your profile or memories, one warm-up, and three measured replies.</Text>
               <Pressable
                 testID="run-local-model-speed-test"
@@ -2070,7 +2075,8 @@ export default function SettingsScreen() {
               <Text
                 style={[
                   styles.errorText,
-                  { color: colors.destructive, marginTop: 8 },
+                  styles.modelSetupAction,
+                  { color: colors.destructive },
                 ]}
               >
                 {modelDownloadApprovalError || downloadError || engineError}
@@ -2087,7 +2093,8 @@ export default function SettingsScreen() {
               }}
               style={({ pressed }) => [
                 styles.secondaryButton,
-                { borderColor: colors.border, marginTop: 12 },
+                styles.modelSetupAction,
+                { borderColor: colors.border },
                 pressed && styles.pressed,
               ]}
             >
@@ -3339,6 +3346,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   readinessItem: { paddingVertical: 8 },
+  modelSetupContent: { paddingVertical: 8, gap: 10 },
+  modelSetupHeader: { marginBottom: 0 },
+  modelSetupAction: { marginTop: 0 },
   readinessHeader: {
     flexDirection: "row",
     alignItems: "center",
