@@ -2,7 +2,7 @@
   "expo": {
     "name": "Demi",
     "slug": "demi",
-    "version": "0.1.0-alpha.3",
+    "version": "0.1.0-alpha.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "second-brain",
@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "com.secondbrain.localassistant",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.SCHEDULE_EXACT_ALARM"
