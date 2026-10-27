@@ -90,6 +90,21 @@ Module._load = function load(request, parent, isMain) {
       },
     };
   }
+  if (request === 'expo-constants') {
+    return {
+      __esModule: true,
+      default: {
+        expoConfig: { version: 'test', android: { versionCode: 1 } },
+        nativeBuildVersion: '1',
+      },
+    };
+  }
+  if (request === 'expo-sharing') {
+    return {
+      isAvailableAsync: async () => true,
+      shareAsync: async () => {},
+    };
+  }
   if (request === '@/context/ScheduledJobsContext') return { useScheduledJobs: () => scheduledValue };
   if (request === 'react-native-reanimated') {
     const transition = (name) => ({

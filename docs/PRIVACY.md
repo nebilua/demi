@@ -86,6 +86,13 @@ important dates, research files, and scheduled work. It does not include model
 files, device encryption keys, permissions, credentials, or private action
 traces.
 
+Settings also offers an optional bug report. Before sharing or saving it, review
+the app version/build, platform and OS version, model readiness, and a bounded
+list of model event categories and timings. The report does not include chats,
+prompts, memories, document contents, model names or paths, credentials, or raw
+error messages. Demi does not upload the report; the system share menu or browser
+download is opened only after you choose to export it.
+
 The export file is not separately encrypted by Demi. Anyone who can open the
 file can read its contents, so save it somewhere you trust. Restoring it replaces
 the supported data after you confirm. Demi checks the file and verifies the

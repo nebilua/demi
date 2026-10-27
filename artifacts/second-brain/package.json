@@ -15,6 +15,7 @@
     "test:demi-repairs": "tsx scripts/test-demi-repairs.js",
     "test:local-data-transfer": "tsx scripts/test-local-data-transfer.js",
     "test:component-failures": "tsx scripts/test-component-failures.js",
+    "test:bug-report": "tsx scripts/test-bug-report.js",
     "profile:runtime": "tsx scripts/profile-runtime.js",
     "test:voice-boundaries": "tsx scripts/test-voice-boundaries.js",
     "test:public-guides": "tsx scripts/test-public-guides.js",
@@ -90,6 +91,7 @@
     "expo-file-system": "~57.0.6",
     "expo-notifications": "~57.0.17",
     "expo-secure-store": "~57.0.1",
+    "expo-sharing": "~57.0.24",
     "js-sha256": "^1.0.0",
     "llama.rn": "0.13.0-rc.2"
   }

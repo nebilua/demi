@@ -20,6 +20,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import { BugReportExport } from "@/components/BugReportExport";
 import { PersonalProfileEditor } from "@/components/PersonalProfileEditor";
 import { useApp, useChat, type Appearance } from "@/context/AppContext";
 import { useLocalDataTransfer } from "@/context/LocalDataTransferContext";
@@ -760,6 +761,8 @@ export default function SettingsScreen() {
   const [privacyDetailsExpanded, setPrivacyDetailsExpanded] = useState(false);
   const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
   const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetric[]>([]);
+  const [showBugReportExport, setShowBugReportExport] = useState(false);
+  const [bugReportMetrics, setBugReportMetrics] = useState<RuntimeMetric[]>([]);
   const [isModelBenchmarking, setIsModelBenchmarking] = useState(false);
   const [modelBenchmarkResult, setModelBenchmarkResult] =
     useState<InferenceBenchmarkSummary | null>(null);
@@ -2148,6 +2151,32 @@ export default function SettingsScreen() {
                 {modelDownloadApprovalError || downloadError || engineError}
               </Text>
             )}
+            <Pressable
+              testID="open-bug-report-preview"
+              accessibilityRole="button"
+              accessibilityLabel="Review privacy-safe bug report"
+              accessibilityHint="Preview a local report before choosing whether to share or save it."
+              onPress={() => {
+                setBugReportMetrics(getRuntimeDiagnostics());
+                setShowBugReportExport(true);
+              }}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { borderColor: colors.border, marginTop: 12 },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.secondaryButtonText, { color: colors.foreground }]}>
+                Review bug report
+              </Text>
+            </Pressable>
+            <BugReportExport
+              visible={showBugReportExport}
+              onClose={() => setShowBugReportExport(false)}
+              metrics={bugReportMetrics}
+              modelStatus={engineStatus}
+              colors={colors}
+            />
           </View>
         </View>
         </CollapsibleSection>
