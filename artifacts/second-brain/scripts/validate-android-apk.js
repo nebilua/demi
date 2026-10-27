@@ -309,7 +309,7 @@ function buildApk(androidEnvironment) {
       '--console=plain',
       '--max-workers=1',
       '-Dorg.gradle.parallel=false',
-      '-Dorg.gradle.jvmargs=-Xmx1024m -XX:MaxMetaspaceSize=384m',
+      '-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m',
       '-Pkotlin.compiler.execution.strategy=in-process',
       '-PrnllamaBuildFromSource=false',
       '-PreactNativeArchitectures=arm64-v8a',
