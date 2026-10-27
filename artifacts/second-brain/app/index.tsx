@@ -532,6 +532,7 @@ export default function DemiScreen() {
             style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.border }]}
           >
             <Pressable
+              testID="close-home-composer"
               accessibilityRole="button"
               accessibilityLabel="Close message composer"
               onPress={() => setShowKeyboard(false)}
@@ -567,6 +568,7 @@ export default function DemiScreen() {
               autoFocus
             />
             <Pressable
+              testID="send-home-message"
               accessibilityRole="button"
               accessibilityLabel={selectedDocument ? "Send request using attached document locally" : "Send message"}
               onPress={handleSend}
@@ -710,6 +712,21 @@ export default function DemiScreen() {
               >
                 <Feather name="code" size={17} color={colors.primary} />
                 <Text style={[styles.toolMenuTitle, { color: colors.primary }]}>Sandboxed code actions</Text>
+                <Feather name="chevron-right" size={17} color={colors.primary} />
+              </Pressable>
+              <Pressable
+                testID="home-tools-private-research"
+                accessibilityRole="button"
+                accessibilityLabel="Open private research workspace"
+                accessibilityHint="Ask questions about files stored on this device, with optional one-source web research."
+                onPress={() => {
+                  setShowHomeTools(false);
+                  router.push('/research' as never);
+                }}
+                style={({ pressed }) => [styles.advancedToolLink, pressed && styles.pressed]}
+              >
+                <Feather name="search" size={17} color={colors.primary} />
+                <Text style={[styles.toolMenuTitle, { color: colors.primary }]}>Private research workspace</Text>
                 <Feather name="chevron-right" size={17} color={colors.primary} />
               </Pressable>
             </View>
@@ -949,7 +966,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
   },
-  composerSafe: { width: '100%' },
+  composerSafe: { width: '100%', minWidth: 0 },
   composerIconButton: {
     minWidth: 44,
     minHeight: 44,
@@ -1003,26 +1020,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   composer: {
+    alignSelf: 'stretch',
+    minWidth: 0,
+    flexShrink: 1,
     minHeight: 60,
-    marginHorizontal: 16,
-    marginBottom: 12,
+    marginHorizontal: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderRadius: 24,
-    paddingLeft: 8,
-    paddingRight: 8,
+    paddingHorizontal: 6,
     paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
   closeKeyboardButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
+    flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 4,
   },
   input: {
     flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
     minHeight: 36,
     maxHeight: 120,
     paddingTop: 8,
@@ -1032,12 +1053,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    flexShrink: 0,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
+    marginLeft: 2,
   },
   toolsBackdrop: {
     flex: 1,

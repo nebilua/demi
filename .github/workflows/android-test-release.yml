@@ -40,17 +40,22 @@ jobs:
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
+            "platforms;android-36" \
             "build-tools;35.0.0" \
+            "build-tools;36.0.0" \
             "ndk;27.1.12297006" \
             "cmake;3.22.1"
 
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check types and Android reminders
+      - name: Run focused baseline checks
         run: |
-          pnpm run typecheck
-          pnpm run test:android-reminders
+          pnpm --filter @workspace/second-brain run typecheck
+          pnpm --filter @workspace/second-brain run test:feature-flows
+          pnpm --filter @workspace/second-brain run test:component-failures
+          pnpm --filter @workspace/second-brain run test:android-reminders
+          pnpm --filter @workspace/second-brain run test:android-release
 
       - name: Build and validate arm64 APK
         run: node artifacts/second-brain/scripts/validate-android-apk.js
@@ -62,10 +67,29 @@ jobs:
           VERSION="$(node -p "require('./artifacts/second-brain/app.json').expo.version")"
           APK="artifacts/second-brain/android/app/build/outputs/apk/release/app-release.apk"
           RELEASE_APK="Demi-${VERSION}-arm64.apk"
+          VERSION_CODE="$(node -p "require('./artifacts/second-brain/app.json').expo.android.versionCode")"
           test -s "$APK"
           cp "$APK" "$RELEASE_APK"
+          APK_SHA256="$(sha256sum "$RELEASE_APK" | cut -d' ' -f1)"
+          RELEASE_NOTES="$RUNNER_TEMP/${VERSION}-release-notes.md"
+          cat > "$RELEASE_NOTES" <<EOF
+          # Demi Android alpha test build
+
+          - App version: ${VERSION} (version code ${VERSION_CODE})
+          - Package: com.secondbrain.localassistant
+          - Architecture: arm64-v8a
+          - Source revision: ${GITHUB_SHA}
+          - APK SHA-256: ${APK_SHA256}
+
+          ## Known limitations
+
+          No Android device or emulator was available for this build. Native keyboard/IME behavior, first-run model loading and inference performance, reminder sound and background/exact-alarm delivery, Android notification permission recovery, and update-over-existing-install signing were not verified. This is an alpha test build, not evidence of production or public-beta readiness. If Android reports a signature conflict during an update, do not uninstall or clear app data before preserving any data you need.
+
+          See \`artifacts/second-brain/BETA_TESTING.md\` in the source revision for the focused test record.
+          EOF
           gh release create "v${VERSION}" "$RELEASE_APK" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Demi ${VERSION} Android test build" \
-            --notes "Standalone arm64 Android test APK. Install on a compatible Android device and grant notification permission to test reminders."
+            --prerelease \
+            --notes-file "$RELEASE_NOTES"

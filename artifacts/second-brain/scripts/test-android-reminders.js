@@ -85,6 +85,20 @@ async function main() {
     new Date(2099, 4, 10, 14, 30, 0, 0).toISOString(),
   );
 
+  const dateOnly = await reminders.scheduleReminder({
+    ...draft,
+    id: 'date-only-reminder',
+    date: '2099-06-11',
+    time: null,
+  });
+  assert.equal(dateOnly.notificationState, 'scheduled');
+  assert.equal(scheduledCalls[1].trigger.type, 'date');
+  assert.equal(
+    scheduledCalls[1].trigger.date.toISOString(),
+    new Date(2099, 5, 11, 9, 0, 0, 0).toISOString(),
+    'date-only reminders keep their established 9:00 AM local-time behavior',
+  );
+
   permission = { granted: false, canAskAgain: false };
   const denied = await reminders.scheduleReminder({
     ...draft,
@@ -93,7 +107,16 @@ async function main() {
   assert.equal(denied.notificationId, null);
   assert.equal(denied.notificationState, 'permission-denied');
   assert.match(denied.notificationError, /saved/);
-  assert.equal(scheduledCalls.length, 1);
+  assert.equal(scheduledCalls.length, 2);
+
+  permission = { granted: true, canAskAgain: false };
+  const recovered = await reminders.scheduleReminder({
+    ...draft,
+    id: 'chat-reminder-recovered',
+  });
+  assert.equal(recovered.notificationState, 'scheduled');
+  assert.equal(recovered.notificationId, 'android-notification-3');
+  assert.equal(scheduledCalls.length, 3);
 
   console.log('Android reminder scheduling checks passed.');
 }

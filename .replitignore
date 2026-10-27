@@ -5,3 +5,4 @@
 .local
 /generated-artifacts/
 /artifacts/second-brain/modules/screen-access/android/src/main/assets/ocr/
+/artifacts/second-brain/android/
