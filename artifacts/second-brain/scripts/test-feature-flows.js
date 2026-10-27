@@ -475,6 +475,22 @@ async function main() {
     path.resolve(__dirname, '../app/index.tsx'),
     'utf8',
   );
+  const toolContext = fs.readFileSync(
+    path.resolve(__dirname, '../context/ToolContext.tsx'),
+    'utf8',
+  );
+  const settingsTools = fs.readFileSync(
+    path.resolve(__dirname, '../app/settings.tsx'),
+    'utf8',
+  );
+  const sandboxScreen = fs.readFileSync(
+    path.resolve(__dirname, '../app/code-actions.tsx'),
+    'utf8',
+  );
+  const expoConfig = JSON.parse(fs.readFileSync(
+    path.resolve(__dirname, '../app.json'),
+    'utf8',
+  ));
   const offlineLlm = fs.readFileSync(
     path.resolve(__dirname, '../lib/offlineLlm.ts'),
     'utf8',
@@ -495,7 +511,49 @@ async function main() {
   assert.doesNotMatch(homeScreen, /voiceInputStatus === 'idle'[\s\S]*handleSend\(\)/);
   assert.match(homeScreen, /Draft ready — review before sending/);
   assert.match(homeScreen, /accessibilityLabel="Message draft"/);
-  assert.match(homeScreen, /accessibilityLabel="Send message"/);
+  assert.match(homeScreen, /accessibilityLabel=\{selectedDocument \? "Send request using attached document locally" : "Send message"\}/);
+  assert.match(homeScreen, /accessibilityLabel="Attach a local document"/);
+  assert.match(homeScreen, /accessibilityLabel="Remove attached document"/);
+  assert.match(homeScreen, /transformDocument\(message, true\)/);
+  assert.match(homeScreen, /router\.push\('\/screen-access'\)/);
+  assert.match(homeScreen, /router\.push\('\/code-actions' as never\)/);
+  assert.match(homeScreen, /Advanced tools/);
+  assert.match(homeScreen, /Local result/);
+  assert.match(toolContext, /DocumentPicker\.getDocumentAsync/);
+  assert.match(toolContext, /await deletePickerCacheCopy\(asset\.uri\)/);
+  assert.match(toolContext, /FileSystem\.deleteAsync\(uri, \{ idempotent: true \}\)/);
+  assert.match(toolContext, /if \(result\.canceled\)[\s\S]*setDocumentNotice\("Selection canceled\. No document is attached\."\)/);
+  assert.match(toolContext, /setSelectedDocument\(null\);[\s\S]*setDocumentResult\(null\);[\s\S]*DocumentPicker\.getDocumentAsync/);
+  assert.match(toolContext, /pickerRun !== documentPickerRunRef\.current/);
+  assert.match(toolContext, /isCapabilityActive\(privacyRef\.current, "local\.files"\)/);
+  assert.match(toolContext, /isCapabilityActive\(privacyRef\.current, "local\.inference"\)/);
+  assert.match(toolContext, /if \(localFileAccessActive \|\| !selectedDocument\) return;[\s\S]*setSelectedDocument\(null\);[\s\S]*The attachment was removed/);
+  assert.match(toolContext, /runLocalInference\(/);
+  assert.match(toolContext, /document\.content/);
+  assert.doesNotMatch(toolContext, /sendMessage|runCloudFallback/);
+  assert.equal(settingsTools.includes('open-local-documents'), false);
+  assert.match(settingsTools, /Advanced tools/);
+  assert.match(settingsTools, /Network features · optional connectors/);
+  assert.match(sandboxScreen, /Most chat requests do not need this optional tool/);
+  assert.match(sandboxScreen, /count CSV rows/);
+  assert.match(sandboxScreen, /does not execute JavaScript or shell/);
+  assert.match(sandboxScreen, /reviewVisible/);
+  assert.deepEqual(
+    expoConfig.expo.android.blockedPermissions,
+    [
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+      'android.permission.MANAGE_EXTERNAL_STORAGE',
+      'android.permission.READ_MEDIA_IMAGES',
+      'android.permission.READ_MEDIA_VIDEO',
+      'android.permission.READ_MEDIA_AUDIO',
+      'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
+    ],
+  );
+  assert.doesNotMatch(
+    JSON.stringify(expoConfig.expo.android.permissions),
+    /READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE|READ_MEDIA/,
+  );
   assert.match(appContext, /voiceRecognitionRunRef/);
   assert.match(appContext, /clearRecognitionSubscriptions/);
   assert.match(appContext, /if \(runId !== voiceRecognitionRunRef\.current\) return/);

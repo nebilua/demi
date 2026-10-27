@@ -54,6 +54,21 @@ const fakeReactNative = {
 };
 
 let appValue;
+let documentPickerResult = { canceled: true };
+let documentPickerCalls = 0;
+let documentReadCalls = 0;
+let documentFileContents = 'local test content';
+let documentDeletedUris = [];
+let toolsValue = {
+  selectedDocument: null,
+  documentResult: null,
+  documentBusy: false,
+  documentError: null,
+  documentNotice: null,
+  pickDocument: async () => {},
+  transformDocument: async () => {},
+  clearDocument: () => {},
+};
 let scheduledValue;
 let routerCalls = [];
 let secureStorageValue = null;
@@ -68,7 +83,14 @@ let reminderScheduleResult = {
 };
 const originalLoad = Module._load;
 Module._load = function load(request, parent, isMain) {
-  if (request === 'expo-document-picker') return { getDocumentAsync: async () => ({ canceled: true }) };
+  if (request === 'expo-document-picker') {
+    return {
+      getDocumentAsync: async () => {
+        documentPickerCalls += 1;
+        return documentPickerResult;
+      },
+    };
+  }
   if (request === '@/context/ScheduledJobsContext') return { useScheduledJobs: () => scheduledValue };
   if (request === 'react-native-reanimated') {
     const transition = (name) => ({
@@ -100,11 +122,16 @@ Module._load = function load(request, parent, isMain) {
     return {
       documentDirectory: '/device/documents/',
       cacheDirectory: '/device/cache/',
+      deleteAsync: async (uri) => { documentDeletedUris.push(uri); },
       getInfoAsync: async () => {
         if (usageFileSystemFailure) throw new Error('file system unavailable');
         return { exists: false, isDirectory: false, size: 0 };
       },
       readDirectoryAsync: async () => [],
+      readAsStringAsync: async () => {
+        documentReadCalls += 1;
+        return documentFileContents;
+      },
       getFreeDiskStorageAsync: async () => {
         if (usageFileSystemFailure) throw new Error('disk measurement denied');
         return 4096;
@@ -183,6 +210,9 @@ Module._load = function load(request, parent, isMain) {
   }
   if (request === '@/context/AppContext' || request.endsWith('/context/AppContext')) {
     return { useApp: () => appValue, useChat: () => appValue };
+  }
+  if (request === '@/context/ToolContext' || request.endsWith('/context/ToolContext')) {
+    return { useTools: () => toolsValue };
   }
   if (
     request === '@/context/LocalDataTransferContext' ||
@@ -530,6 +560,9 @@ async function testSettingsNavigationGroupsRemainReachable() {
   assert.doesNotMatch(textContent(renderer), /Recommended model download/);
   assert.match(textContent(renderer), /Opt-in web research/);
   assert.match(textContent(renderer), /Local contacts/);
+  assert.match(textContent(renderer), /Advanced tools/);
+  assert.equal(hasTestId(renderer, 'open-local-documents'), false);
+  assert.ok(findByTestId(renderer, 'open-sandbox-code-actions'));
   const screenAccessLink = findByTestId(renderer, 'open-screen-access');
   assert.equal(screenAccessLink.props.accessibilityRole, 'button');
   const screenAccessLinkStyle =
@@ -1443,6 +1476,261 @@ async function testVoiceStartClearsDraftBeforeRecognition() {
   assert.equal(findByTestId(renderer, 'chat-input').props.value, 'stale draft');
 }
 
+async function testHomeDocumentRequestsAndToolNavigation() {
+  const previousDimensions = windowDimensions;
+  windowDimensions = { width: 320, height: 640 };
+  let cleared = 0;
+  let picked = 0;
+  let sent = 0;
+  const documentRequests = [];
+  const selectedDocument = {
+    id: 'selected-1',
+    name: 'notes.txt',
+    mimeType: 'text/plain',
+    sizeBytes: 12,
+    uri: 'file:///notes.txt',
+    content: 'private local content',
+    selectedAt: 1,
+  };
+  const privacyState = {
+    globalPause: false,
+    capabilities: {
+      'local.files': { approval: 'approved', expiresAt: null },
+      'local.inference': { approval: 'approved', expiresAt: null },
+      'network.remote-inference': { approval: 'approved', expiresAt: null },
+    },
+  };
+  appValue = baseAppValue({
+    privacyReady: true,
+    privacyState,
+    screenAttachment: null,
+    sendMessage: async () => { sent += 1; },
+  });
+  toolsValue = {
+    selectedDocument,
+    documentResult: 'A short local summary.',
+    documentBusy: false,
+    documentError: null,
+    documentNotice: null,
+    pickDocument: async () => { picked += 1; },
+    transformDocument: async (...args) => { documentRequests.push(args); },
+    clearDocument: () => { cleared += 1; },
+  };
+  routerCalls = [];
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  const homeAttachment = findByTestId(renderer, 'home-document-attachment');
+  assert.equal(homeAttachment.props.testID, 'home-document-attachment');
+  const homeAttachmentName = findByProps(renderer, { accessibilityLabel: 'Attached document: notes.txt' });
+  assert.ok(homeAttachmentName);
+  assert.match(textContent(renderer), /notes\.txt/);
+  assert.ok(findByTestId(renderer, 'home-document-result'));
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'keyboard-toggle').props.onPress();
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'chat-input').props.onChangeText('Summarize the selected file');
+  });
+  await TestRenderer.act(async () => {
+    await findByProps(renderer, { accessibilityLabel: 'Send request using attached document locally' }).props.onPress();
+  });
+  assert.deepEqual(documentRequests, [['Summarize the selected file', true]]);
+  assert.equal(sent, 0, 'selected document requests must not use the ordinary/cloud-capable chat send path');
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'attach-home-document').props.onPress();
+  });
+  assert.equal(picked, 1);
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'remove-home-document').props.onPress();
+  });
+  assert.equal(cleared, 1);
+
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'open-home-tools').props.onPress();
+  });
+  assert.ok(findByTestId(renderer, 'home-tools-screen-access'));
+  assert.match(textContent(renderer), /Advanced tools/);
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'home-tools-screen-access').props.onPress();
+  });
+  assert.equal(routerCalls.at(-1), '/screen-access');
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'open-home-tools').props.onPress();
+  });
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'home-tools-sandbox').props.onPress();
+  });
+  assert.equal(routerCalls.at(-1), '/code-actions');
+
+  await TestRenderer.act(async () => { renderer.unmount(); });
+  toolsValue = {
+    selectedDocument: null,
+    documentResult: null,
+    documentBusy: false,
+    documentError: null,
+    documentNotice: 'Selection canceled. No document is attached.',
+    pickDocument: async () => {},
+    transformDocument: async () => {},
+    clearDocument: () => {},
+  };
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  assert.equal(hasTestId(renderer, 'home-document-attachment'), false);
+  assert.match(textContent(renderer), /Selection canceled\. No document is attached\./);
+  await TestRenderer.act(async () => { renderer.unmount(); });
+  windowDimensions = previousDimensions;
+}
+
+async function testSelectedDocumentPickerCancellationAndRevocation() {
+  const activePrivacyState = {
+    globalPause: false,
+    capabilities: {
+      'local.files': { approval: 'approved', expiresAt: null },
+      'local.inference': { approval: 'approved', expiresAt: null },
+    },
+  };
+  const revokedPrivacyState = {
+    globalPause: false,
+    capabilities: {
+      'local.files': { approval: 'revoked', expiresAt: null },
+      'local.inference': { approval: 'approved', expiresAt: null },
+    },
+  };
+  const inferencePrompts = [];
+  appValue = baseAppValue({
+    privacyReady: true,
+    privacyState: activePrivacyState,
+    recordPrivacyAction: async () => {},
+    recordAgentTrace: async () => {},
+    runLocalInference: async (prompt) => {
+      inferencePrompts.push(prompt);
+      return 'local result';
+    },
+  });
+  documentPickerCalls = 0;
+  documentReadCalls = 0;
+  documentFileContents = 'selected document text';
+  documentDeletedUris = [];
+  documentPickerResult = {
+    canceled: false,
+    assets: [{
+      name: 'notes.txt',
+      uri: '/device/cache/notes.txt',
+      mimeType: 'text/plain',
+      size: documentFileContents.length,
+    }],
+  };
+
+  const { ToolProvider, useTools } = require('../context/ToolContext.tsx');
+  let tools;
+  function Probe() {
+    tools = useTools();
+    return React.createElement('ToolProbe');
+  }
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(ToolProvider, null, React.createElement(Probe)),
+    );
+  });
+
+  await TestRenderer.act(async () => { await tools.pickDocument(); });
+  assert.equal(tools.selectedDocument.name, 'notes.txt');
+  assert.equal(tools.selectedDocument.content, documentFileContents);
+  assert.deepEqual(documentDeletedUris, ['/device/cache/notes.txt'], 'the picker cache copy must be removed after reading');
+  assert.equal(inferencePrompts.length, 0, 'selection alone must not send file contents to inference');
+  await TestRenderer.act(async () => {
+    await tools.transformDocument('Summarize the selected file', true);
+  });
+  assert.equal(tools.selectedDocument, null, 'a submitted request consumes the selected attachment');
+  assert.match(inferencePrompts[0], /selected document text/);
+  assert.match(inferencePrompts[0], /Summarize the selected file/);
+  assert.equal(tools.documentResult, 'local result');
+
+  documentPickerResult = {
+    canceled: false,
+    assets: [{
+      name: 'notes.txt',
+      uri: '/device/cache/notes.txt',
+      mimeType: 'text/plain',
+      size: documentFileContents.length,
+    }],
+  };
+  await TestRenderer.act(async () => { await tools.pickDocument(); });
+  await TestRenderer.act(async () => { tools.clearDocument(); });
+  assert.equal(tools.selectedDocument, null, 'removal must discard selected file content');
+
+  await TestRenderer.act(async () => { await tools.pickDocument(); });
+  assert.equal(tools.selectedDocument.name, 'notes.txt');
+
+  documentPickerResult = { canceled: true };
+  await TestRenderer.act(async () => { await tools.pickDocument(); });
+  assert.equal(tools.selectedDocument, null, 'canceling replacement must discard the old selection');
+  assert.equal(tools.documentNotice, 'Selection canceled. No document is attached.');
+
+  appValue = { ...appValue, privacyState: activePrivacyState };
+  documentPickerResult = {
+    canceled: false,
+    assets: [{
+      name: 'notes.txt',
+      uri: '/device/cache/notes.txt',
+      mimeType: 'text/plain',
+      size: documentFileContents.length,
+    }],
+  };
+  await TestRenderer.act(async () => {
+    renderer.update(React.createElement(ToolProvider, null, React.createElement(Probe)));
+  });
+  await TestRenderer.act(async () => { await tools.pickDocument(); });
+  assert.equal(tools.selectedDocument.name, 'notes.txt');
+  appValue = { ...appValue, privacyState: revokedPrivacyState };
+  await TestRenderer.act(async () => {
+    renderer.update(React.createElement(ToolProvider, null, React.createElement(Probe)));
+  });
+  assert.equal(tools.selectedDocument, null, 'revoking selected-file permission clears the attached contents');
+  assert.match(tools.documentError, /attachment was removed/);
+
+  const pickerCallsBeforeDeniedAttempt = documentPickerCalls;
+  await TestRenderer.act(async () => { await tools.pickDocument(); });
+  assert.equal(documentPickerCalls, pickerCallsBeforeDeniedAttempt, 'revoked file access must not open the picker');
+  assert.match(tools.documentError, /paused or revoked/);
+
+  appValue = { ...appValue, privacyState: activePrivacyState };
+  await TestRenderer.act(async () => {
+    renderer.update(React.createElement(ToolProvider, null, React.createElement(Probe)));
+  });
+  let finishPicker;
+  documentPickerResult = new Promise((resolve) => { finishPicker = resolve; });
+  const readsBeforeRevocation = documentReadCalls;
+  let pendingPick;
+  await TestRenderer.act(async () => {
+    pendingPick = tools.pickDocument();
+  });
+  appValue = { ...appValue, privacyState: revokedPrivacyState };
+  await TestRenderer.act(async () => {
+    renderer.update(React.createElement(ToolProvider, null, React.createElement(Probe)));
+  });
+  finishPicker({
+    canceled: false,
+    assets: [{
+      name: 'notes.txt',
+      uri: '/device/cache/notes.txt',
+      mimeType: 'text/plain',
+      size: documentFileContents.length,
+    }],
+  });
+  await TestRenderer.act(async () => { await pendingPick; });
+  assert.equal(documentReadCalls, readsBeforeRevocation, 'revocation while the picker is open must prevent file reads');
+  assert.equal(documentDeletedUris.at(-1), '/device/cache/notes.txt', 'a revoked in-flight selection must discard its picker copy');
+  assert.equal(tools.selectedDocument, null);
+
+  await TestRenderer.act(async () => { renderer.unmount(); });
+}
+
 async function testComposerModeSwitchIsAnimated() {
   appValue = baseAppValue();
   const { default: DemiScreen } = require('../app/index.tsx');
@@ -2062,6 +2350,8 @@ async function main() {
   await testMemoryApprovalFailureKeepsModalOpen();
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
+  await testHomeDocumentRequestsAndToolNavigation();
+  await testSelectedDocumentPickerCancellationAndRevocation();
   await testComposerModeSwitchIsAnimated();
   await testDictationStaysEditableUntilExplicitSend();
   await testEmptyDictationDoesNotSendAnything();

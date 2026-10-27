@@ -96,9 +96,11 @@ export default function CodeActionsScreen() {
           Run a bounded calculation.
         </Text>
         <Text style={[styles.body, { color: colors.mutedForeground }]}>
-          Demi does not execute JavaScript or shell commands here. You provide a
-          small reviewed JSON program, and the pure interpreter can only calculate
-          or transform the file you explicitly select.
+          Most chat requests do not need this optional tool. It can count CSV rows,
+          total an amount column, filter JSON records by status, or select fields
+          from a file you choose. Demi does not execute JavaScript or shell
+          commands here: only a small reviewed JSON program runs, with fixed
+          limits and no network, device access, or file writes.
         </Text>
 
         {!enabled && (

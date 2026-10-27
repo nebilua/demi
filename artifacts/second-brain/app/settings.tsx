@@ -1387,29 +1387,14 @@ export default function SettingsScreen() {
             </View>
             <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
           </Pressable>
-          <Pressable
-            testID="open-local-documents"
-            accessibilityRole="button"
-            onPress={() => router.push({ pathname: "/documents" } as never)}
-            style={({ pressed }) => [
-              styles.privacyToolLink,
-              { backgroundColor: colors.secondary },
-              pressed && styles.pressed,
-            ]}
-          >
-            <View style={[styles.rowIcon, { backgroundColor: colors.accent }]}>
-              <Feather name="file-text" size={16} color={colors.accentForeground} />
-            </View>
-            <View style={styles.rowCopy}>
-              <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-                Work with a selected document
-              </Text>
-              <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-                Pick a text, Markdown, CSV, or JSON file and summarize or transform it locally.
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
-          </Pressable>
+          <View style={styles.connectorHeader}>
+            <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
+              Advanced tools
+            </Text>
+            <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
+              Optional for specialized data tasks; ordinary chat does not need these tools.
+            </Text>
+          </View>
           <Pressable
             testID="open-sandbox-code-actions"
             accessibilityRole="button"
@@ -1428,7 +1413,7 @@ export default function SettingsScreen() {
                 Sandboxed code actions
               </Text>
               <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
-                Run reviewed calculations or transformations on selected CSV and JSON files. Off by default; no writes or network.
+                Run reviewed, bounded CSV/JSON calculations and transformations. Not JavaScript or shell; off by default, with no writes or network.
               </Text>
             </View>
             <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
@@ -1458,7 +1443,7 @@ export default function SettingsScreen() {
           </Pressable>
           <View style={styles.connectorHeader}>
             <Text style={[styles.rowTitle, { color: colors.cardForeground }]}>
-              Optional network connectors
+              Network features · optional connectors
             </Text>
             <Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>
               Read-only by default. A connector must be connected separately, and every request shows its records, scope, and network status first.

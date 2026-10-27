@@ -16,6 +16,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -26,6 +27,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PersonalProfileEditor } from '@/components/PersonalProfileEditor';
 import { useApp, useChat, type Appearance, type ConversationTurn } from '@/context/AppContext';
+import { useTools } from '@/context/ToolContext';
 import { useColors } from '@/hooks/useColors';
 import { isCapabilityActive } from '@/lib/privacyCapabilities';
 import { recordRuntimeEvent } from '@/lib/runtimeDiagnostics';
@@ -100,9 +102,21 @@ export default function DemiScreen() {
     saveMemoryCandidate,
     rejectMemoryCandidate,
   } = useChat();
+  const {
+    selectedDocument,
+    documentResult,
+    documentBusy,
+    documentError,
+    documentNotice,
+    pickDocument,
+    transformDocument,
+    clearDocument,
+  } = useTools();
   const colors = useColors(settings.appearance);
   const [draft, setDraft] = useState('');
   const [showKeyboard, setShowKeyboard] = useState(false);
+  const [showHomeTools, setShowHomeTools] = useState(false);
+  const [documentRequestError, setDocumentRequestError] = useState<string | null>(null);
   const [wasStopped, setWasStopped] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState('');
   const [memorySaveError, setMemorySaveError] = useState<string | null>(null);
@@ -116,11 +130,19 @@ export default function DemiScreen() {
   const cloudFallbackEnabled =
     privacyReady &&
     isCapabilityActive(privacyState, 'network.remote-inference');
+  const canUseSelectedDocument =
+    privacyReady &&
+    engineStatus === 'ready' &&
+    isCapabilityActive(privacyState, 'local.files') &&
+    isCapabilityActive(privacyState, 'local.inference');
   const canSend =
     draft.trim().length > 0 &&
     !isThinking &&
+    !documentBusy &&
     isConversationReady &&
-    (engineStatus === 'ready' || cloudFallbackEnabled);
+    (selectedDocument
+      ? canUseSelectedDocument
+      : engineStatus === 'ready' || cloudFallbackEnabled);
 
   useEffect(() => {
     if (!voiceTranscript) return;
@@ -141,10 +163,21 @@ export default function DemiScreen() {
 
   async function handleSend() {
     if (!canSend) return;
+    if (selectedDocument && screenAttachment) {
+      setDocumentRequestError(
+        'A screen text share is also waiting for your next request. Remove or use one attachment at a time.',
+      );
+      return;
+    }
+    setDocumentRequestError(null);
     const message = draft.trim();
     setDraft('');
     setShowKeyboard(false);
-    await sendMessage(message);
+    if (selectedDocument) {
+      await transformDocument(message, true);
+    } else {
+      await sendMessage(message);
+    }
   }
 
   // Setup text for the single prompt
@@ -380,12 +413,92 @@ export default function DemiScreen() {
           </Pressable>
         )}
         {storageError && <Text accessibilityLiveRegion="assertive" style={[styles.setupText, { color: colors.destructive, marginHorizontal: 20 }]}>{storageError}</Text>}
+        {selectedDocument && (
+          <View
+            testID="home-document-attachment"
+            style={[styles.documentAttachment, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <Feather name="file-text" size={17} color={colors.primary} />
+            <View style={styles.documentAttachmentCopy}>
+              <Text
+                accessibilityLabel={`Attached document: ${selectedDocument.name}`}
+                numberOfLines={1}
+                style={[styles.documentAttachmentName, { color: colors.cardForeground }]}
+              >
+                {selectedDocument.name}
+              </Text>
+              <Text style={[styles.documentAttachmentMeta, { color: colors.mutedForeground }]}>
+                Used only when you send · processed on this device
+              </Text>
+              {!canUseSelectedDocument && (
+                <Text style={[styles.documentAttachmentMeta, { color: colors.destructive }]}>
+                  Load the local model and enable local file access to use this document.
+                </Text>
+              )}
+            </View>
+            <Pressable
+              testID="replace-home-document"
+              accessibilityRole="button"
+              accessibilityLabel="Replace attached document"
+              onPress={() => void pickDocument()}
+              style={({ pressed }) => [styles.composerIconButton, pressed && styles.pressed]}
+            >
+              <Feather name="refresh-cw" size={17} color={colors.mutedForeground} />
+            </Pressable>
+            <Pressable
+              testID="remove-home-document"
+              accessibilityRole="button"
+              accessibilityLabel="Remove attached document"
+              onPress={() => {
+                clearDocument();
+                setDocumentRequestError(null);
+              }}
+              style={({ pressed }) => [styles.composerIconButton, pressed && styles.pressed]}
+            >
+              <Feather name="x" size={19} color={colors.mutedForeground} />
+            </Pressable>
+          </View>
+        )}
+        {documentNotice && (
+          <Text testID="home-document-notice" accessibilityLiveRegion="polite" style={[styles.setupText, { color: colors.mutedForeground, marginHorizontal: 20, marginBottom: 8 }]}>
+            {documentNotice}
+          </Text>
+        )}
+        {documentError && (
+          <Text testID="home-document-error" accessibilityLiveRegion="assertive" style={[styles.setupText, { color: colors.destructive, marginHorizontal: 20, marginBottom: 8 }]}>
+            {documentError}
+          </Text>
+        )}
+        {documentRequestError && (
+          <Text testID="home-document-request-error" accessibilityLiveRegion="assertive" style={[styles.setupText, { color: colors.destructive, marginHorizontal: 20, marginBottom: 8 }]}>
+            {documentRequestError}
+          </Text>
+        )}
+        {documentBusy && (
+          <View testID="home-document-progress" accessibilityLiveRegion="polite" style={styles.documentProgress}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={[styles.documentAttachmentMeta, { color: colors.mutedForeground }]}>
+              Working on this document on your device…
+            </Text>
+          </View>
+        )}
+        {documentResult && (
+          <View testID="home-document-result" style={[styles.documentResult, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.documentAttachmentName, { color: colors.cardForeground }]}>Local result</Text>
+            <ScrollView style={styles.documentResultScroll} nestedScrollEnabled>
+              <Text selectable style={[styles.documentResultText, { color: colors.cardForeground }]}>{documentResult}</Text>
+            </ScrollView>
+          </View>
+        )}
         {screenAttachment && (
           <View style={{ paddingHorizontal: 20, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Pressable accessibilityRole="button" onPress={() => router.push('/screen-access')} style={{ flex: 1 }}>
               <Text style={{ color: colors.foreground, fontSize: 13 }}>Shared text · next request is local only</Text>
             </Pressable>
-            <Pressable testID="discard-shared-screen" accessibilityRole="button" accessibilityLabel="Discard shared text" onPress={discardScreenContext}>
+            <Pressable testID="discard-shared-screen" accessibilityRole="button" accessibilityLabel="Discard shared text" onPress={() => {
+              discardScreenContext();
+              setDocumentRequestError(null);
+            }}>
               <Feather name="x" size={20} color={colors.mutedForeground} />
             </Pressable>
           </View>
@@ -406,6 +519,16 @@ export default function DemiScreen() {
             >
               <Feather name="x" size={18} color={colors.mutedForeground} />
             </Pressable>
+            <Pressable
+              testID="attach-home-document"
+              accessibilityRole="button"
+              accessibilityLabel="Attach a local document"
+              accessibilityHint="Opens Android’s system file picker. The selected document is only used when you send a request."
+              onPress={() => void pickDocument()}
+              style={({ pressed }) => [styles.composerIconButton, pressed && styles.pressed]}
+            >
+              <Feather name="paperclip" size={18} color={colors.mutedForeground} />
+            </Pressable>
             <TextInput
               testID="chat-input"
               accessibilityLabel="Message draft"
@@ -415,7 +538,7 @@ export default function DemiScreen() {
               placeholderTextColor={colors.mutedForeground}
               multiline
               maxLength={1200}
-              editable={isConversationReady && (engineStatus === 'ready' || cloudFallbackEnabled)}
+              editable={isConversationReady && (selectedDocument ? canUseSelectedDocument : engineStatus === 'ready' || cloudFallbackEnabled)}
               selectionColor={colors.primary}
               textAlignVertical="top"
               style={[styles.input, { color: colors.cardForeground }]}
@@ -425,7 +548,7 @@ export default function DemiScreen() {
             />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Send message"
+              accessibilityLabel={selectedDocument ? "Send request using attached document locally" : "Send message"}
               onPress={handleSend}
               disabled={!canSend}
               style={({ pressed }) => [
@@ -458,6 +581,25 @@ export default function DemiScreen() {
              >
                <Feather name="edit-2" size={20} color={colors.mutedForeground} />
              </Pressable>
+             <Pressable
+              testID="attach-home-document"
+              accessibilityRole="button"
+              accessibilityLabel="Attach a local document"
+              accessibilityHint="Opens Android’s system file picker. The selected document is only used when you send a request."
+              onPress={() => void pickDocument()}
+              style={({ pressed }) => [styles.keyboardToggle, pressed && styles.pressed]}
+             >
+               <Feather name="paperclip" size={20} color={colors.mutedForeground} />
+             </Pressable>
+             <Pressable
+              testID="open-home-tools"
+              accessibilityRole="button"
+              accessibilityLabel="Open Home tools"
+              onPress={() => setShowHomeTools(true)}
+              style={({ pressed }) => [styles.keyboardToggle, pressed && styles.pressed]}
+             >
+               <Feather name="grid" size={20} color={colors.mutedForeground} />
+             </Pressable>
           </Animated.View>
         )}
       </SafeAreaView>
@@ -465,6 +607,95 @@ export default function DemiScreen() {
         visible={settingsReady && !profile.onboardingCompleted}
         mode="onboarding"
       />
+      <Modal
+        visible={showHomeTools}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowHomeTools(false)}
+      >
+        <View style={styles.toolsBackdrop}>
+          <View style={[styles.toolsSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.toolsHeader}>
+              <View style={styles.toolsHeaderCopy}>
+                <Text style={[styles.toolsTitle, { color: colors.cardForeground }]}>Home tools</Text>
+                <Text style={[styles.toolsDescription, { color: colors.mutedForeground }]}>
+                  Choose only what you want Demi to use.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close Home tools"
+                onPress={() => setShowHomeTools(false)}
+                style={({ pressed }) => [styles.composerIconButton, pressed && styles.pressed]}
+              >
+                <Feather name="x" size={20} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+            <Pressable
+              testID="home-tools-choose-document"
+              accessibilityRole="button"
+              accessibilityLabel={selectedDocument ? "Replace attached local document" : "Choose a local document"}
+              onPress={() => {
+                setShowHomeTools(false);
+                void pickDocument();
+              }}
+              style={({ pressed }) => [styles.toolMenuRow, { borderColor: colors.border }, pressed && styles.pressed]}
+            >
+              <Feather name="file-plus" size={19} color={colors.primary} />
+              <View style={styles.toolsHeaderCopy}>
+                <Text style={[styles.toolMenuTitle, { color: colors.cardForeground }]}>
+                  {selectedDocument ? "Replace attached document" : "Choose a document"}
+                </Text>
+                <Text style={[styles.toolMenuDescription, { color: colors.mutedForeground }]}>
+                  Text, Markdown, CSV, or JSON · read locally, only when sent
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+            </Pressable>
+            <Pressable
+              testID="home-tools-screen-access"
+              accessibilityRole="button"
+              accessibilityLabel="Open permissioned screen access"
+              accessibilityHint="Choose a capture source, review the extracted text, then explicitly share it with a local request."
+              onPress={() => {
+                setShowHomeTools(false);
+                router.push('/screen-access');
+              }}
+              style={({ pressed }) => [styles.toolMenuRow, { borderColor: colors.border }, pressed && styles.pressed]}
+            >
+              <Feather name="eye" size={19} color={colors.primary} />
+              <View style={styles.toolsHeaderCopy}>
+                <Text style={[styles.toolMenuTitle, { color: colors.cardForeground }]}>Screen access</Text>
+                <Text style={[styles.toolMenuDescription, { color: colors.mutedForeground }]}>
+                  Permissioned capture, text review, and explicit sharing
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+            </Pressable>
+            <View style={[styles.advancedToolsBlock, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.advancedToolsTitle, { color: colors.cardForeground }]}>Advanced tools</Text>
+              <Text style={[styles.toolMenuDescription, { color: colors.mutedForeground }]}>
+                Optional bounded CSV/JSON calculations. Not JavaScript or shell, and not needed for ordinary chat.
+              </Text>
+              <Pressable
+                testID="home-tools-sandbox"
+                accessibilityRole="button"
+                accessibilityLabel="Open advanced sandboxed code actions"
+                accessibilityHint="Optional bounded CSV or JSON operations. Ordinary chat does not need this tool."
+                onPress={() => {
+                  setShowHomeTools(false);
+                  router.push('/code-actions' as never);
+                }}
+                style={({ pressed }) => [styles.advancedToolLink, pressed && styles.pressed]}
+              >
+                <Feather name="code" size={17} color={colors.primary} />
+                <Text style={[styles.toolMenuTitle, { color: colors.primary }]}>Sandboxed code actions</Text>
+                <Feather name="chevron-right" size={17} color={colors.primary} />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={pendingMemoryCandidate !== null}
         transparent
@@ -686,8 +917,62 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   composerSafe: { width: '100%' },
+  composerIconButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  documentAttachment: {
+    minHeight: 58,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  documentAttachmentCopy: { flex: 1, minWidth: 0 },
+  documentAttachmentName: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  documentAttachmentMeta: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  documentProgress: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  documentResult: {
+    maxHeight: 180,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  documentResultScroll: { maxHeight: 142, marginTop: 6 },
+  documentResultText: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    lineHeight: 18,
+  },
   bottomBar: {
     height: 60,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -734,6 +1019,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
+  },
+  toolsBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+    padding: 12,
+  },
+  toolsSheet: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 18,
+    gap: 10,
+  },
+  toolsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  toolsHeaderCopy: { flex: 1 },
+  toolsTitle: {
+    fontFamily: 'SpaceGrotesk_600SemiBold',
+    fontSize: 21,
+  },
+  toolsDescription: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  toolMenuRow: {
+    minHeight: 64,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+  toolMenuTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+  },
+  toolMenuDescription: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  advancedToolsBlock: {
+    borderRadius: 15,
+    padding: 12,
+    gap: 8,
+    marginTop: 4,
+  },
+  advancedToolsTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+  },
+  advancedToolLink: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   centerState: {
     flex: 1,
