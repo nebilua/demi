@@ -16,7 +16,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -52,14 +51,44 @@ const MessageBubble = React.memo(function MessageBubble({
             : { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
         ]}
       >
-        <Text
-          style={[
-            styles.messageText,
-            { color: isUser ? colors.secondaryForeground : colors.cardForeground },
-          ]}
-        >
-          {item.content}
-        </Text>
+        {item.localDocument ? (
+          <>
+            <Text
+              testID="local-document-processed-label"
+              style={[styles.localDocumentLabel, { color: colors.primary }]}
+            >
+              Processed on this device · {item.localDocument.documentName}
+            </Text>
+            <Text style={[styles.localDocumentHeading, { color: colors.mutedForeground }]}>
+              Request
+            </Text>
+            <Text
+              testID="local-document-instruction"
+              style={[styles.messageText, { color: colors.cardForeground }]}
+            >
+              {item.localDocument.instruction}
+            </Text>
+            <Text style={[styles.localDocumentHeading, { color: colors.mutedForeground }]}>
+              Local result
+            </Text>
+            <Text
+              testID="local-document-result"
+              selectable
+              style={[styles.messageText, { color: colors.cardForeground }]}
+            >
+              {item.content}
+            </Text>
+          </>
+        ) : (
+          <Text
+            style={[
+              styles.messageText,
+              { color: isUser ? colors.secondaryForeground : colors.cardForeground },
+            ]}
+          >
+            {item.content}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -104,7 +133,6 @@ export default function DemiScreen() {
   } = useChat();
   const {
     selectedDocument,
-    documentResult,
     documentBusy,
     documentError,
     documentNotice,
@@ -482,14 +510,6 @@ export default function DemiScreen() {
             </Text>
           </View>
         )}
-        {documentResult && (
-          <View testID="home-document-result" style={[styles.documentResult, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.documentAttachmentName, { color: colors.cardForeground }]}>Local result</Text>
-            <ScrollView style={styles.documentResultScroll} nestedScrollEnabled>
-              <Text selectable style={[styles.documentResultText, { color: colors.cardForeground }]}>{documentResult}</Text>
-            </ScrollView>
-          </View>
-        )}
         {screenAttachment && (
           <View style={{ paddingHorizontal: 20, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Pressable accessibilityRole="button" onPress={() => router.push('/screen-access')} style={{ flex: 1 }}>
@@ -854,6 +874,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  localDocumentLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  localDocumentHeading: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+    marginBottom: 2,
+  },
   centerStage: {
     position: 'absolute',
     bottom: 0,
@@ -954,20 +987,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  documentResult: {
-    maxHeight: 180,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 14,
-  },
-  documentResultScroll: { maxHeight: 142, marginTop: 6 },
-  documentResultText: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 12,
-    lineHeight: 18,
   },
   bottomBar: {
     height: 60,

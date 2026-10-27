@@ -135,6 +135,10 @@ export type ConversationTurn = {
   content: string;
   createdAt: number;
   privateContext?: boolean;
+  localDocument?: {
+    documentName: string;
+    instruction: string;
+  };
 };
 
 export type AppSettings = {
@@ -293,6 +297,11 @@ export type ChatContextValue = {
   saveMemoryCandidate: (content?: string) => Promise<void>;
   rejectMemoryCandidate: () => void;
   sendMessage: (content: string) => Promise<void>;
+  addLocalDocumentTurn: (entry: {
+    documentName: string;
+    instruction: string;
+    result: string;
+  }) => Promise<void>;
   runLocalInference: (
     prompt: string,
     onToken?: (token: string) => void,
@@ -403,7 +412,23 @@ function parseTurns(value: string | null): ConversationTurn[] {
         (turn.role === "user" || turn.role === "assistant") &&
         typeof turn.content === "string" &&
         typeof turn.createdAt === "number",
-    );
+    ).map((turn) => {
+      const localDocument = turn.localDocument;
+      if (
+        !localDocument ||
+        typeof localDocument.documentName !== "string" ||
+        typeof localDocument.instruction !== "string"
+      ) {
+        return { ...turn, localDocument: undefined };
+      }
+      return {
+        ...turn,
+        localDocument: {
+          documentName: localDocument.documentName.slice(0, 120),
+          instruction: localDocument.instruction.slice(0, 1200),
+        },
+      };
+    });
   } catch {
     return [];
   }
@@ -2969,6 +2994,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return runLocalModelBenchmark(runSample);
   }
 
+  async function addLocalDocumentTurn(entry: {
+    documentName: string;
+    instruction: string;
+    result: string;
+  }) {
+    const turn: ConversationTurn = {
+      id: createId(),
+      role: "assistant",
+      content: entry.result,
+      createdAt: Date.now(),
+      localDocument: {
+        documentName: entry.documentName.trim().slice(0, 120),
+        instruction: entry.instruction.trim().slice(0, 1200),
+      },
+    };
+    const nextTurns = [...turnsRef.current, turn].slice(-MAX_CONVERSATION_TURNS);
+    commitTurns(nextTurns);
+    await persistTurns(nextTurns);
+  }
+
   async function clearConversation() {
     if (clearConversationInFlightRef.current) return;
     if (isThinking) {
@@ -3273,6 +3318,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveMemoryCandidate,
       rejectMemoryCandidate: () => setPendingMemoryCandidate(null),
       sendMessage,
+      addLocalDocumentTurn,
       runLocalInference,
       benchmarkLocalModel,
       clearConversation,
@@ -3288,6 +3334,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       engineStatus,
       profile,
       memories,
+      addLocalDocumentTurn,
       benchmarkLocalModel,
     ],
   );

@@ -63,7 +63,7 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
     recordPrivacyAction,
     recordAgentTrace,
   } = useApp();
-  const { runLocalInference } = useChat();
+  const { runLocalInference, addLocalDocumentTurn } = useChat();
   const [selectedDocument, setSelectedDocument] = useState<SelectedDocument | null>(null);
   const [documentResult, setDocumentResult] = useState<string | null>(null);
   const [documentBusy, setDocumentBusy] = useState(false);
@@ -228,7 +228,13 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
             isCapabilityActive(privacyRef.current, "local.files") &&
             isCapabilityActive(privacyRef.current, "local.inference"),
       );
-      setDocumentResult(result || streamed || "The local model returned no text.");
+      const finalResult = result || streamed || "The local model returned no text.";
+      setDocumentResult(finalResult);
+      await addLocalDocumentTurn({
+        documentName: document.name,
+        instruction: instruction.trim(),
+        result: finalResult,
+      });
       await recordPrivacyAction({
         capabilityId: "local.files",
         action: "local-document-transform",
@@ -390,6 +396,7 @@ export function ToolProvider({ children }: { children: React.ReactNode }) {
       documentBusy,
       documentError,
       documentNotice,
+      addLocalDocumentTurn,
       privacyReady,
       privacyState,
       codeRun,

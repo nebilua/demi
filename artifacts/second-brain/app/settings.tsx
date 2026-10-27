@@ -1285,7 +1285,7 @@ export default function SettingsScreen() {
           <SettingRow
             icon="save"
             title="Save history"
-            description="Keep conversations on this device"
+            description="Keep conversation messages and local document results on this device"
             noBorder
           >
             <Switch
@@ -2744,7 +2744,7 @@ export default function SettingsScreen() {
               Clear history?
             </Text>
             <Text style={[styles.modalBody, { color: colors.mutedForeground }]}>
-              This removes all past messages. Memories and settings are kept.
+              This removes all past messages, including local document requests and results. Memories and settings are kept.
             </Text>
             <View style={styles.modalActions}>
               <Pressable

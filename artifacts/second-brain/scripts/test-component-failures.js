@@ -61,7 +61,6 @@ let documentFileContents = 'local test content';
 let documentDeletedUris = [];
 let toolsValue = {
   selectedDocument: null,
-  documentResult: null,
   documentBusy: false,
   documentError: null,
   documentNotice: null,
@@ -603,6 +602,7 @@ async function testSettingsNavigationGroupsRemainReachable() {
   });
   assert.equal(clearCalls, 0);
   assert.ok(findByTestId(renderer, 'confirm-clear-conversation'));
+  assert.match(textContent(renderer), /local document requests and results/);
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'cancel-clear-conversation').props.onPress();
   });
@@ -1504,11 +1504,20 @@ async function testHomeDocumentRequestsAndToolNavigation() {
     privacyReady: true,
     privacyState,
     screenAttachment: null,
+    turns: [{
+      id: 'local-document-turn-1',
+      role: 'assistant',
+      content: 'A short local summary.',
+      createdAt: 1,
+      localDocument: {
+        documentName: 'notes.txt',
+        instruction: 'Summarize the selected file',
+      },
+    }],
     sendMessage: async () => { sent += 1; },
   });
   toolsValue = {
     selectedDocument,
-    documentResult: 'A short local summary.',
     documentBusy: false,
     documentError: null,
     documentNotice: null,
@@ -1527,7 +1536,14 @@ async function testHomeDocumentRequestsAndToolNavigation() {
   const homeAttachmentName = findByProps(renderer, { accessibilityLabel: 'Attached document: notes.txt' });
   assert.ok(homeAttachmentName);
   assert.match(textContent(renderer), /notes\.txt/);
-  assert.ok(findByTestId(renderer, 'home-document-result'));
+  assert.ok(findByTestId(renderer, 'local-document-processed-label'));
+  assert.ok(findByTestId(renderer, 'local-document-instruction'));
+  assert.ok(findByTestId(renderer, 'local-document-result'));
+  const homeConversationText = textContent(renderer);
+  assert.match(homeConversationText, /Processed on this device\s+·\s+notes\.txt/);
+  assert.match(homeConversationText, /Summarize the selected file/);
+  assert.match(homeConversationText, /A short local summary\./);
+  assert.equal(hasTestId(renderer, 'home-document-result'), false, 'local document output belongs in the conversation, not the composer');
   await TestRenderer.act(async () => {
     await findByTestId(renderer, 'keyboard-toggle').props.onPress();
   });
@@ -1547,6 +1563,7 @@ async function testHomeDocumentRequestsAndToolNavigation() {
     findByTestId(renderer, 'remove-home-document').props.onPress();
   });
   assert.equal(cleared, 1);
+  assert.ok(findByTestId(renderer, 'local-document-result'), 'removing the attachment must not clear conversation history');
 
   await TestRenderer.act(async () => {
     findByTestId(renderer, 'open-home-tools').props.onPress();
@@ -1564,11 +1581,15 @@ async function testHomeDocumentRequestsAndToolNavigation() {
     findByTestId(renderer, 'home-tools-sandbox').props.onPress();
   });
   assert.equal(routerCalls.at(-1), '/code-actions');
+  await TestRenderer.act(async () => { renderer.unmount(); });
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  assert.ok(findByTestId(renderer, 'local-document-result'), 'conversation entries remain available after leaving and reopening Home');
 
   await TestRenderer.act(async () => { renderer.unmount(); });
   toolsValue = {
     selectedDocument: null,
-    documentResult: null,
     documentBusy: false,
     documentError: null,
     documentNotice: 'Selection canceled. No document is attached.',
@@ -1601,6 +1622,7 @@ async function testSelectedDocumentPickerCancellationAndRevocation() {
     },
   };
   const inferencePrompts = [];
+  const addedDocumentTurns = [];
   appValue = baseAppValue({
     privacyReady: true,
     privacyState: activePrivacyState,
@@ -1610,6 +1632,7 @@ async function testSelectedDocumentPickerCancellationAndRevocation() {
       inferencePrompts.push(prompt);
       return 'local result';
     },
+    addLocalDocumentTurn: async (entry) => { addedDocumentTurns.push(entry); },
   });
   documentPickerCalls = 0;
   documentReadCalls = 0;
@@ -1649,7 +1672,16 @@ async function testSelectedDocumentPickerCancellationAndRevocation() {
   assert.equal(tools.selectedDocument, null, 'a submitted request consumes the selected attachment');
   assert.match(inferencePrompts[0], /selected document text/);
   assert.match(inferencePrompts[0], /Summarize the selected file/);
-  assert.equal(tools.documentResult, 'local result');
+  assert.deepEqual(addedDocumentTurns, [{
+    documentName: 'notes.txt',
+    instruction: 'Summarize the selected file',
+    result: 'local result',
+  }]);
+  assert.equal(
+    JSON.stringify(addedDocumentTurns).includes(documentFileContents),
+    false,
+    'conversation entries must not include selected document contents',
+  );
 
   documentPickerResult = {
     canceled: false,
