@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
@@ -75,7 +76,9 @@ function ReminderForm({
   const router = useRouter();
   const { settings } = useApp();
   const { saveReminder } = useCalendar();
+  const { width, fontScale } = useWindowDimensions();
   const colors = useColors(settings.appearance);
+  const stackDateTimeFields = width < 380 || fontScale > 1.2;
   const [label, setLabel] = useState(initial?.label ?? proposal?.label ?? '');
   const [eventName, setEventName] = useState(
     initial?.eventName ?? proposal?.eventName ?? '',
@@ -242,7 +245,36 @@ function ReminderForm({
           ]}
         />
 
-        <View style={styles.twoColumns}>
+        <View
+          testID="reminder-optional-time-row"
+          style={[styles.optionalTimeRow, { borderColor: colors.border }]}
+        >
+          <View style={styles.optionalTimeCopy}>
+            <Text style={[styles.optionalTimeTitle, { color: colors.cardForeground }]}>
+              Set a time (optional)
+            </Text>
+            <Text style={[styles.optionalTimeHint, { color: colors.mutedForeground }]}>
+              {hasTime ? 'Use the selected time' : 'Date-only reminders arrive at 9:00 AM.'}
+            </Text>
+          </View>
+          <Switch
+            testID="reminder-has-time"
+            accessibilityLabel="Set an optional reminder time"
+            value={hasTime}
+            onValueChange={setHasTime}
+            trackColor={{ false: colors.secondary, true: colors.accent }}
+            thumbColor={
+              hasTime ? colors.accentForeground : colors.mutedForeground
+            }
+          />
+        </View>
+        <View
+          testID="reminder-date-time-fields"
+          style={[
+            styles.twoColumns,
+            stackDateTimeFields && styles.stackedDateTimeFields,
+          ]}
+        >
           <View style={styles.column}>
             <Text style={[styles.label, { color: colors.mutedForeground }]}>
               Date
@@ -266,20 +298,9 @@ function ReminderForm({
             />
           </View>
           <View style={styles.timeColumn}>
-            <View style={styles.inlineLabel}>
-              <Text style={[styles.label, { color: colors.mutedForeground }]}>
-                Time
-              </Text>
-              <Switch
-                testID="reminder-has-time"
-                value={hasTime}
-                onValueChange={setHasTime}
-                trackColor={{ false: colors.secondary, true: colors.accent }}
-                thumbColor={
-                  hasTime ? colors.accentForeground : colors.mutedForeground
-                }
-              />
-            </View>
+            <Text style={[styles.label, { color: colors.mutedForeground }]}>
+              Time
+            </Text>
             <TextInput
               testID="reminder-time"
               value={time}
@@ -300,12 +321,6 @@ function ReminderForm({
             />
           </View>
         </View>
-        {!hasTime && (
-          <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-            Date-only reminders arrive at 9:00 AM.
-          </Text>
-        )}
-
         <View
           style={[
             styles.optionCard,
@@ -497,21 +512,25 @@ const styles = StyleSheet.create({
   },
   notesInput: { minHeight: 100, paddingTop: 13 },
   twoColumns: { flexDirection: 'row', gap: 10 },
-  column: { flex: 1.25 },
-  timeColumn: { flex: 0.85 },
-  inlineLabel: {
-    minHeight: 16,
+  stackedDateTimeFields: { flexDirection: 'column', gap: 0 },
+  column: { flex: 1, minWidth: 0 },
+  timeColumn: { flex: 1, minWidth: 0 },
+  optionalTimeRow: {
+    minHeight: 58,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 2,
+    marginBottom: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    gap: 10,
   },
-  hint: {
-    fontFamily: 'Inter_400Regular',
-    fontSize: 10,
-    marginTop: -10,
-    marginBottom: 18,
-  },
+  optionalTimeCopy: { flex: 1, minWidth: 0 },
+  optionalTimeTitle: { fontFamily: 'Inter_600SemiBold', fontSize: 12, lineHeight: 17 },
+  optionalTimeHint: { fontFamily: 'Inter_400Regular', fontSize: 10, lineHeight: 14, marginTop: 2 },
   optionCard: {
     minHeight: 72,
     borderWidth: 1,

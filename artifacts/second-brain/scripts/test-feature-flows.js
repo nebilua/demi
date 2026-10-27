@@ -517,6 +517,8 @@ async function main() {
   assert.match(homeScreen, /transformDocument\(message, true\)/);
   assert.match(homeScreen, /router\.push\('\/screen-access'\)/);
   assert.match(homeScreen, /router\.push\('\/code-actions' as never\)/);
+  assert.match(homeScreen, /home-tools-private-research/);
+  assert.match(homeScreen, /router\.push\('\/research' as never\)/);
   assert.match(homeScreen, /Advanced tools/);
   assert.match(homeScreen, /Local result/);
   assert.match(toolContext, /DocumentPicker\.getDocumentAsync/);
@@ -532,7 +534,8 @@ async function main() {
   assert.match(toolContext, /document\.content/);
   assert.doesNotMatch(toolContext, /sendMessage|runCloudFallback/);
   assert.equal(settingsTools.includes('open-local-documents'), false);
-  assert.match(settingsTools, /Advanced tools/);
+  assert.doesNotMatch(settingsTools, /open-screen-access|open-sandbox-code-actions|open-private-research/);
+  assert.match(settingsTools, /CAPABILITY_DEFINITIONS/);
   assert.match(settingsTools, /Network features · optional connectors/);
   assert.match(sandboxScreen, /Most chat requests do not need this optional tool/);
   assert.match(sandboxScreen, /count CSV rows/);

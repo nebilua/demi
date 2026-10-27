@@ -70,6 +70,7 @@ let toolsValue = {
 };
 let scheduledValue;
 let routerCalls = [];
+let localSearchParams = {};
 let secureStorageValue = null;
 let secureWriteFailure = false;
 let usageSecureFailure = false;
@@ -193,7 +194,7 @@ Module._load = function load(request, parent, isMain) {
         back: () => routerCalls.push('back'),
         replace: (value) => routerCalls.push(value),
       }),
-      useLocalSearchParams: () => ({}),
+      useLocalSearchParams: () => localSearchParams,
     };
   }
   if (request === 'react-native-keyboard-controller') {
@@ -252,7 +253,10 @@ Module._load = function load(request, parent, isMain) {
       initializeNotifications: async () => {},
       cancelScheduledReminder: async () => true,
       nextOccurrence: (reminder) => new Date(`${reminder.date}T09:00:00`),
+      formatReminderDate: (reminder) => reminder.date,
       scheduleReminder: async () => reminderScheduleResult,
+      timingLabel: (minutes) => `${minutes} minutes before`,
+      validateReminderDraft: () => null,
     };
   }
   return originalLoad.call(this, request, parent, isMain);
@@ -574,26 +578,14 @@ async function testSettingsNavigationGroupsRemainReachable() {
   assert.doesNotMatch(textContent(renderer), /Recommended model download/);
   assert.match(textContent(renderer), /Opt-in web research/);
   assert.match(textContent(renderer), /Local contacts/);
-  assert.match(textContent(renderer), /Advanced tools/);
   assert.equal(hasTestId(renderer, 'open-local-documents'), false);
-  assert.ok(findByTestId(renderer, 'open-sandbox-code-actions'));
-  const screenAccessLink = findByTestId(renderer, 'open-screen-access');
-  assert.equal(screenAccessLink.props.accessibilityRole, 'button');
-  const screenAccessLinkStyle =
-    typeof screenAccessLink.props.style === 'function'
-      ? screenAccessLink.props.style({ pressed: false })
-      : screenAccessLink.props.style;
-  assert.ok(
-    screenAccessLinkStyle
-      .flat(Infinity)
-      .filter(Boolean)
-      .some((style) => style.gap === 10),
-  );
+  assert.equal(hasTestId(renderer, 'open-sandbox-code-actions'), false);
+  assert.equal(hasTestId(renderer, 'open-screen-access'), false);
+  assert.equal(hasTestId(renderer, 'open-private-research'), false);
+  assert.ok(findByTestId(renderer, 'privacy-local.files-toggle'));
+  assert.ok(findByTestId(renderer, 'privacy-network.connectors-unavailable'));
+  assert.match(textContent(renderer), /Network features · optional connectors/);
   assert.ok(findByTestId(renderer, 'clear-privacy-state'));
-  await TestRenderer.act(async () => {
-    await findByTestId(renderer, 'open-screen-access').props.onPress();
-  });
-  assert.equal(routerCalls.at(-1), '/screen-access');
 
   await openSettingsCategory(renderer, 'model');
   assert.ok(findByTestId(renderer, 'model-status-summary'));
@@ -1596,6 +1588,19 @@ async function testHomeDocumentRequestsAndToolNavigation() {
     findByTestId(renderer, 'home-tools-sandbox').props.onPress();
   });
   assert.equal(routerCalls.at(-1), '/code-actions');
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'open-home-tools').props.onPress();
+  });
+  assert.ok(findByTestId(renderer, 'home-tools-private-research'));
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'home-tools-private-research').props.onPress();
+  });
+  assert.equal(routerCalls.at(-1), '/research');
+  routerCalls = [];
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'open-settings').props.onPress();
+  });
+  assert.equal(routerCalls.at(-1), '/settings');
   await TestRenderer.act(async () => { renderer.unmount(); });
   await TestRenderer.act(async () => {
     renderer = TestRenderer.create(React.createElement(DemiScreen));
@@ -1619,6 +1624,48 @@ async function testHomeDocumentRequestsAndToolNavigation() {
   assert.match(textContent(renderer), /Selection canceled\. No document is attached\./);
   await TestRenderer.act(async () => { renderer.unmount(); });
   windowDimensions = previousDimensions;
+}
+
+async function testHomeRequestFailureRemainsVisible() {
+  let sendCount = 0;
+  appValue = baseAppValue({
+    sendMessage: async (message) => {
+      sendCount += 1;
+      assert.equal(message, 'Please summarize this.');
+      appValue = {
+        ...appValue,
+        turns: [
+          { id: 'failed-user-request', role: 'user', content: message, createdAt: 1 },
+          {
+            id: 'failed-assistant-request',
+            role: 'assistant',
+            content: 'I could not finish that response locally. The local model stopped unexpectedly.',
+            createdAt: 2,
+          },
+        ],
+      };
+    },
+  });
+  const { default: DemiScreen } = require('../app/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(React.createElement(DemiScreen));
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'keyboard-toggle').props.onPress();
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'chat-input').props.onChangeText('Please summarize this.');
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'send-home-message').props.onPress();
+  });
+  assert.equal(sendCount, 1);
+  assert.match(
+    textContent(renderer),
+    /I could not finish that response locally\. The local model stopped unexpectedly\./,
+  );
+  await TestRenderer.act(async () => { renderer.unmount(); });
 }
 
 async function testSelectedDocumentPickerCancellationAndRevocation() {
@@ -1779,7 +1826,12 @@ async function testSelectedDocumentPickerCancellationAndRevocation() {
 }
 
 async function testComposerModeSwitchIsAnimated() {
-  appValue = baseAppValue();
+  const previousDimensions = windowDimensions;
+  windowDimensions = { width: 280, height: 640, fontScale: 1 };
+  const sentMessages = [];
+  appValue = baseAppValue({
+    sendMessage: async (message) => { sentMessages.push(message); },
+  });
   const { default: DemiScreen } = require('../app/index.tsx');
   let renderer;
   await TestRenderer.act(async () => {
@@ -1799,23 +1851,40 @@ async function testComposerModeSwitchIsAnimated() {
   assert.equal(composer.props.layout.duration, 180);
   assert.equal(input.props.selectionColor, colors.primary);
   assert.equal(input.props.textAlignVertical, 'top');
+  assert.equal(composer.props.style[0].alignSelf, 'stretch');
+  assert.equal(composer.props.style[0].minWidth, 0);
+  assert.equal(typeof findByTestId(renderer, 'close-home-composer').props.onPress, 'function');
+  assert.equal(findByTestId(renderer, 'attach-home-document').props.onPress instanceof Function, true);
 
   await TestRenderer.act(async () => {
-    await input.props.onChangeText('A longer draft that grows naturally as it wraps across multiple lines.');
+    await input.props.onChangeText('A'.repeat(1200));
   });
-  assert.equal(findByTestId(renderer, 'chat-input').props.value.length > 40, true);
+  assert.equal(findByTestId(renderer, 'chat-input').props.value.length, 1200);
+  assert.equal(findByTestId(renderer, 'chat-input').props.style[0].maxHeight, 120);
+  const sendButton = findByTestId(renderer, 'send-home-message');
+  const sendButtonStyles = sendButton.props.style({ pressed: false });
+  assert.equal(sendButton.props.accessibilityLabel, 'Send message');
+  assert.equal(sendButtonStyles[0].width, 44);
+  assert.equal(sendButton.props.disabled, false);
+  assert.equal(typeof sendButton.props.onPress, 'function');
   assert.equal(
     findByTestId(renderer, 'chat-composer-container').props.layout.duration,
     180,
   );
-
   await TestRenderer.act(async () => {
-    await findByProps(renderer, {
-      accessibilityLabel: 'Close message composer',
-    }).props.onPress();
+    await findByTestId(renderer, 'close-home-composer').props.onPress();
   });
   assert.equal(hasTestId(renderer, 'chat-input'), false);
   assert.ok(findByTestId(renderer, 'keyboard-toggle'));
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'keyboard-toggle').props.onPress();
+  });
+  assert.equal(findByTestId(renderer, 'chat-input').props.value.length, 1200);
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'send-home-message').props.onPress();
+  });
+  assert.deepEqual(sentMessages, ['A'.repeat(1200)]);
+  assert.equal(hasTestId(renderer, 'chat-input'), false);
   assert.equal(
     findByTestId(renderer, 'chat-composer-collapsed').props.entering.name,
     'FadeInDown',
@@ -1824,6 +1893,7 @@ async function testComposerModeSwitchIsAnimated() {
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
+  windowDimensions = previousDimensions;
 }
 
 async function testDictationStaysEditableUntilExplicitSend() {
@@ -2156,7 +2226,7 @@ async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
       label: 'Maya',
       eventName: 'Buy pickles',
       date: '2099-05-10',
-      time: '09:00',
+      time: '16:42',
       notes: '',
       repeatsAnnually: false,
       remindMinutesBefore: 0,
@@ -2164,6 +2234,7 @@ async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
   );
   assert.equal(saved.notificationState, 'scheduled');
   assert.equal(calendarValue.upcomingReminders[0].eventName, 'Buy pickles');
+  assert.equal(calendarValue.upcomingReminders[0].time, '16:42');
   await TestRenderer.act(async () => {
     renderer.unmount();
   });
@@ -2171,6 +2242,7 @@ async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
   renderer = await mountCalendar();
   assert.equal(calendarValue.upcomingReminders[0].notificationId, 'android-notification-1');
   assert.equal(calendarValue.upcomingReminders[0].notificationState, 'scheduled');
+  assert.equal(calendarValue.upcomingReminders[0].time, '16:42');
 
   reminderScheduleResult = {
     notificationId: null,
@@ -2183,7 +2255,7 @@ async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
         label: 'Maya',
         eventName: 'Buy pickles',
         date: '2099-05-10',
-        time: '09:00',
+        time: '16:42',
         notes: '',
         repeatsAnnually: false,
         remindMinutesBefore: 0,
@@ -2193,10 +2265,70 @@ async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
   );
   assert.equal(updated.notificationState, 'permission-denied');
   assert.equal(calendarValue.upcomingReminders[0].eventName, 'Buy pickles');
+  assert.equal(calendarValue.upcomingReminders[0].time, '16:42');
   assert.match(
     JSON.parse(secureStorageValue).find((item) => item.eventName === 'Buy pickles')
       .notificationError,
     /date is saved/,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  renderer = await mountCalendar();
+  assert.equal(calendarValue.upcomingReminders[0].time, '16:42');
+  reminderScheduleResult = {
+    notificationId: 'rescheduled-notification',
+    notificationState: 'scheduled',
+    notificationError: null,
+  };
+  await TestRenderer.act(async () =>
+    calendarValue.retryReminderNotification(calendarValue.upcomingReminders[0].id),
+  );
+  assert.equal(calendarValue.upcomingReminders[0].notificationState, 'scheduled');
+  assert.equal(calendarValue.upcomingReminders[0].time, '16:42');
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+
+  renderer = await mountCalendar();
+  const dateOnly = await TestRenderer.act(async () =>
+    calendarValue.saveReminder({
+      label: 'Dad',
+      eventName: 'Birthday',
+      date: '2099-06-11',
+      time: null,
+      notes: '',
+      repeatsAnnually: false,
+      remindMinutesBefore: 1440,
+    }),
+  );
+  assert.equal(dateOnly.time, null);
+  assert.equal(
+    JSON.parse(secureStorageValue).find((item) => item.eventName === 'Birthday').time,
+    null,
+  );
+  await TestRenderer.act(async () => {
+    renderer.unmount();
+  });
+  renderer = await mountCalendar();
+  assert.equal(
+    calendarValue.upcomingReminders.find((item) => item.eventName === 'Birthday').time,
+    null,
+  );
+  const birthdayId = calendarValue.upcomingReminders.find(
+    (item) => item.eventName === 'Birthday',
+  ).id;
+  await TestRenderer.act(async () => {
+    await calendarValue.deleteReminder(birthdayId);
+  });
+  assert.equal(
+    calendarValue.upcomingReminders.some((item) => item.id === birthdayId),
+    false,
+  );
+  assert.equal(
+    JSON.parse(secureStorageValue).some((item) => item.id === birthdayId),
+    false,
   );
   await TestRenderer.act(async () => {
     renderer.unmount();
@@ -2208,6 +2340,155 @@ async function testCalendarReminderSurvivesRestartAndSchedulingFailure() {
     notificationError: null,
   };
   secureStorageValue = null;
+}
+
+async function testReminderEditorLayoutAndTimedValueRoundTrip() {
+  const previousDimensions = windowDimensions;
+  const previousSearchParams = localSearchParams;
+  windowDimensions = { width: 402, height: 874, fontScale: 1 };
+  localSearchParams = { id: 'reminder-layout-roundtrip' };
+  secureWriteFailure = false;
+  reminderScheduleResult = {
+    notificationId: 'editor-notification',
+    notificationState: 'scheduled',
+    notificationError: null,
+  };
+  secureStorageValue = JSON.stringify([{
+    id: 'reminder-layout-roundtrip',
+    label: 'Maya',
+    eventName: 'Birthday',
+    date: '2099-05-10',
+    time: '14:37',
+    notes: '',
+    repeatsAnnually: false,
+    remindMinutesBefore: 0,
+    notificationId: 'old-editor-notification',
+    retiredNotificationIds: [],
+    notificationState: 'scheduled',
+    notificationError: null,
+    createdAt: 1,
+    updatedAt: 1,
+    deletedAt: null,
+  }]);
+  appValue = baseAppValue();
+  const { CalendarProvider } = require('../context/CalendarContext.tsx');
+  const { default: ReminderEditor } = require('../app/calendar/edit.tsx');
+  let renderer;
+  const mountEditor = async () => {
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          CalendarProvider,
+          null,
+          React.createElement(ReminderEditor),
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  };
+
+  await mountEditor();
+  const fields = findByTestId(renderer, 'reminder-date-time-fields');
+  assert.equal(fields.props.style[0].flexDirection, 'row');
+  const dateInput = findByTestId(renderer, 'reminder-date');
+  const timeInput = findByTestId(renderer, 'reminder-time');
+  assert.equal(dateInput.props.style[0].minHeight, 48);
+  assert.equal(timeInput.props.style[0].minHeight, 48);
+  assert.equal(dateInput.props.style[0].borderRadius, timeInput.props.style[0].borderRadius);
+  assert.equal(dateInput.props.style[0].marginBottom, timeInput.props.style[0].marginBottom);
+  assert.equal(dateInput.props.value, '2099-05-10');
+  assert.equal(timeInput.props.value, '14:37');
+  assert.equal(findByTestId(renderer, 'reminder-has-time').props.value, true);
+  assert.ok(findByTestId(renderer, 'reminder-optional-time-row'));
+  assert.ok(findByTestId(renderer, 'save-reminder-bottom'));
+
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'reminder-time').props.onChangeText('16:42');
+  });
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'save-reminder-bottom').props.onPress();
+  });
+  assert.equal(
+    JSON.parse(secureStorageValue).find((item) => item.id === 'reminder-layout-roundtrip').time,
+    '16:42',
+  );
+  await TestRenderer.act(async () => { renderer.unmount(); });
+
+  await mountEditor();
+  assert.equal(findByTestId(renderer, 'reminder-time').props.value, '16:42');
+  await TestRenderer.act(async () => { renderer.unmount(); });
+
+  windowDimensions = { width: 320, height: 640, fontScale: 1.35 };
+  await mountEditor();
+  assert.equal(findByTestId(renderer, 'reminder-date-time-fields').props.style[1].flexDirection, 'column');
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'reminder-has-time').props.onValueChange(false);
+  });
+  assert.equal(findByTestId(renderer, 'reminder-time').props.editable, false);
+  assert.equal(findByTestId(renderer, 'reminder-time').props.value, '16:42');
+  assert.match(textContent(renderer), /Date-only reminders arrive at 9:00 AM/);
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'reminder-has-time').props.onValueChange(true);
+  });
+  assert.equal(findByTestId(renderer, 'reminder-time').props.value, '16:42');
+  await TestRenderer.act(async () => { renderer.unmount(); });
+
+  localSearchParams = previousSearchParams;
+  windowDimensions = previousDimensions;
+  secureStorageValue = null;
+}
+
+async function testCalendarDeleteConfirmationRemovesReminder() {
+  const previousSearchParams = localSearchParams;
+  localSearchParams = {};
+  secureWriteFailure = false;
+  secureStorageValue = JSON.stringify([{
+    id: 'reminder-delete-ui',
+    label: 'Dad',
+    eventName: 'Birthday',
+    date: '2099-06-11',
+    time: null,
+    notes: '',
+    repeatsAnnually: false,
+    remindMinutesBefore: 1440,
+    notificationId: null,
+    retiredNotificationIds: [],
+    notificationState: 'scheduled',
+    notificationError: null,
+    createdAt: 1,
+    updatedAt: 1,
+    deletedAt: null,
+  }]);
+  appValue = baseAppValue();
+  const { CalendarProvider } = require('../context/CalendarContext.tsx');
+  const { default: CalendarScreen } = require('../app/calendar/index.tsx');
+  let renderer;
+  await TestRenderer.act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(
+        CalendarProvider,
+        null,
+        React.createElement(CalendarScreen),
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.ok(findByTestId(renderer, 'delete-reminder-reminder-delete-ui'));
+  await TestRenderer.act(async () => {
+    findByTestId(renderer, 'delete-reminder-reminder-delete-ui').props.onPress();
+  });
+  assert.ok(findByTestId(renderer, 'confirm-delete-reminder'));
+  await TestRenderer.act(async () => {
+    await findByTestId(renderer, 'confirm-delete-reminder').props.onPress();
+  });
+  assert.equal(hasTestId(renderer, 'delete-reminder-reminder-delete-ui'), false);
+  assert.equal(
+    JSON.parse(secureStorageValue).some((item) => item.id === 'reminder-delete-ui'),
+    false,
+  );
+  await TestRenderer.act(async () => { renderer.unmount(); });
+  secureStorageValue = null;
+  localSearchParams = previousSearchParams;
 }
 
 async function testReminderCandidateRoutesWithExactTime() {
@@ -2398,6 +2679,7 @@ async function main() {
   await testMemoryAliasesUseSharedMutation();
   await testVoiceStartClearsDraftBeforeRecognition();
   await testHomeDocumentRequestsAndToolNavigation();
+  await testHomeRequestFailureRemainsVisible();
   await testSelectedDocumentPickerCancellationAndRevocation();
   await testComposerModeSwitchIsAnimated();
   await testDictationStaysEditableUntilExplicitSend();
@@ -2410,6 +2692,8 @@ async function main() {
   testStorageRefreshesWhenAppReturnsToForeground();
   await testCalendarRetryKeepsDateWhenPersistenceFails();
   await testCalendarReminderSurvivesRestartAndSchedulingFailure();
+  await testReminderEditorLayoutAndTimedValueRoundTrip();
+  await testCalendarDeleteConfirmationRemovesReminder();
   await testReminderCandidateRoutesWithExactTime();
   testDownloadCancellationGuardRunsBeforeCommit();
   testBoxedCalendarAndScheduledCopyRemoved();

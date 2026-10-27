@@ -265,7 +265,7 @@ function resolveAndroidEnvironment() {
       ANDROID_NDK_HOME: ndkPath,
       CMAKE_BUILD_PARALLEL_LEVEL: '1',
       NODE_ENV: 'production',
-      NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --max-old-space-size=1536`.trim(),
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --max-old-space-size=768`.trim(),
     },
   };
 }
@@ -309,7 +309,7 @@ function buildApk(androidEnvironment) {
       '--console=plain',
       '--max-workers=1',
       '-Dorg.gradle.parallel=false',
-      '-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m',
+      '-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m',
       '-Pkotlin.compiler.execution.strategy=in-process',
       '-PrnllamaBuildFromSource=false',
       '-PreactNativeArchitectures=arm64-v8a',
