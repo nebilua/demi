@@ -1,0 +1,71 @@
+name: Android test release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1"
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check types and Android reminders
+        run: |
+          pnpm run typecheck
+          pnpm run test:android-reminders
+
+      - name: Build and validate arm64 APK
+        run: node artifacts/second-brain/scripts/validate-android-apk.js
+
+      - name: Publish APK as a GitHub Release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./artifacts/second-brain/app.json').expo.version")"
+          APK="artifacts/second-brain/android/app/build/outputs/apk/release/app-release.apk"
+          RELEASE_APK="Demi-${VERSION}-arm64.apk"
+          test -s "$APK"
+          cp "$APK" "$RELEASE_APK"
+          gh release create "v${VERSION}" "$RELEASE_APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Demi ${VERSION} Android test build" \
+            --notes "Standalone arm64 Android test APK. Install on a compatible Android device and grant notification permission to test reminders."
